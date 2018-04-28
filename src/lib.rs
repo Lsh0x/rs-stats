@@ -1,5 +1,6 @@
 extern crate num;
 
+/// Mean gets the number expressing the central or typical value in a set of data
 pub fn average<'a, T: num::ToPrimitive >(t: &'a [T]) -> Option<f64>  {
     if t.len() == 0 {
         return None
