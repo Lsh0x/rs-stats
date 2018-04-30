@@ -225,6 +225,12 @@ pub fn cummulative_distrib(x: f64, avg: f64, stddev: f64) -> f64 {
    (1.0 + erf(zscore(x, avg, stddev) / SQRT_2)) / 2.0
 }
 
+/// CDF return the CDF for the zscore given 
+/// https://en.wikipedia.org/wiki/Cumulative_distribution_function#Definition
+pub fn normal_cummulative_distrib(z: f64) -> f64 {
+    (1.0 + erf(z / SQRT_2)) / 2.0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -323,5 +329,14 @@ mod tests {
         assert_eq!(cummulative_distrib( 1.0, 0.0, 1.0), ret_2);
         assert_eq!(cummulative_distrib(-1.0, 0.0, 1.0), ret_3);
     }
-    // TODO test_erf
+
+    #[test]
+    fn test_normal_cummulative_distrib() {
+        let ret_1 = 0.5;
+        let ret_2 = 0.8413447460685429;
+        let ret_3 =  0.15865525393145707;
+        assert_eq!(normal_cummulative_distrib(zscore(0.0, 0.0, 1.0)), ret_1);
+        assert_eq!(normal_cummulative_distrib(zscore(1.0, 0.0, 1.0)), ret_2);
+        assert_eq!(normal_cummulative_distrib(zscore(-1.0, 0.0, 1.0)), ret_3);
+    }
 }
