@@ -117,6 +117,8 @@ fn get_interval(x: f64) -> Interval {
     return Interval::DEFAULT;
 } 
 
+/// erf returns the error function integrated between zero and x. 
+/// Error function. 
 pub fn erf(x: f64) -> f64 {
     let y = x.abs();
 
@@ -159,6 +161,8 @@ pub fn erf(x: f64) -> f64 {
     }
 }
 
+/// erfc returns the error function integrated between x and infinity
+/// called complementary error function
 pub fn erfc(x: f64) -> f64 {
     1.0 - erf(x)
 }
