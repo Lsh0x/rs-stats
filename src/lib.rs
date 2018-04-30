@@ -159,6 +159,10 @@ pub fn erf(x: f64) -> f64 {
     }
 }
 
+pub fn erfc(x: f64) -> f64 {
+    1.0 - erf(x)
+}
+
 /// average gets the number expressing the central or typical value in a set of data
 pub fn average<T: num::ToPrimitive >(t: &[T]) -> Option<f64>  {
     if t.len() == 0 {
@@ -296,6 +300,14 @@ mod tests {
         assert_eq!(erf(0.0), 0.0);
         assert_eq!(erf(1.0), ret);
         assert_eq!(erf(-1.0), -ret);
+    }
+
+    #[test]
+    fn test_erfc() {
+        let ret = 0.8427007929497149;
+        assert_eq!(erfc(0.0), 1.0);
+        assert_eq!(erfc(1.0),  1.0 - ret);
+        assert_eq!(erfc(-1.0), 1.0 + ret);
     }
 
     #[test]
