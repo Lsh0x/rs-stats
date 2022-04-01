@@ -1,0 +1,43 @@
+name: Deploy Docs to GitHub Pages
+
+on:
+    push:
+        branches:
+            - main
+
+jobs:
+    release:
+        name: GitHub Pages
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Extract branch name
+              shell: bash
+              run: echo "##[set-output name=branch;]$(echo ${GITHUB_REF#refs/heads/})"
+              id: extract_branch
+      
+            - name: Checkout
+              uses: actions/checkout@v2
+              with:
+                ref: ${{ steps.extract_branch.outputs.branch }} 
+
+            - name: Install Rust toolchain
+              uses: actions-rs/toolchain@v1
+              with:
+                toolchain: stable
+                profile: minimal
+                override: true
+                components: rustfmt, rust-src
+
+            - name: Build Documentation
+              uses: actions-rs/cargo@v1
+              with:
+                command: doc
+                args: --all --no-deps
+            
+            - name: Deploy Documentation
+              uses: peaceiris/actions-gh-pages@v3
+              with:
+                deploy_key: ${{ secrets.ACTIONS_DEPLOY_KEY }}
+                publish_dir: ./public/doc
+                keep_files: true
