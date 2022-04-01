@@ -67,38 +67,38 @@ const SB5: f64 = 2.553050406433e+03; // 0x40A3F219CEDF3BE6
 const SB6: f64 = 4.745285412069e+02; // 0x407DA874E79FE763
 const SB7: f64 = -2.244095244658e+01; // 0xC03670E242712D62
 
-const ERX: f64 = 8.450629115104675e-01; // 0x3FEB0AC160000000
+const ERX: f64 = 8.450629115104675e-1; // 0x3FEB0AC160000000
 const TINY: f64 = 2.848094538889218e-306; // 0x0080000000000000
 const SMALL: f64 = 1.0 / (1 << 28) as f64; // 2**-28
 
 enum Interval {
-    NAN,
-    NEGINFINITY,
-    INFINITY,
-    TINY,
-    SMALL,
+    Nan,
+    NegInf,
+    Inf,
+    Tiny,
+    Small,
     I084,
     I125,
     I1DIVIDE035,
     I6,
-    DEFAULT,
+    Default,
 }
 
 fn get_interval(x: f64) -> Interval {
     if x.is_nan() {
-        return Interval::NAN;
+        return Interval::Nan;
     }
     if x.is_infinite() {
         match x.is_sign_positive() {
-            true => return Interval::INFINITY,
-            false => return Interval::NEGINFINITY,
+            true => return Interval::Inf,
+            false => return Interval::NegInf,
         }
     }
     if x <= TINY {
-        return Interval::TINY;
+        return Interval::Tiny;
     }
     if x <= SMALL {
-        return Interval::SMALL;
+        return Interval::Small;
     }
     if x <= 0.84375 {
         return Interval::I084;
@@ -112,7 +112,7 @@ fn get_interval(x: f64) -> Interval {
     if x <= 6.0 {
         return Interval::I6;
     }
-    return Interval::DEFAULT;
+    Interval::Default
 }
 
 /// erf returns the error function integrated between zero and x.
@@ -122,11 +122,11 @@ pub fn erf(x: f64) -> f64 {
 
     match get_interval(y) {
         // special cases
-        Interval::NAN => NAN,
-        Interval::NEGINFINITY => -1.0,
-        Interval::INFINITY => 1.0,
-        Interval::TINY => 0.125 * (8.0 * y + EFX8 * y) * x.signum(),
-        Interval::SMALL => (y + EFX * y) * x.signum(), // avoid underflow
+        Interval::Nan => NAN,
+        Interval::NegInf => -1.0,
+        Interval::Inf => 1.0,
+        Interval::Tiny => 0.125 * (8.0 * y + EFX8 * y) * x.signum(),
+        Interval::Small => (y + EFX * y) * x.signum(), // avoid underflow
         Interval::I084 => {
             let z = y.powi(2);
             let r = PP0 + z * (PP1 + z * (PP2 + z * (PP3 + z * PP4)));
@@ -173,7 +173,7 @@ pub fn erfc(x: f64) -> f64 {
 
 /// average gets the number expressing the central or typical value in a set of data
 pub fn average<T: num::ToPrimitive>(t: &[T]) -> Option<f64> {
-    if t.len() == 0 {
+    if t.is_empty() {
         return None;
     }
     Some(t.iter().map(|x| x.to_f64().unwrap()).sum::<f64>() / t.len() as f64)
@@ -185,7 +185,7 @@ pub fn variance<T: num::ToPrimitive>(t: &[T]) -> Option<f64> {
         Some(avg) => {
             let len: f64 = t.len() as f64;
             Some(
-                &t.iter()
+                t.iter()
                     .map(|x| (x.to_f64().unwrap() - avg).powi(2))
                     .sum::<f64>()
                     / len,
@@ -197,18 +197,12 @@ pub fn variance<T: num::ToPrimitive>(t: &[T]) -> Option<f64> {
 
 /// std_dev return the standard deviation, the square root of the variance
 pub fn std_dev<T: num::ToPrimitive>(t: &[T]) -> Option<f64> {
-    match variance(t) {
-        Some(x) => Some(x.sqrt()),
-        None => None,
-    }
+    variance(t).map(|x| x.sqrt())
 }
 
 /// std_err is the standard error, represnting the standard deviation of its distribution
 pub fn std_err<T: num::ToPrimitive>(t: &[T]) -> Option<f64> {
-    match std_dev(t) {
-        Some(std) => Some(std / (t.len() as f64).sqrt()),
-        None => None,
-    }
+    std_dev(t).map(|std| std / (t.len() as f64).sqrt())
 }
 
 /// the zscore represente the distance from the mean in stddev
