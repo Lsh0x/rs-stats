@@ -3,6 +3,7 @@ name = "rs-stats"
 version = "0.1.0"
 authors = ["LSH <github@lsh.tech>"]
 edition = "2018"
+description = "Statistics library in rust"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
