@@ -1,4 +1,4 @@
-name: Deploy Docs to GitHub Pages
+name: Deploy Cargo Docs
 
 on:
     push:
@@ -9,6 +9,7 @@ jobs:
     release:
         name: GitHub Pages
         runs-on: ubuntu-latest
+        environment: production
 
         steps:
             - name: Extract branch name
@@ -29,15 +30,8 @@ jobs:
                 override: true
                 components: rustfmt, rust-src
 
-            - name: Build Documentation
+            - name: Publish  Documentation
               uses: actions-rs/cargo@v1
               with:
-                command: doc
-                args: --all --no-deps
-            
-            - name: Deploy Documentation
-              uses: peaceiris/actions-gh-pages@v3
-              with:
-                github_token: ${{ secrets.GITHUB_TOKEN }}
-                publish_dir: ./public/doc
-                keep_files: true
+                command: publish
+                args: --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
