@@ -2,7 +2,6 @@ extern crate num;
 
 use std::f64::consts::PI;
 use std::f64::consts::SQRT_2;
-use std::f64::NAN;
 
 // Coefficients for approximation to  erf in [0, 0.84375]
 const EFX: f64 = 1.283791670955e-01; // 0x3FC06EBA8214DB69
@@ -72,9 +71,6 @@ const TINY: f64 = 2.848094538889218e-306; // 0x0080000000000000
 const SMALL: f64 = 1.0 / (1 << 28) as f64; // 2**-28
 
 enum Interval {
-    Nan,
-    NegInf,
-    Inf,
     Tiny,
     Small,
     I084,
@@ -85,15 +81,6 @@ enum Interval {
 }
 
 fn get_interval(x: f64) -> Interval {
-    if x.is_nan() {
-        return Interval::Nan;
-    }
-    if x.is_infinite() {
-        match x.is_sign_positive() {
-            true => return Interval::Inf,
-            false => return Interval::NegInf,
-        }
-    }
     if x <= TINY {
         return Interval::Tiny;
     }
@@ -120,11 +107,16 @@ fn get_interval(x: f64) -> Interval {
 pub fn erf(x: f64) -> f64 {
     let y = x.abs();
 
+    if x == f64::INFINITY {
+        return 1.0;
+    } else if x == f64::NEG_INFINITY {
+        return -1.0;
+    } else if x.is_nan() {
+        return f64::NAN;
+    }
+
     match get_interval(y) {
         // special cases
-        Interval::Nan => NAN,
-        Interval::NegInf => -1.0,
-        Interval::Inf => 1.0,
         Interval::Tiny => 0.125 * (8.0 * y + EFX8 * y) * x.signum(),
         Interval::Small => (y + EFX * y) * x.signum(), // avoid underflow
         Interval::I084 => {
@@ -313,6 +305,8 @@ mod tests {
         assert_eq!(erf(0.0), 0.0);
         assert_eq!(erf(1.0), ret);
         assert_eq!(erf(-1.0), -ret);
+        assert_eq!(erf(f64::INFINITY), 1.0);
+        assert_eq!(erf(f64::NEG_INFINITY), -1.0);
     }
 
     #[test]
