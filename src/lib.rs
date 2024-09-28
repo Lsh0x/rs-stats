@@ -1,3 +1,5 @@
+mod average;
+
 extern crate num;
 
 use std::f64::consts::PI;
