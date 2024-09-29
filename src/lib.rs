@@ -1,4 +1,8 @@
-mod average;
+pub mod average;
+pub mod variance;
+
+use crate::average::average;
+use crate::variance::variance;
 
 extern crate num;
 
@@ -165,30 +169,6 @@ pub fn erfc(x: f64) -> f64 {
     1.0 - erf(x)
 }
 
-/// average gets the number expressing the central or typical value in a set of data
-pub fn average<T: num::ToPrimitive>(t: &[T]) -> Option<f64> {
-    if t.is_empty() {
-        return None;
-    }
-    Some(t.iter().map(|x| x.to_f64().unwrap()).sum::<f64>() / t.len() as f64)
-}
-
-/// variance us the mean of the sum of all square deviation
-pub fn variance<T: num::ToPrimitive>(t: &[T]) -> Option<f64> {
-    match average(t) {
-        Some(avg) => {
-            let len: f64 = t.len() as f64;
-            Some(
-                t.iter()
-                    .map(|x| (x.to_f64().unwrap() - avg).powi(2))
-                    .sum::<f64>()
-                    / len,
-            )
-        }
-        None => None,
-    }
-}
-
 /// std_dev return the standard deviation, the square root of the variance
 pub fn std_dev<T: num::ToPrimitive>(t: &[T]) -> Option<f64> {
     variance(t).map(|x| x.sqrt())
@@ -231,28 +211,6 @@ pub fn normal_cummulative_distrib(z: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_average() {
-        assert_eq!(average(&[-2, -3, -4]), Some(-3.0));
-        assert_eq!(average(&[1.0, 1.0, 1.0]), Some(1.0));
-        assert_eq!(average(&[0, 0, 0]), Some(0.0));
-        let mut vec = vec![];
-        vec.push(42);
-        vec.clear();
-        assert_eq!(average(&vec), None);
-    }
-
-    #[test]
-    fn test_variance() {
-        assert_eq!(variance(&[3, 5]), Some(1.0));
-        assert_eq!(variance(&[3.0, 5.0]), Some(1.0));
-        assert_eq!(variance(&[1, 1, 1]), Some(0.0));
-        let mut vec = vec![];
-        vec.push(42);
-        vec.clear();
-        assert_eq!(variance(&vec), None);
-    }
 
     #[test]
     fn test_std_dev() {
