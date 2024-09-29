@@ -1,8 +1,10 @@
 pub mod average;
 pub mod variance;
+pub mod stddev;
 
 use crate::average::average;
 use crate::variance::variance;
+use crate::stddev::std_dev;
 
 extern crate num;
 
@@ -169,10 +171,6 @@ pub fn erfc(x: f64) -> f64 {
     1.0 - erf(x)
 }
 
-/// std_dev return the standard deviation, the square root of the variance
-pub fn std_dev<T: num::ToPrimitive>(t: &[T]) -> Option<f64> {
-    variance(t).map(|x| x.sqrt())
-}
 
 /// std_err is the standard error, represnting the standard deviation of its distribution
 pub fn std_err<T: num::ToPrimitive>(t: &[T]) -> Option<f64> {
@@ -211,17 +209,6 @@ pub fn normal_cummulative_distrib(z: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_std_dev() {
-        assert_eq!(std_dev(&[3, 5]), Some(1.0));
-        assert_eq!(std_dev(&[3.0, 5.0]), Some(1.0));
-        assert_eq!(std_dev(&[1, 1, 1]), Some(0.0));
-        let mut vec = vec![];
-        vec.push(42);
-        vec.clear();
-        assert_eq!(std_dev(&vec), None);
-    }
 
     #[test]
     fn test_std_err() {
