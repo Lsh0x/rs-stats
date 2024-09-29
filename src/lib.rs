@@ -1,10 +1,12 @@
 pub mod average;
 pub mod variance;
 pub mod stddev;
+pub mod zscore;
 
 use crate::average::average;
 use crate::variance::variance;
 use crate::stddev::std_dev;
+use crate::zscore::z_score;
 
 extern crate num;
 
@@ -177,15 +179,11 @@ pub fn std_err<T: num::ToPrimitive>(t: &[T]) -> Option<f64> {
     std_dev(t).map(|std| std / (t.len() as f64).sqrt())
 }
 
-/// the zscore represente the distance from the mean in stddev
-pub fn zscore(x: f64, avg: f64, stddev: f64) -> f64 {
-    (x - avg) / stddev
-}
 
 /// probability_density normalize x using the mean and the standard deviation and return the PDF
 /// https://en.wikipedia.org/wiki/Probability_density_function
 pub fn probability_density(x: f64, avg: f64, stddev: f64) -> f64 {
-    (zscore(x, avg, stddev).powi(2) / -2.0).exp() / (stddev * (PI * 2.0).sqrt())
+    (z_score(x, avg, stddev).powi(2) / -2.0).exp() / (stddev * (PI * 2.0).sqrt())
 }
 
 /// normal_probability_density return the PDF with z already normalized
@@ -197,7 +195,7 @@ pub fn normal_probability_density(z: f64) -> f64 {
 /// CDF return the CDF using the mean and the standard deviation given
 /// https://en.wikipedia.org/wiki/Cumulative_distribution_function#Definition
 pub fn cummulative_distrib(x: f64, avg: f64, stddev: f64) -> f64 {
-    (1.0 + erf(zscore(x, avg, stddev) / SQRT_2)) / 2.0
+    (1.0 + erf(z_score(x, avg, stddev) / SQRT_2)) / 2.0
 }
 
 /// CDF return the CDF for the zscore given
@@ -218,12 +216,6 @@ mod tests {
         vec.push(42);
         vec.clear();
         assert_eq!(std_err(&vec), None);
-    }
-
-    #[test]
-    fn test_zscore() {
-        assert_eq!(zscore(10.0, 10.0, 1.0), 0.0);
-        assert_eq!(zscore(15.0, 10.0, 1.0), 5.0);
     }
 
     #[test]
@@ -279,8 +271,8 @@ mod tests {
         let ret_1 = 0.5;
         let ret_2 = 0.8413447460685398;
         let ret_3 = 0.15865525393146018;
-        assert_eq!(normal_cummulative_distrib(zscore(0.0, 0.0, 1.0)), ret_1);
-        assert_eq!(normal_cummulative_distrib(zscore(1.0, 0.0, 1.0)), ret_2);
-        assert_eq!(normal_cummulative_distrib(zscore(-1.0, 0.0, 1.0)), ret_3);
+        assert_eq!(normal_cummulative_distrib(z_score(0.0, 0.0, 1.0)), ret_1);
+        assert_eq!(normal_cummulative_distrib(z_score(1.0, 0.0, 1.0)), ret_2);
+        assert_eq!(normal_cummulative_distrib(z_score(-1.0, 0.0, 1.0)), ret_3);
     }
 }
