@@ -1,6 +1,6 @@
 [package]
 name = "rs-stats"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["LSH <github@lsh.tech>"]
 edition = "2018"
 description = "Statistics library in rust"
