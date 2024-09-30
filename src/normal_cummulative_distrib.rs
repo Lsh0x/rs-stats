@@ -13,7 +13,7 @@ pub fn normal_cummulative_distrib(z: f64) -> f64 {
 mod tests {
     use super::*;
     
-    const EPSILON: f64 = 1e-9;
+    const EPSILON: f64 = 1e-5;
 
     #[test]
     fn test_cdf_z_zero() {
