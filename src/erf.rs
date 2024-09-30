@@ -99,8 +99,6 @@ fn get_interval(x: f64) -> Interval {
     Interval::Default
 }
 
-/// erf returns the error function integrated between zero and x.
-/// Error function.
 pub fn erf(x: f64) -> f64 {
     let y = x.abs();
 
@@ -110,6 +108,11 @@ pub fn erf(x: f64) -> f64 {
         return -1.0;
     } else if x.is_nan() {
         return f64::NAN;
+    }
+
+    // Special case for large negative values
+    if x <= -5.0 {
+        return -1.0; // erf(x) tends to -1 as x -> -∞
     }
 
     match get_interval(y) {
@@ -141,7 +144,6 @@ pub fn erf(x: f64) -> f64 {
             (1.0 - r2 / y) * x.signum()
         }
         Interval::I6 => {
-            // |x| >= 1 / 0.35  ~ 2.857143
             let s = 1.0 / y.powi(2);
             let r = RB0 + s * (RB1 + s * (RB2 + s * (RB3 + s * (RB4 + s * (RB5 + s * RB6)))));
             let s2 = 1.0

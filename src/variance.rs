@@ -1,6 +1,6 @@
 use crate::average;
 
-/// variance ss the mean of the sum of all square deviation
+/// variance cs the mean of the sum of all square deviation
 pub fn variance<T: num::ToPrimitive>(t: &[T]) -> Option<f64> {
     match average(t) {
         Some(avg) => {
