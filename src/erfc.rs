@@ -27,7 +27,10 @@ mod tests {
         // Known value: erfc(1.0) is approximately 0.157299207
         let result = erfc(1.0);
         let expected = 0.157299207;
-        assert!((result - expected).abs() < EPSILON, "erfc(1.0) should be approximately 0.157299207");
+        assert!(
+            (result - expected).abs() < EPSILON,
+            "erfc(1.0) should be approximately 0.157299207"
+        );
     }
 
     #[test]
@@ -36,7 +39,10 @@ mod tests {
         // Known value: erfc(-1.0) is approximately 1.842700792
         let result = erfc(-1.0);
         let expected = 1.842700792;
-        assert!((result - expected).abs() < EPSILON, "erfc(-1.0) should be approximately 1.842700792");
+        assert!(
+            (result - expected).abs() < EPSILON,
+            "erfc(-1.0) should be approximately 1.842700792"
+        );
     }
 
     #[test]
@@ -45,7 +51,11 @@ mod tests {
         // Known value: erfc(3.0) is approximately 0.0000220905
         let result = erfc(3.0);
         let expected = 0.0000220905;
-        assert!((result - expected).abs() < EPSILON, "erfc(3.0) should be approximately 0.0000220905 got {:?}", result);
+        assert!(
+            (result - expected).abs() < EPSILON,
+            "erfc(3.0) should be approximately 0.0000220905 got {:?}",
+            result
+        );
     }
 
     #[test]
@@ -54,6 +64,9 @@ mod tests {
         // Known value: erfc(-3.0) is approximately 1.99997791
         let result = erfc(-3.0);
         let expected = 1.99997791;
-        assert!((result - expected).abs() < EPSILON, "erfc(-3.0) should be approximately 1.99997791");
+        assert!(
+            (result - expected).abs() < EPSILON,
+            "erfc(-3.0) should be approximately 1.99997791"
+        );
     }
 }

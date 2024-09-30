@@ -12,7 +12,7 @@ pub fn normal_cummulative_distrib(z: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     const EPSILON: f64 = 1e-5;
 
     #[test]
@@ -20,7 +20,10 @@ mod tests {
         let z = 0.0;
         let result = normal_cummulative_distrib(z);
         let expected = 0.5; // CDF(0) = 0.5 for a standard normal distribution
-        assert!((result - expected).abs() < EPSILON, "CDF for z = 0.0 should be 0.5");
+        assert!(
+            (result - expected).abs() < EPSILON,
+            "CDF for z = 0.0 should be 0.5"
+        );
     }
 
     #[test]
@@ -28,7 +31,10 @@ mod tests {
         let z = 1.0;
         let result = normal_cummulative_distrib(z);
         let expected = 0.841344746; // CDF(1.0) in a standard normal distribution
-        assert!((result - expected).abs() < EPSILON, "CDF for z = 1.0 should match expected");
+        assert!(
+            (result - expected).abs() < EPSILON,
+            "CDF for z = 1.0 should match expected"
+        );
     }
 
     #[test]
@@ -36,7 +42,10 @@ mod tests {
         let z = -1.0;
         let result = normal_cummulative_distrib(z);
         let expected = 0.158655254; // CDF(-1.0) in a standard normal distribution
-        assert!((result - expected).abs() < EPSILON, "CDF for z = -1.0 should match expected");
+        assert!(
+            (result - expected).abs() < EPSILON,
+            "CDF for z = -1.0 should match expected"
+        );
     }
 
     #[test]
@@ -44,7 +53,10 @@ mod tests {
         let z = 3.0;
         let result = normal_cummulative_distrib(z);
         let expected = 0.998650102; // CDF(3.0) in a standard normal distribution
-        assert!((result - expected).abs() < EPSILON, "CDF for z = 3.0 should match expected");
+        assert!(
+            (result - expected).abs() < EPSILON,
+            "CDF for z = 3.0 should match expected"
+        );
     }
 
     #[test]
@@ -52,7 +64,9 @@ mod tests {
         let z = -3.0;
         let result = normal_cummulative_distrib(z);
         let expected = 0.001349898; // CDF(-3.0) in a standard normal distribution
-        assert!((result - expected).abs() < EPSILON, "CDF for z = -3.0 should match expected");
+        assert!(
+            (result - expected).abs() < EPSILON,
+            "CDF for z = -3.0 should match expected"
+        );
     }
 }
-

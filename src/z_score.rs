@@ -19,8 +19,11 @@ mod tests {
         let avg = 3.0;
         let stddev = 2.0;
         let result = z_score(x, avg, stddev);
-        let expected = (5.0 - 3.0) / 2.0;  // (x - avg) / stddev
-        assert!((result - expected).abs() < EPSILON, "Z-score for value 5 with avg 3 and stddev 2 should match expected");
+        let expected = (5.0 - 3.0) / 2.0; // (x - avg) / stddev
+        assert!(
+            (result - expected).abs() < EPSILON,
+            "Z-score for value 5 with avg 3 and stddev 2 should match expected"
+        );
     }
 
     #[test]
@@ -29,8 +32,11 @@ mod tests {
         let avg = 3.0;
         let stddev = 1.5;
         let result = z_score(x, avg, stddev);
-        let expected = (4.5 - 3.0) / 1.5;  // (x - avg) / stddev
-        assert!((result - expected).abs() < EPSILON, "Z-score for value 4.5 with avg 3 and stddev 1.5 should match expected");
+        let expected = (4.5 - 3.0) / 1.5; // (x - avg) / stddev
+        assert!(
+            (result - expected).abs() < EPSILON,
+            "Z-score for value 4.5 with avg 3 and stddev 1.5 should match expected"
+        );
     }
 
     #[test]
@@ -39,8 +45,11 @@ mod tests {
         let avg = 3.0;
         let stddev = 2.0;
         let result = z_score(x, avg, stddev);
-        let expected = (1.0 - 3.0) / 2.0;  // (x - avg) / stddev
-        assert!((result - expected).abs() < EPSILON, "Z-score for value 1 with avg 3 and stddev 2 should match expected");
+        let expected = (1.0 - 3.0) / 2.0; // (x - avg) / stddev
+        assert!(
+            (result - expected).abs() < EPSILON,
+            "Z-score for value 1 with avg 3 and stddev 2 should match expected"
+        );
     }
 
     #[test]
@@ -49,7 +58,10 @@ mod tests {
         let avg = 3.0;
         let stddev = 0.0;
         let result = z_score(x, avg, stddev);
-        assert!(result.is_infinite(), "Z-score should be infinite when stddev is 0");
+        assert!(
+            result.is_infinite(),
+            "Z-score should be infinite when stddev is 0"
+        );
     }
 
     #[test]
@@ -59,6 +71,9 @@ mod tests {
         let stddev = 2.0;
         let result = z_score(x, avg, stddev);
         let expected = (3.0 - 0.0) / 2.0;
-        assert!((result - expected).abs() < EPSILON, "Z-score for value 3 with avg 0 and stddev 2 should match expected");
+        assert!(
+            (result - expected).abs() < EPSILON,
+            "Z-score for value 3 with avg 0 and stddev 2 should match expected"
+        );
     }
 }

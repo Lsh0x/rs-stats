@@ -19,8 +19,11 @@ mod tests {
         // Standard error should be std_dev / sqrt(n) = 1.414213562 / sqrt(5) = 0.632455532 (approx)
         let data = vec![1, 2, 3, 4, 5];
         let result = std_err(&data);
-        let expected = 0.632455532;  // Calculated value of the standard error
-        assert!((result.unwrap() - expected).abs() < EPSILON, "Standard error should be approximately 0.632455532");
+        let expected = 0.632455532; // Calculated value of the standard error
+        assert!(
+            (result.unwrap() - expected).abs() < EPSILON,
+            "Standard error should be approximately 0.632455532"
+        );
     }
 
     #[test]
@@ -30,7 +33,10 @@ mod tests {
         let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let result = std_err(&data);
         let expected = 0.632455532;
-        assert!((result.unwrap() - expected).abs() < EPSILON, "Standard error for floats should be approximately 0.632455532");
+        assert!(
+            (result.unwrap() - expected).abs() < EPSILON,
+            "Standard error for floats should be approximately 0.632455532"
+        );
     }
 
     #[test]
@@ -40,7 +46,11 @@ mod tests {
         let data = vec![5];
         let result = std_err(&data);
         let expected = 0.0;
-        assert_eq!(result, Some(expected), "Standard error for a single element should be 0.0");
+        assert_eq!(
+            result,
+            Some(expected),
+            "Standard error for a single element should be 0.0"
+        );
     }
 
     #[test]
@@ -49,6 +59,9 @@ mod tests {
         // There should be no standard error, result should be None
         let data: Vec<i32> = vec![];
         let result = std_err(&data);
-        assert_eq!(result, None, "Standard error for an empty dataset should be None");
+        assert_eq!(
+            result, None,
+            "Standard error for an empty dataset should be None"
+        );
     }
 }

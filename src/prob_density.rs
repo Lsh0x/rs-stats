@@ -2,7 +2,6 @@ use crate::z_score;
 
 use std::f64::consts::PI;
 
-
 /// probability_density normalize x using the mean and the standard deviation and return the PDF
 /// https://en.wikipedia.org/wiki/Probability_density_function
 #[inline]
@@ -27,10 +26,10 @@ mod tests {
         let stddev = 1.0;
 
         let test_cases = vec![
-            (0.0, 0.3989422804014327),     // Peak of the distribution
-            (1.0, 0.24197072451914337),    // One standard deviation away
-            (-1.0, 0.24197072451914337),   // One standard deviation away (symmetry)
-            (2.0, 0.05399096651318806),   // Two standard deviations away
+            (0.0, 0.3989422804014327),   // Peak of the distribution
+            (1.0, 0.24197072451914337),  // One standard deviation away
+            (-1.0, 0.24197072451914337), // One standard deviation away (symmetry)
+            (2.0, 0.05399096651318806),  // Two standard deviations away
             (3.0, 0.00443184841193801),  // Three standard deviations away
         ];
 
@@ -66,7 +65,7 @@ mod tests {
     fn test_probability_density_different_stddev() {
         let avg = 0.0;
         let stddev = 0.5;
-        let x = 0.0; 
+        let x = 0.0;
         let expected = 0.7978845608028654;
         let actual = probability_density(x, avg, stddev);
         assert!(
@@ -81,10 +80,10 @@ mod tests {
     #[test]
     fn test_normal_probability_density_basic() {
         let test_cases = vec![
-            (0.0, 0.3989422804014327),     // Peak of the distribution
-            (1.0, 0.24197072451914337),    // One standard deviation away
-            (-1.0, 0.24197072451914337),   // One standard deviation away (symmetry)
-            (2.0, 0.05399096651318806),   // Two standard deviations away
+            (0.0, 0.3989422804014327),   // Peak of the distribution
+            (1.0, 0.24197072451914337),  // One standard deviation away
+            (-1.0, 0.24197072451914337), // One standard deviation away (symmetry)
+            (2.0, 0.05399096651318806),  // Two standard deviations away
             (3.0, 0.00443184841193801),  // Three standard deviations away
         ];
 
