@@ -2,7 +2,7 @@
 name = "rs-stats"
 version = "1.0.0"
 authors = ["LSH <github@lsh.tech>"]
-edition = "2018"
+edition = "2024"
 description = "Statistics library in rust"
 license = "GPL-3.0"
 
