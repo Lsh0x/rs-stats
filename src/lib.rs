@@ -1,22 +1,3 @@
-pub mod average;
-pub mod cummulative_distrib;
-pub mod erf;
-pub mod erfc;
-pub mod normal_cummulative_distrib;
-pub mod prob_density;
-pub mod std_err;
-pub mod stddev;
-pub mod variance;
-pub mod z_score;
-
-pub use average::average;
-pub use cummulative_distrib::cummulative_distrib;
-pub use erf::erf;
-pub use erfc::erfc;
-pub use normal_cummulative_distrib::normal_cummulative_distrib;
-pub use prob_density::normal_probability_density;
-pub use prob_density::probability_density;
-pub use std_err::std_err;
-pub use stddev::std_dev;
-pub use variance::variance;
-pub use z_score::z_score;
+pub mod distributions;
+pub mod prob;
+pub mod hypothesis_tests;

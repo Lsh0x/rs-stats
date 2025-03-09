@@ -1,4 +1,52 @@
-/// the zscore represente the distance from the mean in stddev
+//! # Z-Score Calculation
+//!
+//! This module implements the z-score (standard score) calculation,
+//! which measures how many standard deviations a value is from the mean.
+//!
+//! ## Mathematical Definition
+//! The z-score is defined as:
+//!
+//! z = (x - μ) / σ
+//!
+//! where:
+//! - x is the raw score
+//! - μ is the population mean
+//! - σ is the population standard deviation
+//!
+//! ## Key Properties
+//! - z-scores have a mean of 0 and standard deviation of 1
+//! - Positive z-scores indicate values above the mean
+//! - Negative z-scores indicate values below the mean
+//! - z-scores are unitless and allow comparison across different distributions
+
+/// Calculate the z-score (standard score) of a value
+///
+/// The z-score indicates how many standard deviations a value is from the mean.
+///
+/// # Arguments
+/// * `x` - The value to standardize
+/// * `avg` - The mean (μ) of the distribution
+/// * `stddev` - The standard deviation (σ) of the distribution
+///
+/// # Returns
+/// The z-score of the value. Returns infinity if stddev is 0.
+///
+/// # Examples
+/// ```
+/// use rs_stats::prob::z_score;
+///
+/// // Calculate z-score for a value above the mean
+/// let z = z_score(85.0, 70.0, 10.0);
+/// assert!((z - 1.5).abs() < 1e-10);
+///
+/// // Calculate z-score for a value below the mean
+/// let z = z_score(55.0, 70.0, 10.0);
+/// assert!((z - (-1.5)).abs() < 1e-10);
+///
+/// // Handle zero standard deviation case
+/// let z = z_score(70.0, 70.0, 0.0);
+/// assert!(z.is_infinite());
+/// ```
 #[inline]
 pub fn z_score(x: f64, avg: f64, stddev: f64) -> f64 {
     if stddev == 0.0 {

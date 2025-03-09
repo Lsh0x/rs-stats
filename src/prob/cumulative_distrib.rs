@@ -1,12 +1,54 @@
+//! # Cumulative Distribution Function (CDF)
+//!
+//! This module implements the cumulative distribution function for normal distributions.
+//!
+//! ## Mathematical Definition
+//! The CDF of a normal distribution is defined as:
+//!
+//! Φ(x) = 0.5 * (1 + erf((x - μ) / (σ√2)))
+//!
+//! where:
+//! - x is the value at which to evaluate the CDF
+//! - μ is the mean of the distribution
+//! - σ is the standard deviation of the distribution
+//! - erf is the error function
+//!
+//! ## Key Properties
+//! - Φ(-∞) = 0
+//! - Φ(∞) = 1
+//! - Φ(μ) = 0.5
+//! - Φ(μ + a) = 1 - Φ(μ - a) (symmetry property)
+
 use std::f64::consts::SQRT_2;
+use crate::prob::erf::erf;
+use crate::prob::z_score::z_score;
 
-use crate::erf;
-use crate::z_score;
-
-/// CDF return the CDF using the mean and the standard deviation given
-/// https://en.wikipedia.org/wiki/Cumulative_distribution_function#Definition
+/// Calculate the cumulative distribution function (CDF) for a normal distribution
+///
+/// The CDF gives the probability that a random variable takes a value less than or equal to x.
+///
+/// # Arguments
+/// * `x` - The value at which to evaluate the CDF
+/// * `avg` - The mean (μ) of the distribution
+/// * `stddev` - The standard deviation (σ) of the distribution
+///
+/// # Returns
+/// The probability that a random variable is less than or equal to x
+///
+/// # Examples
+/// ```
+/// use rs_stats::prob::cumulative_distrib;
+///
+/// // Calculate CDF for standard normal distribution at x = 0
+/// let cdf = cumulative_distrib(0.0, 0.0, 1.0);
+/// assert!((cdf - 0.5).abs() < 1e-8);
+///
+/// // Calculate CDF for non-standard normal distribution
+/// let cdf = cumulative_distrib(12.0, 10.0, 2.0);
+/// assert!((cdf - 0.841344746).abs() < 1e-8);
+/// ```
 #[inline]
-pub fn cummulative_distrib(x: f64, avg: f64, stddev: f64) -> f64 {
+pub fn cumulative_distrib(x: f64, avg: f64, stddev: f64) -> f64 {
     (1.0 + erf(z_score(x, avg, stddev) / SQRT_2)) / 2.0
 }
 
@@ -22,7 +64,7 @@ mod tests {
         let x = 0.0;
         let avg = 0.0;
         let stddev = 1.0;
-        let result = cummulative_distrib(x, avg, stddev);
+        let result = cumulative_distrib(x, avg, stddev);
         let expected = 0.5;
         assert!(
             (result - expected).abs() < EPSILON,
@@ -37,7 +79,7 @@ mod tests {
         let x = 1.0;
         let avg = 0.0;
         let stddev = 1.0;
-        let result = cummulative_distrib(x, avg, stddev);
+        let result = cumulative_distrib(x, avg, stddev);
         let expected = 0.841344746;
         assert!(
             (result - expected).abs() < EPSILON,
@@ -52,7 +94,7 @@ mod tests {
         let x = -1.0;
         let avg = 0.0;
         let stddev = 1.0;
-        let result = cummulative_distrib(x, avg, stddev);
+        let result = cumulative_distrib(x, avg, stddev);
         let expected = 0.158655254;
         assert!(
             (result - expected).abs() < EPSILON,
@@ -67,7 +109,7 @@ mod tests {
         let x = 12.0;
         let avg = 10.0;
         let stddev = 2.0;
-        let result = cummulative_distrib(x, avg, stddev);
+        let result = cumulative_distrib(x, avg, stddev);
         let expected = 0.841344746; // CDF for z = 1.0 in standard normal
         assert!(
             (result - expected).abs() < EPSILON,
@@ -81,7 +123,7 @@ mod tests {
         let x = 5.0;
         let avg = 0.0;
         let stddev = 1.0;
-        let result = cummulative_distrib(x, avg, stddev);
+        let result = cumulative_distrib(x, avg, stddev);
         let expected = 0.999999713; // Approximate value of CDF(5.0)
         assert!(
             (result - expected).abs() < EPSILON,
@@ -95,7 +137,7 @@ mod tests {
         let x = -5.0;
         let avg = 0.0;
         let stddev = 1.0;
-        let result = cummulative_distrib(x, avg, stddev);
+        let result = cumulative_distrib(x, avg, stddev);
         println!("resuilit large negatif : {:?}", result);
         let expected = 0.000000287; // Approximate value of CDF(-5.0)
         assert!(

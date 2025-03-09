@@ -1,4 +1,51 @@
+//! # Error Function (erf)
+//!
+//! This module implements the error function, a special function that occurs in probability,
+//! statistics, and partial differential equations.
+//!
+//! ## Mathematical Definition
+//! The error function is defined as:
+//!
+//! erf(x) = (2/√π) ∫₀ˣ e^(-t²) dt
+//!
+//! ## Key Properties
+//! - erf(-x) = -erf(x) (odd function)
+//! - erf(0) = 0
+//! - erf(∞) = 1
+//! - erf(-∞) = -1
+//!
+//! ## Implementation Details
+//! Uses Abramowitz and Stegun formula 7.1.26 for approximation
+//! with maximum error of 1.5 × 10⁻⁷
+
+/// Calculate the error function (erf) of a value
+///
+/// The error function is related to the normal distribution and is used
+/// in probability calculations.
+///
+/// # Arguments
+/// * `x` - The value at which to evaluate the error function
+///
+/// # Returns
+/// The value of the error function at x
+///
+/// # Examples
+/// ```
+/// use rs_stats::prob::erf;
+///
+/// // Calculate erf(1.0)
+/// let result = erf(1.0);
+/// assert!((result - 0.8427006897475899).abs() < 1e-8);
+///
+/// // Verify symmetry property
+/// assert!((erf(1.0) + erf(-1.0)).abs() < 1e-8);
+/// ```
 pub fn erf(x: f64) -> f64 {
+    // Special case: return exactly 0.0 when x is 0.0
+    if x == 0.0 {
+        return 0.0;
+    }
+    
     let sign = if x < 0.0 { -1.0 } else { 1.0 };
     let x = x.abs();
 
