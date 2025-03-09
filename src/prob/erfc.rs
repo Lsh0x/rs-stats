@@ -1,7 +1,48 @@
-use crate::erf;
+//! # Complementary Error Function (erfc)
+//!
+//! This module implements the complementary error function, which is related to
+//! the normal distribution and is used in probability calculations.
+//!
+//! ## Mathematical Definition
+//! The complementary error function is defined as:
+//!
+//! erfc(x) = 1 - erf(x) = (2/√π) ∫ₓ^∞ e^(-t²) dt
+//!
+//! ## Key Properties
+//! - erfc(-∞) = 2
+//! - erfc(0) = 1
+//! - erfc(∞) = 0
+//! - erfc(-x) = 2 - erfc(x)
+//!
+//! ## Relationship to Normal Distribution
+//! For a standard normal distribution N(0,1):
+//! P(X > x) = 0.5 * erfc(x/√2)
 
-/// erfc returns the error function integrated between x and infinity
-/// called complementary error function
+use crate::prob::erf::erf;
+
+/// Calculate the complementary error function (erfc) of a value
+///
+/// The complementary error function is particularly useful for calculating
+/// tail probabilities of the normal distribution.
+///
+/// # Arguments
+/// * `x` - The value at which to evaluate the complementary error function
+///
+/// # Returns
+/// The value of the complementary error function at x
+///
+/// # Examples
+/// ```
+/// use rs_stats::prob::erfc;
+///
+/// // Calculate erfc(1.0)
+/// let result = erfc(1.0);
+/// assert!((result - 0.15729931025241006).abs() < 1e-8);
+///
+/// // Verify relationship to normal distribution
+/// let p = 0.5 * erfc(1.0 / 2.0f64.sqrt());
+/// assert!((p - 0.15865526383236372).abs() < 1e-8); // P(X > 1) for N(0,1)
+/// ```
 #[inline]
 pub fn erfc(x: f64) -> f64 {
     1.0 - erf(x)

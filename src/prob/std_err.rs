@@ -1,9 +1,56 @@
-use crate::std_dev;
+//! # Standard Error Calculation
+//!
+//! This module implements the standard error calculation, which measures
+//! the precision of the sample mean as an estimate of the population mean.
+//!
+//! ## Mathematical Definition
+//! The standard error is defined as:
+//!
+//! SE = σ / √n
+//!
+//! where:
+//! - σ is the sample standard deviation
+//! - n is the sample size
+//!
+//! ## Key Properties
+//! - Decreases as sample size increases
+//! - Measures the variability of the sample mean
+//! - Used in confidence intervals and hypothesis testing
 
-/// std_err is the standard error, represnting the standard deviation of its distribution
+use crate::prob::std_dev::std_dev;
+use num_traits::ToPrimitive;
+
+/// Calculate the standard error of a dataset
+///
+/// The standard error quantifies the uncertainty in the sample mean
+/// as an estimate of the population mean.
+///
+/// # Arguments
+/// * `data` - A slice of numeric values implementing `ToPrimitive`
+///
+/// # Returns
+/// * `Some(f64)` - The standard error if the input slice is non-empty
+/// * `None` - If the input slice is empty
+///
+/// # Examples
+/// ```
+/// use rs_stats::prob::std_err;
+///
+/// // Calculate standard error for a dataset
+/// let data = [1.0, 2.0, 3.0, 4.0, 5.0];
+/// let se = std_err(&data).unwrap();
+/// assert!((se - 0.632455532).abs() < 1e-9);
+///
+/// // Handle empty input
+/// let empty_data: &[f64] = &[];
+/// assert!(std_err(empty_data).is_none());
+/// ```
 #[inline]
-pub fn std_err<T: num::ToPrimitive>(t: &[T]) -> Option<f64> {
-    std_dev(t).map(|std| std / (t.len() as f64).sqrt())
+pub fn std_err<T>(data: &[T]) -> Option<f64>
+where
+    T: ToPrimitive + std::fmt::Debug,
+{
+    std_dev(data).map(|std| std / (data.len() as f64).sqrt())
 }
 
 #[cfg(test)]

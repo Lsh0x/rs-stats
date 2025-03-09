@@ -1,29 +1,26 @@
 name: Changelog
 
 on:
-  release:
-    types: [created, edited]
+  push:
+    branches:
+      - main
 
 jobs:
-  generate_changelog_file:
-    runs-on: ubuntu-latest
-
+  changelog:
+    runs-on: ubuntu-20.04
     steps:
-    - uses: actions/checkout@v2
+      - name: Checkout repo
+        uses: actions/checkout@v2
 
-    - name: Setup ruby
-      uses: ruby/setup-ruby@v1
-      with:
-        ruby-version: 2.7
-        
-    - name: Install github_changelog_generator
-      run: gem install github_changelog_generator
-      
-    - name: Gen changelog
-      run: github_changelog_generator -t ${{ secrets.GITHUB_TOKEN }} -u kernemporium -p rpwn 
-      
-    - name: Commit changes
-      uses: stefanzweifel/git-auto-commit-action@v4
-      with:
-        commit_message: 'changelog: auto update by ci'
-        file_pattern: CHANGELOG.md
+      - name: "✏️ Generate release changelog"
+        uses: heinrichreimer/github-changelog-generator-action@v2.3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }} 
+
+      - name: Commit changes
+        uses: EndBug/add-and-commit@v9
+        with:
+          author_name: bot-changelog
+          author_email: changelog@bot.com
+          message: 'chore: update changelog'
+          add: '*'

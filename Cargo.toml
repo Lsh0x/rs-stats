@@ -1,11 +1,16 @@
 [package]
 name = "rs-stats"
-version = "0.3.0"
+version = "1.0.0"
 authors = ["LSH <github@lsh.tech>"]
-edition = "2018"
+edition = "2024"
 description = "Statistics library in rust"
 license = "GPL-3.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
+serde = { version = "1.0", features = ["derive"] }
 num = "0.4.3"
+num-traits = "0.2.19"
+rand = "0.8.5"
+rand_distr = "0.4.3"
+rand_chacha = "0.3.1"
