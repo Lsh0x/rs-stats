@@ -13,9 +13,9 @@
 //! - Big integers (BigInt, BigUint)
 //! - Any custom type that implements ToPrimitive
 
+use crate::prob::average::average;
 use num_traits::ToPrimitive;
 use std::fmt::Debug;
-use crate::prob::average::average;
 
 /// Calculate the variance of a dataset.
 ///

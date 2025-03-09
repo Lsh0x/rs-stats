@@ -57,7 +57,8 @@ where
     if data.is_empty() {
         return None;
     }
-    let sum: f64 = data.iter()
+    let sum: f64 = data
+        .iter()
         .map(|x| x.to_f64())
         .collect::<Option<Vec<f64>>>()?
         .iter()

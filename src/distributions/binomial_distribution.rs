@@ -25,7 +25,7 @@
 //! - p is the probability of success
 //! - C(n,k) is the binomial coefficient (n choose k)
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Configuration for the Binomial distribution.
 ///
@@ -59,7 +59,7 @@ impl BinomialConfig {
     /// # Returns
     /// `Some(BinomialConfig)` if parameters are valid, `None` otherwise
     pub fn new(n: u64, p: f64) -> Option<Self> {
-        if n > 0 && p >= 0.0 && p <= 1.0 {
+        if n > 0 && (0.0..=1.0).contains(&p) {
             Some(Self { n, p })
         } else {
             None
@@ -96,9 +96,9 @@ impl BinomialConfig {
 /// ```
 pub fn pmf(k: u64, n: u64, p: f64) -> f64 {
     assert!(n > 0, "n must be positive");
-    assert!(p >= 0.0 && p <= 1.0, "p must be between 0 and 1");
+    assert!((0.0..=1.0).contains(&p), "p must be between 0 and 1");
     assert!(k <= n, "k must be less than or equal to n");
-    
+
     let combinations = combination(n, k);
     let prob = (p.powf(k as f64)) * ((1.0 - p).powf((n - k) as f64));
     combinations * prob
@@ -133,9 +133,9 @@ pub fn pmf(k: u64, n: u64, p: f64) -> f64 {
 /// ```
 pub fn cdf(k: u64, n: u64, p: f64) -> f64 {
     assert!(n > 0, "n must be positive");
-    assert!(p >= 0.0 && p <= 1.0, "p must be between 0 and 1");
+    assert!((0.0..=1.0).contains(&p), "p must be between 0 and 1");
     assert!(k <= n, "k must be less than or equal to n");
-    
+
     (0..=k).fold(0.0, |acc, i| acc + pmf(i, n, p))
 }
 
@@ -144,18 +144,18 @@ fn combination(n: u64, k: u64) -> f64 {
     if k > n {
         return 0.0;
     }
-    
+
     // Use a more numerically stable algorithm
     if k > n / 2 {
         return combination(n, n - k);
     }
-    
+
     let mut result = 1.0;
     for i in 0..k {
         result *= (n - i) as f64;
         result /= (i + 1) as f64;
     }
-    
+
     result
 }
 
@@ -169,7 +169,13 @@ mod tests {
         let p = 0.5;
         let k = 5;
         let result = pmf(k, n, p);
-        assert!(!result.is_nan(), "PMF returned NaN for k={}, n={}, p={}", k, n, p);
+        assert!(
+            !result.is_nan(),
+            "PMF returned NaN for k={}, n={}, p={}",
+            k,
+            n,
+            p
+        );
     }
 
     #[test]
@@ -178,6 +184,12 @@ mod tests {
         let p = 0.5;
         let k = 5;
         let result = cdf(k, n, p);
-        assert!(!result.is_nan(), "CDF returned NaN for k={}, n={}, p={}", k, n, p);
+        assert!(
+            !result.is_nan(),
+            "CDF returned NaN for k={}, n={}, p={}",
+            k,
+            n,
+            p
+        );
     }
 }

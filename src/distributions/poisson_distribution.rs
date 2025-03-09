@@ -25,7 +25,7 @@
 //! - k is the number of occurrences
 //! - e is Euler's number (~2.71828)
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Configuration for the Poisson distribution.
 ///
@@ -127,7 +127,12 @@ mod tests {
         let lambda = 2.0;
         let k = 0;
         let result = pmf(k, lambda);
-        assert!(!result.is_nan(), "PMF returned NaN for k={}, lambda={}", k, lambda);
+        assert!(
+            !result.is_nan(),
+            "PMF returned NaN for k={}, lambda={}",
+            k,
+            lambda
+        );
     }
 
     #[test]
@@ -135,6 +140,11 @@ mod tests {
         let lambda = 2.0;
         let k = 5;
         let result = cdf(k, lambda);
-        assert!(!result.is_nan(), "CDF returned NaN for k={}, lambda={}", k, lambda);
+        assert!(
+            !result.is_nan(),
+            "CDF returned NaN for k={}, lambda={}",
+            k,
+            lambda
+        );
     }
 }

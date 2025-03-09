@@ -19,9 +19,9 @@
 //! - Φ(μ) = 0.5
 //! - Φ(μ + a) = 1 - Φ(μ - a) (symmetry property)
 
-use std::f64::consts::SQRT_2;
 use crate::prob::erf::erf;
 use crate::prob::z_score::z_score;
+use std::f64::consts::SQRT_2;
 
 /// Calculate the cumulative distribution function (CDF) for a normal distribution
 ///

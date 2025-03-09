@@ -13,9 +13,9 @@
 //! - Big integers (BigInt, BigUint)
 //! - Any custom type that implements ToPrimitive
 
+use crate::prob::variance::variance;
 use num_traits::ToPrimitive;
 use std::fmt::Debug;
-use crate::prob::variance::variance;
 
 /// Calculate the standard deviation of a dataset.
 ///

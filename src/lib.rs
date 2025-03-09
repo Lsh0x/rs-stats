@@ -1,3 +1,3 @@
 pub mod distributions;
-pub mod prob;
 pub mod hypothesis_tests;
+pub mod prob;

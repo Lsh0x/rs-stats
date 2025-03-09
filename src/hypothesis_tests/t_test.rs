@@ -17,8 +17,8 @@
 //! uncertainty from estimating the standard deviation.
 
 use num_traits::ToPrimitive;
-use std::fmt::Debug;
 use std::f64;
+use std::fmt::Debug;
 
 /// Natural logarithm of 2π (2*pi)
 const LN_2PI: f64 = 1.8378770664093456;
@@ -56,11 +56,11 @@ pub struct TTestResult {
 ///
 /// let data = vec![5.2, 6.4, 6.9, 7.3, 7.5, 7.8, 8.1, 8.4, 9.2, 9.5];
 /// let population_mean = 7.0;
-/// 
+///
 /// let result = one_sample_t_test(&data, population_mean).unwrap();
 /// println!("T-statistic: {}", result.t_statistic);
 /// println!("P-value: {}", result.p_value);
-/// 
+///
 /// // Test if the result is significant at alpha = 0.05
 /// if result.p_value < 0.05 {
 ///     println!("Reject null hypothesis: Sample mean differs from population mean");
@@ -94,10 +94,10 @@ where
 
     // Calculate t-statistic
     let t_statistic = (mean - pop_mean) / std_error;
-    
+
     // Degrees of freedom
     let df = n - 1.0;
-    
+
     // Calculate p-value (two-tailed)
     let p_value = calculate_p_value(t_statistic.abs(), df);
 
@@ -134,14 +134,18 @@ where
 /// let result = two_sample_t_test(&group1, &group2, false).unwrap();
 /// println!("T-statistic: {}", result.t_statistic);
 /// println!("P-value: {}", result.p_value);
-/// 
+///
 /// if result.p_value < 0.05 {
 ///     println!("Reject null hypothesis: The group means differ");
 /// } else {
 ///     println!("Fail to reject null hypothesis");
 /// }
 /// ```
-pub fn two_sample_t_test<T>(data1: &[T], data2: &[T], equal_variances: bool) -> Result<TTestResult, &'static str>
+pub fn two_sample_t_test<T>(
+    data1: &[T],
+    data2: &[T],
+    equal_variances: bool,
+) -> Result<TTestResult, &'static str>
 where
     T: ToPrimitive + Debug + Copy,
 {
@@ -179,7 +183,7 @@ where
         let var2_n2 = var2 / n2;
         std_error = (var1_n1 + var2_n2).sqrt();
         t_statistic = (mean1 - mean2) / std_error;
-        
+
         // Welch-Satterthwaite equation for degrees of freedom
         let numerator = (var1_n1 + var2_n2).powi(2);
         let denominator = (var1_n1.powi(2) / (n1 - 1.0)) + (var2_n2.powi(2) / (n2 - 1.0));
@@ -222,7 +226,7 @@ where
 /// println!("T-statistic: {}", result.t_statistic);
 /// println!("P-value: {}", result.p_value);
 /// println!("Mean difference: {}", result.mean_values[0]);
-/// 
+///
 /// if result.p_value < 0.05 {
 ///     println!("Reject null hypothesis: There is a significant difference");
 /// } else {
@@ -247,37 +251,39 @@ where
 
     // Calculate differences between paired samples
     let mut differences: Vec<f64> = Vec::with_capacity(data1.len());
-    
+
     for i in 0..data1.len() {
         let val1 = match data1[i].to_f64() {
             Some(v) => v,
             None => return Err("Failed to convert data to f64"),
         };
-        
+
         let val2 = match data2[i].to_f64() {
             Some(v) => v,
             None => return Err("Failed to convert data to f64"),
         };
-        
+
         differences.push(val1 - val2);
     }
 
     // Calculate statistics on the differences
     let n = differences.len() as f64;
     let mean_diff = differences.iter().sum::<f64>() / n;
-    
+
     // Calculate variance of differences
-    let variance = differences.iter()
+    let variance = differences
+        .iter()
         .map(|&d| (d - mean_diff).powi(2))
-        .sum::<f64>() / (n - 1.0);
-    
+        .sum::<f64>()
+        / (n - 1.0);
+
     let std_dev = variance.sqrt();
     let std_error = std_dev / n.sqrt();
-    
+
     // Calculate t-statistic for paired test
     let t_statistic = mean_diff / std_error;
     let degrees_of_freedom = n - 1.0;
-    
+
     // Calculate p-value (two-tailed)
     let p_value = calculate_p_value(t_statistic.abs(), degrees_of_freedom);
 
@@ -367,12 +373,12 @@ fn calculate_p_value(t_stat: f64, df: f64) -> f64 {
     // Use Student's t-distribution CDF approximation
     // This is an implementation of the algorithm from:
     // Abramowitz and Stegun: Handbook of Mathematical Functions
-    
+
     let a = df / (df + t_stat * t_stat);
     let ix = 0.5 * incomplete_beta(0.5 * df, 0.5, a);
-    
+
     // Two-tailed p-value
-    return 2.0 * (1.0 - ix);
+    2.0 * (1.0 - ix)
 }
 
 /// Standard normal cumulative distribution function
@@ -387,74 +393,77 @@ fn incomplete_beta(a: f64, b: f64, x: f64) -> f64 {
     if x == 0.0 || x == 1.0 {
         return x;
     }
-    
+
     // Use continued fraction approximation for incomplete beta
     let symmetry_point = x > (a / (a + b));
-    
+
     // Apply symmetry for more accurate computation when x > a/(a+b)
     let (a_calc, b_calc, x_calc) = if symmetry_point {
         (b, a, 1.0 - x)
     } else {
         (a, b, x)
     };
-    
+
     // Constants for the continued fraction method
     let max_iterations = 200;
     let epsilon = 1e-10;
-    
+
     // Continued fraction expansion using modified Lentz's method
     let front_factor = x_calc.powf(a_calc) * (1.0 - x_calc).powf(b_calc) / beta(a_calc, b_calc);
-    
+
     let mut h = 1.0;
     let mut d = 1.0;
     let mut result = 0.0;
-    
+
     for m in 1..max_iterations {
         let m = m as f64;
         let m2 = 2.0 * m;
-        
+
         // Even term
-        let numerator = (m * (b_calc - m) * x_calc) / 
-                        ((a_calc + m2 - 1.0) * (a_calc + m2));
-        
+        let numerator = (m * (b_calc - m) * x_calc) / ((a_calc + m2 - 1.0) * (a_calc + m2));
+
         d = 1.0 + numerator * d;
-        if d.abs() < epsilon { d = epsilon; }
+        if d.abs() < epsilon {
+            d = epsilon;
+        }
         d = 1.0 / d;
-        
+
         h = 1.0 + numerator / h;
-        if h.abs() < epsilon { h = epsilon; }
-        
+        if h.abs() < epsilon {
+            h = epsilon;
+        }
+
         result *= h * d;
-        
+
         // Odd term
-        let numerator = -((a_calc + m) * (a_calc + b_calc + m) * x_calc) / 
-                        ((a_calc + m2) * (a_calc + m2 + 1.0));
-        
+        let numerator = -((a_calc + m) * (a_calc + b_calc + m) * x_calc)
+            / ((a_calc + m2) * (a_calc + m2 + 1.0));
+
         d = 1.0 + numerator * d;
-        if d.abs() < epsilon { d = epsilon; }
+        if d.abs() < epsilon {
+            d = epsilon;
+        }
         d = 1.0 / d;
-        
+
         h = 1.0 + numerator / h;
-        if h.abs() < epsilon { h = epsilon; }
-        
+        if h.abs() < epsilon {
+            h = epsilon;
+        }
+
         let delta = h * d;
         result *= delta;
-        
+
         // Check for convergence
         if (delta - 1.0).abs() < epsilon {
             break;
         }
     }
-    
+
     // Apply the front factor
-    result = front_factor * result;
-    
+    result *= front_factor;
+
     // Return appropriate result based on symmetry
-    if symmetry_point {
-        1.0 - result
-    } else {
-        result
-    }
+    if symmetry_point { 1.0 - result } else { result }
 }
 
 /// Beta function B(a, b) = Γ(a) * Γ(b) / Γ(a + b)
@@ -464,7 +473,7 @@ fn beta(a: f64, b: f64) -> f64 {
     let log_gamma_a = ln_gamma(a);
     let log_gamma_b = ln_gamma(b);
     let log_gamma_ab = ln_gamma(a + b);
-    
+
     (log_gamma_a + log_gamma_b - log_gamma_ab).exp()
 }
 
@@ -475,14 +484,14 @@ fn ln_gamma(x: f64) -> f64 {
     let p = [
         676.5203681218851,
         -1259.1392167224028,
-        771.32342877765313,
-        -176.61502916214059,
+        771.323_428_777_653_1,
+        -176.615_029_162_140_6,
         12.507343278686905,
         -0.13857109526572012,
-        9.9843695780195716e-6,
-        1.5056327351493116e-7
+        9.984_369_578_019_572e-6,
+        1.5056327351493116e-7,
     ];
-    
+
     if x < 0.5 {
         // Reflection formula: Γ(1-x) = π / (sin(πx) * Γ(x))
         // ln(Γ(x)) = ln(π) - ln(sin(πx)) - ln(Γ(1-x))
@@ -490,16 +499,16 @@ fn ln_gamma(x: f64) -> f64 {
     } else {
         // Standard Lanczos approximation for x ≥ 0.5
         let mut sum = p[0];
-        for i in 1..p.len() {
-            sum += p[i] / (x + i as f64);
+        for (i, &value) in p.iter().enumerate().skip(1) {
+            sum += value / (x + i as f64);
         }
-        
+
         let t = x + 7.5;
         (x + 0.5) * t.ln() - t + LN_2PI * 0.5 + sum.ln() / x
     }
 }
 /// Error function implementation (erf)
-/// 
+///
 /// Computes an approximation to the error function using a numerical approximation
 /// based on Abramowitz and Stegun formula 7.1.26.
 fn erf(x: f64) -> f64 {
@@ -521,5 +530,3 @@ fn erf(x: f64) -> f64 {
 
     sign * y
 }
-
-

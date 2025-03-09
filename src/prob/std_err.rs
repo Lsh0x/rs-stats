@@ -17,8 +17,8 @@
 //! - Measures the variability of the sample mean
 //! - Used in confidence intervals and hypothesis testing
 
-use num_traits::ToPrimitive;
 use crate::prob::std_dev::std_dev;
+use num_traits::ToPrimitive;
 
 /// Calculate the standard error of a dataset
 ///

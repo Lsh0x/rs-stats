@@ -23,7 +23,7 @@
 
 use rand::Rng;
 use rand::distributions::{Distribution, Uniform};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Configuration for the Uniform distribution.
 ///
@@ -56,11 +56,7 @@ impl UniformConfig {
     /// # Returns
     /// `Some(UniformConfig)` if parameters are valid (a < b), `None` otherwise
     pub fn new(a: f64, b: f64) -> Option<Self> {
-        if a < b {
-            Some(Self { a, b })
-        } else {
-            None
-        }
+        if a < b { Some(Self { a, b }) } else { None }
     }
 }
 
@@ -96,12 +92,8 @@ impl UniformConfig {
 /// ```
 pub fn uniform_pdf(x: f64, a: f64, b: f64) -> f64 {
     assert!(a < b, "Lower bound must be less than upper bound");
-    
-    if x < a || x > b {
-        0.0
-    } else {
-        1.0 / (b - a)
-    }
+
+    if x < a || x > b { 0.0 } else { 1.0 / (b - a) }
 }
 
 /// Cumulative distribution function (CDF) for the Uniform distribution.
@@ -141,7 +133,7 @@ pub fn uniform_pdf(x: f64, a: f64, b: f64) -> f64 {
 /// ```
 pub fn uniform_cdf(x: f64, a: f64, b: f64) -> f64 {
     assert!(a < b, "Lower bound must be less than upper bound");
-    
+
     if x < a {
         0.0
     } else if x > b {
@@ -186,8 +178,11 @@ pub fn uniform_cdf(x: f64, a: f64, b: f64) -> f64 {
 /// ```
 pub fn uniform_inverse_cdf(p: f64, a: f64, b: f64) -> f64 {
     assert!(a < b, "Lower bound must be less than upper bound");
-    assert!(p >= 0.0 && p <= 1.0, "Probability must be between 0 and 1");
-    
+    assert!(
+        (0.0..=1.0).contains(&p),
+        "Probability must be between 0 and 1"
+    );
+
     a + (p * (b - a))
 }
 
@@ -215,7 +210,7 @@ pub fn uniform_inverse_cdf(p: f64, a: f64, b: f64) -> f64 {
 /// ```
 pub fn uniform_mean(a: f64, b: f64) -> f64 {
     assert!(a < b, "Lower bound must be less than upper bound");
-    
+
     (a + b) / 2.0
 }
 
@@ -243,7 +238,7 @@ pub fn uniform_mean(a: f64, b: f64) -> f64 {
 /// ```
 pub fn uniform_variance(a: f64, b: f64) -> f64 {
     assert!(a < b, "Lower bound must be less than upper bound");
-    
+
     ((b - a) * (b - a)) / 12.0
 }
 
@@ -271,7 +266,7 @@ pub fn uniform_variance(a: f64, b: f64) -> f64 {
 /// ```
 pub fn uniform_sample<R: Rng + ?Sized>(a: f64, b: f64, rng: &mut R) -> f64 {
     assert!(a < b, "Lower bound must be less than upper bound");
-    
+
     let dist = Uniform::new(a, b);
     dist.sample(rng)
 }
@@ -279,36 +274,36 @@ pub fn uniform_sample<R: Rng + ?Sized>(a: f64, b: f64, rng: &mut R) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     const EPSILON: f64 = 1e-10;
-    
+
     #[test]
     fn test_uniform_pdf_inside_range() {
         // For a uniform distribution on [0, 1], PDF should be 1 inside the range
         assert!((uniform_pdf(0.0, 0.0, 1.0) - 1.0).abs() < EPSILON);
         assert!((uniform_pdf(0.5, 0.0, 1.0) - 1.0).abs() < EPSILON);
         assert!((uniform_pdf(1.0, 0.0, 1.0) - 1.0).abs() < EPSILON);
-        
+
         // For a uniform distribution on [2, 4], PDF should be 1/2 inside the range
         assert!((uniform_pdf(2.0, 2.0, 4.0) - 0.5).abs() < EPSILON);
         assert!((uniform_pdf(3.0, 2.0, 4.0) - 0.5).abs() < EPSILON);
         assert!((uniform_pdf(4.0, 2.0, 4.0) - 0.5).abs() < EPSILON);
     }
-    
+
     #[test]
     fn test_uniform_pdf_outside_range() {
         // PDF should be 0 outside the range
         assert!((uniform_pdf(-1.0, 0.0, 1.0) - 0.0).abs() < EPSILON);
         assert!((uniform_pdf(2.0, 0.0, 1.0) - 0.0).abs() < EPSILON);
     }
-    
+
     #[test]
     #[should_panic]
     fn test_uniform_pdf_invalid_range() {
         // Should panic if a >= b
         uniform_pdf(0.5, 1.0, 0.0);
     }
-    
+
     #[test]
     fn test_uniform_cdf_inside_range() {
         // For a uniform distribution on [0, 1], CDF should increase linearly from 0 to 1
@@ -317,39 +312,45 @@ mod tests {
         assert!((uniform_cdf(0.5, 0.0, 1.0) - 0.5).abs() < EPSILON);
         assert!((uniform_cdf(0.75, 0.0, 1.0) - 0.75).abs() < EPSILON);
         assert!((uniform_cdf(1.0, 0.0, 1.0) - 1.0).abs() < EPSILON);
-        
+
         // For a uniform distribution on [2, 4]
         assert!((uniform_cdf(2.0, 2.0, 4.0) - 0.0).abs() < EPSILON);
         assert!((uniform_cdf(3.0, 2.0, 4.0) - 0.5).abs() < EPSILON);
         assert!((uniform_cdf(4.0, 2.0, 4.0) - 1.0).abs() < EPSILON);
     }
-    
+
     #[test]
     fn test_uniform_cdf_outside_range() {
         // CDF should be 0 below the range
         assert!((uniform_cdf(-1.0, 0.0, 1.0) - 0.0).abs() < EPSILON);
-        
+
         // CDF should be 1 above the range
         assert!((uniform_cdf(2.0, 0.0, 1.0) - 1.0).abs() < EPSILON);
     }
-    
+
     #[test]
     fn test_uniform_cdf_inverse_cdf_relationship() {
         // Test that CDF and inverse CDF are inverses of each other
         let a = 2.0;
         let b = 5.0;
-        
+
         for p in [0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0] {
             let x = uniform_inverse_cdf(p, a, b);
             let p_result = uniform_cdf(x, a, b);
-            assert!((p - p_result).abs() < EPSILON, "CDF(inverse_CDF(p)) should equal p");
-            
+            assert!(
+                (p - p_result).abs() < EPSILON,
+                "CDF(inverse_CDF(p)) should equal p"
+            );
+
             // Also verify that inverse_CDF(CDF(x)) ≈ x for points within the range
             if p > 0.0 && p < 1.0 {
                 let x_within_range = a + p * (b - a);
                 let p_cdf = uniform_cdf(x_within_range, a, b);
                 let x_result = uniform_inverse_cdf(p_cdf, a, b);
-                assert!((x_within_range - x_result).abs() < EPSILON, "inverse_CDF(CDF(x)) should equal x");
+                assert!(
+                    (x_within_range - x_result).abs() < EPSILON,
+                    "inverse_CDF(CDF(x)) should equal x"
+                );
             }
         }
     }

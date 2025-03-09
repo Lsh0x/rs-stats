@@ -105,7 +105,10 @@ where
     let n_total: usize = groups.iter().map(|group| group.len()).sum();
 
     // Calculate the grand mean (mean of all observations)
-    let all_values: Vec<f64> = groups.iter().flat_map(|group| group.iter().copied()).collect();
+    let all_values: Vec<f64> = groups
+        .iter()
+        .flat_map(|group| group.iter().copied())
+        .collect();
     let grand_mean = all_values.iter().sum::<f64>() / (n_total as f64);
 
     // Calculate group means
@@ -118,9 +121,7 @@ where
     let ss_between: f64 = groups
         .iter()
         .zip(group_means.iter())
-        .map(|(group, &group_mean)| {
-            (group_mean - grand_mean).powi(2) * (group.len() as f64)
-        })
+        .map(|(group, &group_mean)| (group_mean - grand_mean).powi(2) * (group.len() as f64))
         .sum();
 
     // Calculate sum of squares within groups (SSW)
@@ -167,21 +168,21 @@ fn f_distribution_cdf(f: f64, df1: u32, df2: u32) -> f64 {
     // F(f; df1, df2) = I_{df2 / (df2 + df1 * f)}(df2/2, df1/2)
     // For F < 1, we can use the relationship:
     // F(f; df1, df2) = 1 - F(1/f; df2, df1)
-    
+
     if f <= 0.0 {
         return 0.0;
     }
-    
+
     // For F < 1, we use the complementary calculation
     if f < 1.0 {
         // Use the relationship: F(f; df1, df2) = 1 - F(1/f; df2, df1)
         return 1.0 - f_distribution_cdf(1.0 / f, df2, df1);
     }
-    
+
     let x = df2 as f64 / (df2 as f64 + df1 as f64 * f);
     let a = df2 as f64 / 2.0;
     let b = df1 as f64 / 2.0;
-    
+
     // Use a more accurate implementation of the regularized incomplete beta function
     regularized_incomplete_beta(x, a, b)
 }
@@ -194,18 +195,18 @@ fn regularized_incomplete_beta(x: f64, a: f64, b: f64) -> f64 {
     if x >= 1.0 {
         return 1.0;
     }
-    
+
     // For small values of a and b, use a continued fraction approach
     // For values where x is closer to 0, use a power series
-    
+
     // Use a power series expansion for the incomplete beta function
     let mut term = 1.0;
     let mut sum = 0.0;
     let max_iterations = 200;
-    
+
     // Calculate beta function normalization
     let ln_beta = ln_gamma(a) + ln_gamma(b) - ln_gamma(a + b);
-    
+
     for i in 0..max_iterations {
         if i > 0 {
             term *= (a + i as f64 - 1.0) * x / i as f64;
@@ -215,7 +216,7 @@ fn regularized_incomplete_beta(x: f64, a: f64, b: f64) -> f64 {
             break;
         }
     }
-    
+
     (x.powf(a) * (1.0 - x).powf(b) / (-ln_beta).exp()) * sum
 }
 
@@ -225,26 +226,26 @@ fn ln_gamma(x: f64) -> f64 {
     if x <= 0.0 {
         return f64::INFINITY; // Not valid for non-positive numbers
     }
-    
+
     // Coefficients for the Lanczos approximation
     let p = [
         676.5203681218851,
         -1259.1392167224028,
-        771.32342877765313,
-        -176.61502916214059,
+        771.323_428_777_653_1,
+        -176.615_029_162_140_6,
         12.507343278686905,
         -0.13857109526572012,
-        9.9843695780195716e-6,
-        1.5056327351493116e-7
+        9.984_369_578_019_572e-6,
+        1.5056327351493116e-7,
     ];
-    
-    let mut result = 0.99999999999980993;
+
+    let mut result = 0.999_999_999_999_809_9;
     let z: f64 = x - 1.0;
-    
-    for i in 0..p.len() {
-        result += p[i] / (z + (i as f64) + 1.0);
+
+    for (i, &val) in p.iter().enumerate() {
+        result += val / (z + (i as f64) + 1.0);
     }
-    
+
     let t = z + p.len() as f64 - 0.5;
     (2.0 * std::f64::consts::PI).ln() / 2.0 + (t + 0.5) * t.ln() - t + result.ln()
 }
@@ -263,7 +264,10 @@ mod tests {
         let groups = [&group1[..], &group2[..], &group3[..]];
         let result = one_way_anova(&groups).unwrap();
 
-        assert!(result.f_statistic > 1.0, "F-statistic should be greater than 1.0");
+        assert!(
+            result.f_statistic > 1.0,
+            "F-statistic should be greater than 1.0"
+        );
         assert!(result.p_value < 0.05, "p-value should be less than 0.05");
         assert_eq!(result.df_between, 2);
         assert_eq!(result.df_within, 12);
@@ -279,8 +283,14 @@ mod tests {
         let groups = [&group1[..], &group2[..], &group3[..]];
         let result = one_way_anova(&groups).unwrap();
 
-        assert!(result.f_statistic < 1.0, "F-statistic should be less than 1.0 for equal means");
-        assert!(result.p_value > 0.05, "p-value should be greater than 0.05 for equal means");
+        assert!(
+            result.f_statistic < 1.0,
+            "F-statistic should be less than 1.0 for equal means"
+        );
+        assert!(
+            result.p_value > 0.05,
+            "p-value should be greater than 0.05 for equal means"
+        );
     }
 
     #[test]
@@ -343,10 +353,9 @@ mod tests {
         assert!(result.ss_within > 0.0);
         assert!(result.ms_between > 0.0);
         assert!(result.ms_within > 0.0);
-        
+
         // Verify the relationship between fields
         let calculated_f = result.ms_between / result.ms_within;
         assert!((calculated_f - result.f_statistic).abs() < 1e-10);
     }
 }
-

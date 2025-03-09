@@ -89,7 +89,7 @@ where
         let mut z = (chi_square / degrees_of_freedom as f64).powf(1.0 / 3.0)
             - (1.0 - 2.0 / (9.0 * degrees_of_freedom as f64));
         z /= (2.0 / (9.0 * degrees_of_freedom as f64)).sqrt();
-        
+
         // Standard normal CDF approximation
         0.5 * (1.0 + erf(z / std::f64::consts::SQRT_2))
     } else {
@@ -137,10 +137,13 @@ pub fn chi_square_independence<T>(observed_matrix: &[Vec<T>]) -> (f64, usize, f6
 where
     T: ToPrimitive + Debug + Copy,
 {
-    assert!(!observed_matrix.is_empty(), "Observed matrix cannot be empty");
+    assert!(
+        !observed_matrix.is_empty(),
+        "Observed matrix cannot be empty"
+    );
     let row_count = observed_matrix.len();
     let col_count = observed_matrix[0].len();
-    
+
     // Make sure all rows have the same length
     for row in observed_matrix {
         assert_eq!(
@@ -156,32 +159,32 @@ where
     let mut total_sum = 0.0;
 
     for i in 0..row_count {
-        for j in 0..col_count {
+        for (j, col_sum) in col_sums.iter_mut().enumerate().take(col_count) {
             let value = observed_matrix[i][j]
                 .to_f64()
                 .expect("Failed to convert observed value to f64");
-            
+
             row_sums[i] += value;
-            col_sums[j] += value;
+            *col_sum += value;
             total_sum += value;
         }
     }
 
     // Calculate expected values and chi-square statistic
     let mut chi_square = 0.0;
-    
+
     // Use higher precision for calculations
     for i in 0..row_count {
-        for j in 0..col_count {
+        for (j, &col_sum) in col_sums.iter().enumerate().take(col_count) {
             // Expected value = (row sum * column sum) / total
-            let expected = (row_sums[i] * col_sums[j]) / total_sum;
-            
+            let expected = (row_sums[i] * col_sum) / total_sum;
+
             assert!(expected > 0.0, "Expected frequency must be positive");
-            
+
             let observed = observed_matrix[i][j]
                 .to_f64()
                 .expect("Failed to convert observed value to f64");
-            
+
             let diff = observed - expected;
             // Use more precise calculation method
             chi_square += (diff * diff) / expected;
@@ -197,7 +200,7 @@ where
         let mut z = (chi_square / degrees_of_freedom as f64).powf(1.0 / 3.0)
             - (1.0 - 2.0 / (9.0 * degrees_of_freedom as f64));
         z /= (2.0 / (9.0 * degrees_of_freedom as f64)).sqrt();
-        
+
         // Standard normal CDF approximation
         0.5 * (1.0 + erf(z / std::f64::consts::SQRT_2))
     } else {
@@ -239,16 +242,19 @@ mod tests {
         let expected = vec![20.0, 20.0, 20.0, 20.0, 20.0, 20.0]; // Equal probability for each face
 
         let (statistic, df, _) = chi_square_goodness_of_fit(&observed, &expected);
-        
+
         // Verify that degrees of freedom is correct
         assert_eq!(df, 5, "Degrees of freedom should be 5");
-        
+
         // Verify that chi-square statistic is calculated correctly
         // χ² = (24-20)²/20 + (20-20)²/20 + (18-20)²/20 + (22-20)²/20 + (15-20)²/20 + (21-20)²/20
         // χ² = 16/20 + 0/20 + 4/20 + 4/20 + 25/20 + 1/20 = 2.5
         let expected_chi_square = 2.5;
-        assert!((statistic - expected_chi_square).abs() < 1e-10, 
-                "Chi-square statistic should be approximately {}", expected_chi_square);
+        assert!(
+            (statistic - expected_chi_square).abs() < 1e-10,
+            "Chi-square statistic should be approximately {}",
+            expected_chi_square
+        );
     }
 
     #[test]
@@ -258,16 +264,19 @@ mod tests {
         let expected = vec![16.6667, 16.6667, 16.6667]; // Equal probability over 3 categories for 50 trials
 
         let (statistic, df, _) = chi_square_goodness_of_fit(&observed, &expected);
-        
+
         assert_eq!(df, 2, "Degrees of freedom should be 2");
-        
+
         // Manually calculated chi-square value
-        let expected_chi_square = (10.0 - 16.6667) * (10.0 - 16.6667) / 16.6667 +
-                                 (15.0 - 16.6667) * (15.0 - 16.6667) / 16.6667 +
-                                 (25.0 - 16.6667) * (25.0 - 16.6667) / 16.6667;
-                                 
-        assert!((statistic - expected_chi_square).abs() < 1e-4, 
-                "Chi-square statistic should be approximately {}", expected_chi_square);
+        let expected_chi_square = (10.0 - 16.6667) * (10.0 - 16.6667) / 16.6667
+            + (15.0 - 16.6667) * (15.0 - 16.6667) / 16.6667
+            + (25.0 - 16.6667) * (25.0 - 16.6667) / 16.6667;
+
+        assert!(
+            (statistic - expected_chi_square).abs() < 1e-4,
+            "Chi-square statistic should be approximately {}",
+            expected_chi_square
+        );
     }
 
     #[test]
@@ -278,15 +287,12 @@ mod tests {
         // -----------|----------|----------|
         // Male       |    45    |    55    |
         // Female     |    60    |    40    |
-        let observed = vec![
-            vec![45, 55],
-            vec![60, 40]
-        ];
+        let observed = vec![vec![45, 55], vec![60, 40]];
 
         let (statistic, df, _) = chi_square_independence(&observed);
-        
+
         assert_eq!(df, 1, "Degrees of freedom should be 1");
-        
+
         // Expected values:
         // Row sums: [100, 100]
         // Column sums: [105, 95]
@@ -294,30 +300,29 @@ mod tests {
         // e12 = (100 * 95) / 200 = 47.5
         // e21 = (100 * 105) / 200 = 52.5
         // e22 = (100 * 95) / 200 = 47.5
-        
+
         // χ² = (45-52.5)²/52.5 + (55-47.5)²/47.5 + (60-52.5)²/52.5 + (40-47.5)²/47.5
         println!("Actual chi-square statistic: {}", statistic);
-        
+
         // Use the actual value calculated by the function
         let expected_chi_square = 4.51127;
-        
-        assert!(((statistic * 100_f64 / 100_f64)- expected_chi_square).abs() < 1e-3, 
-                "Chi-square statistic should be approximately {}", expected_chi_square);
+
+        assert!(
+            ((statistic * 100_f64 / 100_f64) - expected_chi_square).abs() < 1e-3,
+            "Chi-square statistic should be approximately {}",
+            expected_chi_square
+        );
     }
 
     #[test]
     fn test_chi_square_independence_large_matrix() {
         // Testing a 3x3 contingency table
-        let observed = vec![
-            vec![30, 25, 15],
-            vec![35, 40, 30],
-            vec![20, 30, 25]
-        ];
+        let observed = vec![vec![30, 25, 15], vec![35, 40, 30], vec![20, 30, 25]];
 
         let (statistic, df, _) = chi_square_independence(&observed);
-        
+
         assert_eq!(df, 4, "Degrees of freedom should be 4");
-        
+
         // For a 3x3 table, df = (3-1) * (3-1) = 4
         assert!(statistic > 0.0, "Chi-square statistic should be positive");
     }
@@ -327,7 +332,7 @@ mod tests {
     fn test_chi_square_goodness_of_fit_zero_expected() {
         let observed = vec![10, 15, 20];
         let expected = vec![15.0, 0.0, 30.0]; // Zero expected frequency should cause panic
-        
+
         chi_square_goodness_of_fit(&observed, &expected);
     }
 
@@ -336,7 +341,7 @@ mod tests {
     fn test_chi_square_goodness_of_fit_mismatched_lengths() {
         let observed = vec![10, 15, 20, 25];
         let expected = vec![15.0, 20.0, 35.0]; // Different length from observed
-        
+
         chi_square_goodness_of_fit(&observed, &expected);
     }
 }

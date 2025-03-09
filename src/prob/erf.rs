@@ -45,7 +45,7 @@ pub fn erf(x: f64) -> f64 {
     if x == 0.0 {
         return 0.0;
     }
-    
+
     let sign = if x < 0.0 { -1.0 } else { 1.0 };
     let x = x.abs();
 
