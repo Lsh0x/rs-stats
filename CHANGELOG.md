@@ -10,6 +10,7 @@
 
 **Merged pull requests:**
 
+- doc: rewrite readme and increase version to 1.0.2 [\#13](https://github.com/Lsh0x/rs-stats/pull/13) ([Lsh0x](https://github.com/Lsh0x))
 - doc: rewrite readme [\#12](https://github.com/Lsh0x/rs-stats/pull/12) ([Lsh0x](https://github.com/Lsh0x))
 - fix: add cargo lock [\#11](https://github.com/Lsh0x/rs-stats/pull/11) ([Lsh0x](https://github.com/Lsh0x))
 - feat: rework tree and add distribution hypothesis and prod dir [\#10](https://github.com/Lsh0x/rs-stats/pull/10) ([Lsh0x](https://github.com/Lsh0x))
