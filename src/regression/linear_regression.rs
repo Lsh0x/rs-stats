@@ -1,13 +1,17 @@
 // src/regression/linear_regression.rs
 
 use std::fmt::Debug;
+use std::fs::File;
+use std::io::{self, Read, Write};
+use std::path::Path;
 use num_traits::{Float, NumCast};
+use serde::{Serialize, Deserialize};
 
 /// Linear regression model that fits a line to data points.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LinearRegression<T = f64>
 where
-    T: Float + Debug + Default,
+    T: Float + Debug + Default + Serialize,
 {
     /// Slope of the regression line (coefficient of x)
     pub slope: T,
@@ -23,7 +27,7 @@ where
 
 impl<T> LinearRegression<T>
 where
-    T: Float + Debug + Default + NumCast,
+    T: Float + Debug + Default + NumCast + Serialize + for<'de> Deserialize<'de>,
 {
     /// Create a new linear regression model without fitting any data
     pub fn new() -> Self {
@@ -202,12 +206,90 @@ where
         let r = self.r_squared.sqrt();
         if self.slope >= T::zero() { r } else { -r }
     }
+
+    /// Save the model to a file
+    ///
+    /// # Arguments
+    /// * `path` - Path where to save the model
+    ///
+    /// # Returns
+    /// * `Result<(), io::Error>` - Ok if successful, Err with IO error if saving fails
+    pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), io::Error> {
+        let file = File::create(path)?;
+        // Use JSON format for human-readability
+        serde_json::to_writer(file, self)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+    }
+
+    /// Save the model in binary format
+    ///
+    /// # Arguments
+    /// * `path` - Path where to save the model
+    ///
+    /// # Returns
+    /// * `Result<(), io::Error>` - Ok if successful, Err with IO error if saving fails
+    pub fn save_binary<P: AsRef<Path>>(&self, path: P) -> Result<(), io::Error> {
+        let file = File::create(path)?;
+        // Use bincode for more compact binary format
+        bincode::serialize_into(file, self)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+    }
+
+    /// Load a model from a file
+    ///
+    /// # Arguments
+    /// * `path` - Path to the saved model file
+    ///
+    /// # Returns
+    /// * `Result<Self, io::Error>` - Loaded model or IO error
+    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, io::Error> {
+        let file = File::open(path)?;
+        // Try to load as JSON format
+        serde_json::from_reader(file)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+    }
+
+    /// Load a model from a binary file
+    ///
+    /// # Arguments
+    /// * `path` - Path to the saved model file
+    ///
+    /// # Returns
+    /// * `Result<Self, io::Error>` - Loaded model or IO error
+    pub fn load_binary<P: AsRef<Path>>(path: P) -> Result<Self, io::Error> {
+        let file = File::open(path)?;
+        // Try to load as bincode format
+        bincode::deserialize_from(file)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+    }
+
+    /// Save the model to a string in JSON format
+    ///
+    /// # Returns
+    /// * `Result<String, String>` - JSON string representation or error message
+    pub fn to_json(&self) -> Result<String, String> {
+        serde_json::to_string(self)
+            .map_err(|e| format!("Failed to serialize model: {}", e))
+    }
+
+    /// Load a model from a JSON string
+    ///
+    /// # Arguments
+    /// * `json` - JSON string containing the model data
+    ///
+    /// # Returns
+    /// * `Result<Self, String>` - Loaded model or error message
+    pub fn from_json(json: &str) -> Result<Self, String> {
+        serde_json::from_str(json)
+            .map_err(|e| format!("Failed to deserialize model: {}", e))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::utils::numeric::approx_equal;
+    use tempfile::tempdir;
 
     #[test]
     fn test_simple_regression_f64() {
@@ -297,5 +379,80 @@ mod tests {
         let result = model.fit(&x, &y);
         
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_save_load_json() {
+        // Create a temporary directory
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("model.json");
+
+        // Create and fit a model
+        let mut model = LinearRegression::<f64>::new();
+        model.fit(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 6.0, 8.0, 10.0]).unwrap();
+
+        // Save the model
+        let save_result = model.save(&file_path);
+        assert!(save_result.is_ok());
+
+        // Load the model
+        let loaded_model = LinearRegression::<f64>::load(&file_path);
+        assert!(loaded_model.is_ok());
+        let loaded = loaded_model.unwrap();
+
+        // Check that the loaded model has the same parameters
+        assert!(approx_equal(loaded.slope, model.slope, Some(1e-6)));
+        assert!(approx_equal(loaded.intercept, model.intercept, Some(1e-6)));
+        assert!(approx_equal(loaded.r_squared, model.r_squared, Some(1e-6)));
+        assert_eq!(loaded.n, model.n);
+    }
+
+    #[test]
+    fn test_save_load_binary() {
+        // Create a temporary directory
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("model.bin");
+
+        // Create and fit a model
+        let mut model = LinearRegression::<f64>::new();
+        model.fit(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 6.0, 8.0, 10.0]).unwrap();
+
+        // Save the model
+        let save_result = model.save_binary(&file_path);
+        assert!(save_result.is_ok());
+
+        // Load the model
+        let loaded_model = LinearRegression::<f64>::load_binary(&file_path);
+        assert!(loaded_model.is_ok());
+        let loaded = loaded_model.unwrap();
+
+        // Check that the loaded model has the same parameters
+        assert!(approx_equal(loaded.slope, model.slope, Some(1e-6)));
+        assert!(approx_equal(loaded.intercept, model.intercept, Some(1e-6)));
+        assert!(approx_equal(loaded.r_squared, model.r_squared, Some(1e-6)));
+        assert_eq!(loaded.n, model.n);
+    }
+
+    #[test]
+    fn test_json_serialization() {
+        // Create and fit a model
+        let mut model = LinearRegression::<f64>::new();
+        model.fit(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 6.0, 8.0, 10.0]).unwrap();
+
+        // Serialize to JSON string
+        let json_result = model.to_json();
+        assert!(json_result.is_ok());
+        let json_str = json_result.unwrap();
+
+        // Deserialize from JSON string
+        let loaded_model = LinearRegression::<f64>::from_json(&json_str);
+        assert!(loaded_model.is_ok());
+        let loaded = loaded_model.unwrap();
+
+        // Check that the loaded model has the same parameters
+        assert!(approx_equal(loaded.slope, model.slope, Some(1e-6)));
+        assert!(approx_equal(loaded.intercept, model.intercept, Some(1e-6)));
+        assert!(approx_equal(loaded.r_squared, model.r_squared, Some(1e-6)));
+        assert_eq!(loaded.n, model.n);
     }
 }

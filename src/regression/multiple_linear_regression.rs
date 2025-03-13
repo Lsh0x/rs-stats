@@ -1,13 +1,17 @@
 // src/regression/multiple_linear_regression.rs
 
 use std::fmt::Debug;
+use std::fs::File;
+use std::io::{self, Read, Write};
+use std::path::Path;
 use num_traits::{Float, NumCast};
+use serde::{Serialize, Deserialize};
 
 /// Multiple linear regression model that fits a hyperplane to multivariate data points.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MultipleLinearRegression<T = f64>
 where
-    T: Float + Debug + Default,
+    T: Float + Debug + Default + Serialize,
 {
     /// Regression coefficients, including intercept as the first element
     pub coefficients: Vec<T>,
@@ -25,7 +29,7 @@ where
 
 impl<T> MultipleLinearRegression<T>
 where
-    T: Float + Debug + Default + NumCast,
+    T: Float + Debug + Default + NumCast + Serialize + for<'de> Deserialize<'de>,
 {
     /// Create a new multiple linear regression model without fitting any data
     pub fn new() -> Self {
@@ -211,6 +215,83 @@ where
             .collect()
     }
     
+    /// Save the model to a file
+    ///
+    /// # Arguments
+    /// * `path` - Path where to save the model
+    ///
+    /// # Returns
+    /// * `Result<(), io::Error>` - Ok if successful, Err with IO error if saving fails
+    pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), io::Error> {
+        let file = File::create(path)?;
+        // Use JSON format for human-readability
+        serde_json::to_writer(file, self)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+    }
+
+    /// Save the model in binary format
+    ///
+    /// # Arguments
+    /// * `path` - Path where to save the model
+    ///
+    /// # Returns
+    /// * `Result<(), io::Error>` - Ok if successful, Err with IO error if saving fails
+    pub fn save_binary<P: AsRef<Path>>(&self, path: P) -> Result<(), io::Error> {
+        let file = File::create(path)?;
+        // Use bincode for more compact binary format
+        bincode::serialize_into(file, self)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+    }
+
+    /// Load a model from a file
+    ///
+    /// # Arguments
+    /// * `path` - Path to the saved model file
+    ///
+    /// # Returns
+    /// * `Result<Self, io::Error>` - Loaded model or IO error
+    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, io::Error> {
+        let file = File::open(path)?;
+        // Try to load as JSON format
+        serde_json::from_reader(file)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+    }
+
+    /// Load a model from a binary file
+    ///
+    /// # Arguments
+    /// * `path` - Path to the saved model file
+    ///
+    /// # Returns
+    /// * `Result<Self, io::Error>` - Loaded model or IO error
+    pub fn load_binary<P: AsRef<Path>>(path: P) -> Result<Self, io::Error> {
+        let file = File::open(path)?;
+        // Try to load as bincode format
+        bincode::deserialize_from(file)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+    }
+
+    /// Save the model to a string in JSON format
+    ///
+    /// # Returns
+    /// * `Result<String, String>` - JSON string representation or error message
+    pub fn to_json(&self) -> Result<String, String> {
+        serde_json::to_string(self)
+            .map_err(|e| format!("Failed to serialize model: {}", e))
+    }
+
+    /// Load a model from a JSON string
+    ///
+    /// # Arguments
+    /// * `json` - JSON string containing the model data
+    ///
+    /// # Returns
+    /// * `Result<Self, String>` - Loaded model or error message
+    pub fn from_json(json: &str) -> Result<Self, String> {
+        serde_json::from_str(json)
+            .map_err(|e| format!("Failed to deserialize model: {}", e))
+    }
+    
     // Helper function: Matrix multiplication where one matrix is transposed: A^T * B
     fn matrix_multiply_transpose(&self, a: &[Vec<T>], b: &[Vec<T>]) -> Vec<Vec<T>> {
         let a_rows = a.len();
@@ -315,13 +396,13 @@ where
         
         Ok(x)
     }
-    
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::utils::numeric::approx_equal;
+    use tempfile::tempdir;
 
     #[test]
     fn test_simple_multi_regression_f64() {
@@ -428,5 +509,113 @@ mod tests {
         assert_eq!(predictions.len(), 2);
         assert!(approx_equal(predictions[0], 9.0, Some(1e-6)));
         assert!(approx_equal(predictions[1], 23.0, Some(1e-6)));
+    }
+
+    #[test]
+    fn test_save_load_json() {
+        // Create a temporary directory
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("model.json");
+
+        // Create and fit a model
+        let x = vec![
+            vec![1.0, 2.0],
+            vec![2.0, 1.0],
+            vec![3.0, 3.0],
+            vec![4.0, 2.0],
+        ];
+        let y = vec![9.0, 8.0, 16.0, 15.0];
+
+        let mut model = MultipleLinearRegression::<f64>::new();
+        model.fit(&x, &y).unwrap();
+
+        // Save the model
+        let save_result = model.save(&file_path);
+        assert!(save_result.is_ok());
+
+        // Load the model
+        let loaded_model = MultipleLinearRegression::<f64>::load(&file_path);
+        assert!(loaded_model.is_ok());
+        let loaded = loaded_model.unwrap();
+
+        // Check that the loaded model has the same parameters
+        assert_eq!(loaded.coefficients.len(), model.coefficients.len());
+        for i in 0..model.coefficients.len() {
+            assert!(approx_equal(loaded.coefficients[i], model.coefficients[i], Some(1e-6)));
+        }
+        assert!(approx_equal(loaded.r_squared, model.r_squared, Some(1e-6)));
+        assert_eq!(loaded.n, model.n);
+        assert_eq!(loaded.p, model.p);
+    }
+
+    #[test]
+    fn test_save_load_binary() {
+        // Create a temporary directory
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("model.bin");
+
+        // Create and fit a model
+        let x = vec![
+            vec![1.0, 2.0],
+            vec![2.0, 1.0],
+            vec![3.0, 3.0],
+            vec![4.0, 2.0],
+        ];
+        let y = vec![9.0, 8.0, 16.0, 15.0];
+
+        let mut model = MultipleLinearRegression::<f64>::new();
+        model.fit(&x, &y).unwrap();
+
+        // Save the model
+        let save_result = model.save_binary(&file_path);
+        assert!(save_result.is_ok());
+
+        // Load the model
+        let loaded_model = MultipleLinearRegression::<f64>::load_binary(&file_path);
+        assert!(loaded_model.is_ok());
+        let loaded = loaded_model.unwrap();
+
+        // Check that the loaded model has the same parameters
+        assert_eq!(loaded.coefficients.len(), model.coefficients.len());
+        for i in 0..model.coefficients.len() {
+            assert!(approx_equal(loaded.coefficients[i], model.coefficients[i], Some(1e-6)));
+        }
+        assert!(approx_equal(loaded.r_squared, model.r_squared, Some(1e-6)));
+        assert_eq!(loaded.n, model.n);
+        assert_eq!(loaded.p, model.p);
+    }
+
+    #[test]
+    fn test_json_serialization() {
+        // Create and fit a model
+        let x = vec![
+            vec![1.0, 2.0],
+            vec![2.0, 1.0],
+            vec![3.0, 3.0],
+            vec![4.0, 2.0],
+        ];
+        let y = vec![9.0, 8.0, 16.0, 15.0];
+
+        let mut model = MultipleLinearRegression::<f64>::new();
+        model.fit(&x, &y).unwrap();
+
+        // Serialize to JSON string
+        let json_result = model.to_json();
+        assert!(json_result.is_ok());
+        let json_str = json_result.unwrap();
+
+        // Deserialize from JSON string
+        let loaded_model = MultipleLinearRegression::<f64>::from_json(&json_str);
+        assert!(loaded_model.is_ok());
+        let loaded = loaded_model.unwrap();
+
+        // Check that the loaded model has the same parameters
+        assert_eq!(loaded.coefficients.len(), model.coefficients.len());
+        for i in 0..model.coefficients.len() {
+            assert!(approx_equal(loaded.coefficients[i], model.coefficients[i], Some(1e-6)));
+        }
+        assert!(approx_equal(loaded.r_squared, model.r_squared, Some(1e-6)));
+        assert_eq!(loaded.n, model.n);
+        assert_eq!(loaded.p, model.p);
     }
 }
