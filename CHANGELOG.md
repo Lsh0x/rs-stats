@@ -10,6 +10,7 @@
 
 **Merged pull requests:**
 
+- feat: update codecove version [\#16](https://github.com/Lsh0x/rs-stats/pull/16) ([Lsh0x](https://github.com/Lsh0x))
 - feat: linear regression [\#15](https://github.com/Lsh0x/rs-stats/pull/15) ([Lsh0x](https://github.com/Lsh0x))
 - doc: rewrite readme and increase version to 1.0.2 [\#13](https://github.com/Lsh0x/rs-stats/pull/13) ([Lsh0x](https://github.com/Lsh0x))
 - doc: rewrite readme [\#12](https://github.com/Lsh0x/rs-stats/pull/12) ([Lsh0x](https://github.com/Lsh0x))
