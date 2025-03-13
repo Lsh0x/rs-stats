@@ -1,4 +1,4 @@
-/// Provides functions for combinatorial calculations.
+//! Provides functions for combinatorial calculations.
 
 /// Calculate the factorial of a number n.
 ///
@@ -11,7 +11,7 @@ pub fn factorial(n: u64) -> u64 {
     match n {
         0 => 1,
         1 => 1,
-        _ => (2..=n).fold(1, |acc, x| acc * x),
+        _ => (2..=n).product::<u64>(),
     }
 }
 
@@ -30,7 +30,7 @@ pub fn permutation(n: u64, k: u64) -> u64 {
     if k > n {
         panic!("k cannot be greater than n");
     }
-    ((n - k + 1)..=n).fold(1, |acc, x| acc * x)
+    ((n - k + 1)..=n).product::<u64>()
 }
 
 /// Calculate the number of combinations of n items taken k at a time.

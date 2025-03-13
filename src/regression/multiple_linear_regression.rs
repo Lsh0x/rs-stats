@@ -1,11 +1,11 @@
 // src/regression/multiple_linear_regression.rs
 
+use num_traits::{Float, NumCast};
+use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::fs::File;
-use std::io::{self, Read, Write};
+use std::io::{self};
 use std::path::Path;
-use num_traits::{Float, NumCast};
-use serde::{Serialize, Deserialize};
 
 /// Multiple linear regression model that fits a hyperplane to multivariate data points.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,6 +25,15 @@ where
     pub n: usize,
     /// Number of predictor variables (excluding intercept)
     pub p: usize,
+}
+
+impl<T> Default for MultipleLinearRegression<T>
+where
+    T: Float + Debug + Default + NumCast + Serialize + for<'de> Deserialize<'de>,
+{
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<T> MultipleLinearRegression<T>
@@ -66,14 +75,14 @@ where
         }
 
         self.n = x_values.len();
-        
+
         // Check that all rows in x_values have the same length
         if x_values.is_empty() {
             return Err("X values array is empty".to_string());
         }
-        
+
         self.p = x_values[0].len();
-        
+
         for row in x_values {
             if row.len() != self.p {
                 return Err("All rows in X must have the same number of features".to_string());
@@ -103,56 +112,56 @@ where
             augmented_row.extend_from_slice(row);
             augmented_x.push(augmented_row);
         }
-        
+
         // Compute X^T * X
         let xt_x = self.matrix_multiply_transpose(&augmented_x, &augmented_x);
-        
+
         // Compute X^T * y
         let xt_y = self.vector_multiply_transpose(&augmented_x, &y_cast);
-        
+
         // Solve the normal equations: (X^T * X) * β = X^T * y for β
         match self.solve_linear_system(&xt_x, &xt_y) {
             Ok(solution) => {
                 self.coefficients = solution;
-            },
+            }
             Err(e) => return Err(e),
         }
 
         // Calculate fitted values and R²
         let y_mean = y_cast.iter().fold(T::zero(), |acc, &y| acc + y) / T::from(self.n).unwrap();
-        
+
         let mut ss_total = T::zero();
         let mut ss_residual = T::zero();
-        
+
         for i in 0..self.n {
             let predicted = self.predict_t(&x_cast[i]);
             let residual = y_cast[i] - predicted;
-            
+
             ss_residual = ss_residual + (residual * residual);
             let diff = y_cast[i] - y_mean;
             ss_total = ss_total + (diff * diff);
         }
-        
+
         // Calculate R² and adjusted R²
         if ss_total > T::zero() {
             self.r_squared = T::one() - (ss_residual / ss_total);
-            
+
             // Adjusted R² = 1 - [(1 - R²) * (n - 1) / (n - p - 1)]
             if self.n > self.p + 1 {
                 let n_minus_1 = T::from(self.n - 1).unwrap();
                 let n_minus_p_minus_1 = T::from(self.n - self.p - 1).unwrap();
-                
-                self.adjusted_r_squared = T::one() - ((T::one() - self.r_squared) * 
-                    n_minus_1 / n_minus_p_minus_1);
+
+                self.adjusted_r_squared =
+                    T::one() - ((T::one() - self.r_squared) * n_minus_1 / n_minus_p_minus_1);
             }
         }
-        
+
         // Calculate standard error
         if self.n > self.p + 1 {
             let n_minus_p_minus_1 = T::from(self.n - self.p - 1).unwrap();
             self.standard_error = (ss_residual / n_minus_p_minus_1).sqrt();
         }
-        
+
         Ok(())
     }
 
@@ -161,22 +170,22 @@ where
         if x.len() != self.p || self.coefficients.is_empty() {
             return T::nan();
         }
-        
+
         // First coefficient is the intercept
         let mut result = self.coefficients[0];
-        
+
         // Add the weighted features
-        for i in 0..self.p {
-            result = result + (self.coefficients[i + 1] * x[i]);
+        for (i, &xi) in x.iter().enumerate().take(self.p) {
+            result = result + (self.coefficients[i + 1] * xi);
         }
-        
+
         result
     }
 
     /// Predict y value for a given set of x values using the fitted model
     ///
     /// # Arguments
-    /// * `x` - Vector of x values for prediction 
+    /// * `x` - Vector of x values for prediction
     ///
     /// # Returns
     /// * The predicted y value
@@ -187,18 +196,16 @@ where
         if x.len() != self.p {
             return T::nan();
         }
-        
+
         // Convert input to T type
-        let x_cast: Result<Vec<T>, ()> = x.iter()
-            .map(|&val| T::from(val).ok_or(()))
-            .collect();
-            
+        let x_cast: Result<Vec<T>, ()> = x.iter().map(|&val| T::from(val).ok_or(())).collect();
+
         match x_cast {
             Ok(x_t) => self.predict_t(&x_t),
             Err(_) => T::nan(),
         }
     }
-    
+
     /// Calculate predictions for multiple observations
     ///
     /// # Arguments
@@ -210,11 +217,9 @@ where
     where
         U: NumCast + Copy,
     {
-        x_values.iter()
-            .map(|x| self.predict(x))
-            .collect()
+        x_values.iter().map(|x| self.predict(x)).collect()
     }
-    
+
     /// Save the model to a file
     ///
     /// # Arguments
@@ -225,8 +230,7 @@ where
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), io::Error> {
         let file = File::create(path)?;
         // Use JSON format for human-readability
-        serde_json::to_writer(file, self)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        serde_json::to_writer(file, self).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
     }
 
     /// Save the model in binary format
@@ -239,8 +243,7 @@ where
     pub fn save_binary<P: AsRef<Path>>(&self, path: P) -> Result<(), io::Error> {
         let file = File::create(path)?;
         // Use bincode for more compact binary format
-        bincode::serialize_into(file, self)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        bincode::serialize_into(file, self).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
     }
 
     /// Load a model from a file
@@ -253,8 +256,7 @@ where
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, io::Error> {
         let file = File::open(path)?;
         // Try to load as JSON format
-        serde_json::from_reader(file)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+        serde_json::from_reader(file).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
 
     /// Load a model from a binary file
@@ -267,8 +269,7 @@ where
     pub fn load_binary<P: AsRef<Path>>(path: P) -> Result<Self, io::Error> {
         let file = File::open(path)?;
         // Try to load as bincode format
-        bincode::deserialize_from(file)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+        bincode::deserialize_from(file).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
 
     /// Save the model to a string in JSON format
@@ -276,8 +277,7 @@ where
     /// # Returns
     /// * `Result<String, String>` - JSON string representation or error message
     pub fn to_json(&self) -> Result<String, String> {
-        serde_json::to_string(self)
-            .map_err(|e| format!("Failed to serialize model: {}", e))
+        serde_json::to_string(self).map_err(|e| format!("Failed to serialize model: {}", e))
     }
 
     /// Load a model from a JSON string
@@ -288,58 +288,57 @@ where
     /// # Returns
     /// * `Result<Self, String>` - Loaded model or error message
     pub fn from_json(json: &str) -> Result<Self, String> {
-        serde_json::from_str(json)
-            .map_err(|e| format!("Failed to deserialize model: {}", e))
+        serde_json::from_str(json).map_err(|e| format!("Failed to deserialize model: {}", e))
     }
-    
+
     // Helper function: Matrix multiplication where one matrix is transposed: A^T * B
     fn matrix_multiply_transpose(&self, a: &[Vec<T>], b: &[Vec<T>]) -> Vec<Vec<T>> {
         let a_rows = a.len();
         let a_cols = if a_rows > 0 { a[0].len() } else { 0 };
         let b_rows = b.len();
         let b_cols = if b_rows > 0 { b[0].len() } else { 0 };
-        
+
         // Result will be a_cols × b_cols
         let mut result = vec![vec![T::zero(); b_cols]; a_cols];
-        
-        for i in 0..a_cols {
-            for j in 0..b_cols {
+
+        for (i, result_row) in result.iter_mut().enumerate().take(a_cols) {
+            for (j, result_elem) in result_row.iter_mut().enumerate().take(b_cols) {
                 let mut sum = T::zero();
                 for k in 0..a_rows {
                     sum = sum + (a[k][i] * b[k][j]);
                 }
-                result[i][j] = sum;
+                *result_elem = sum;
             }
         }
-        
+
         result
     }
-    
+
     // Helper function: Multiply transposed matrix by vector: A^T * y
     fn vector_multiply_transpose(&self, a: &[Vec<T>], y: &[T]) -> Vec<T> {
         let a_rows = a.len();
         let a_cols = if a_rows > 0 { a[0].len() } else { 0 };
-        
+
         let mut result = vec![T::zero(); a_cols];
-        
-        for i in 0..a_cols {
+
+        for (i, result_item) in result.iter_mut().enumerate().take(a_cols) {
             let mut sum = T::zero();
             for j in 0..a_rows {
                 sum = sum + (a[j][i] * y[j]);
             }
-            result[i] = sum;
+            *result_item = sum;
         }
-        
+
         result
     }
-    
+
     // Helper function: Solve a system of linear equations using Gaussian elimination
     fn solve_linear_system(&self, a: &[Vec<T>], b: &[T]) -> Result<Vec<T>, String> {
         let n = a.len();
         if n == 0 || a[0].len() != n || b.len() != n {
             return Err("Invalid matrix dimensions for linear system solving".to_string());
         }
-        
+
         // Create augmented matrix [A|b]
         let mut aug = Vec::with_capacity(n);
         for i in 0..n {
@@ -347,53 +346,53 @@ where
             row.push(b[i]);
             aug.push(row);
         }
-        
+
         // Gaussian elimination with partial pivoting
         for i in 0..n {
             // Find pivot
             let mut max_row = i;
             let mut max_val = aug[i][i].abs();
-            
-            for j in (i+1)..n {
-                let abs_val = aug[j][i].abs();
+
+            for (j, row) in aug.iter().enumerate().skip(i + 1).take(n - (i + 1)) {
+                let abs_val = row[i].abs();
                 if abs_val > max_val {
                     max_row = j;
                     max_val = abs_val;
                 }
             }
-            
+
             let epsilon: T = T::from(1e-10).unwrap();
             if max_val < epsilon {
                 return Err("Matrix is singular or near-singular".to_string());
             }
-            
+
             // Swap rows if needed
             if max_row != i {
                 aug.swap(i, max_row);
             }
-            
+
             // Eliminate below
-            for j in (i+1)..n {
+            for j in (i + 1)..n {
                 let factor = aug[j][i] / aug[i][i];
-                
-                for k in i..(n+1) {
+
+                for k in i..(n + 1) {
                     aug[j][k] = aug[j][k] - (factor * aug[i][k]);
                 }
             }
         }
-        
+
         // Back substitution
         let mut x = vec![T::zero(); n];
         for i in (0..n).rev() {
             let mut sum = aug[i][n];
-            
-            for j in (i+1)..n {
-                sum = sum - (aug[i][j] * x[j]);
+
+            for (j, &x_val) in x.iter().enumerate().skip(i + 1).take(n - (i + 1)) {
+                sum = sum - (aug[i][j] * x_val);
             }
-            
+
             x[i] = sum / aug[i][i];
         }
-        
+
         Ok(x)
     }
 }
@@ -417,7 +416,7 @@ mod tests {
 
         let mut model = MultipleLinearRegression::<f64>::new();
         let result = model.fit(&x, &y);
-        
+
         assert!(result.is_ok());
         assert!(model.coefficients.len() == 3);
         assert!(approx_equal(model.coefficients[0], 1.0, Some(1e-6))); // intercept
@@ -439,7 +438,7 @@ mod tests {
 
         let mut model = MultipleLinearRegression::<f32>::new();
         let result = model.fit(&x, &y);
-        
+
         assert!(result.is_ok());
         assert!(model.coefficients.len() == 3);
         assert!(approx_equal(model.coefficients[0], 1.0f32, Some(1e-4))); // intercept
@@ -461,7 +460,7 @@ mod tests {
 
         let mut model = MultipleLinearRegression::<f64>::new();
         let result = model.fit(&x, &y);
-        
+
         assert!(result.is_ok());
         assert!(model.coefficients.len() == 3);
         assert!(approx_equal(model.coefficients[0], 1.0, Some(1e-6))); // intercept
@@ -473,38 +472,26 @@ mod tests {
     #[test]
     fn test_prediction() {
         // Simple case: y = 2*x1 + 3*x2 + 1
-        let x = vec![
-            vec![1, 2],
-            vec![2, 1],
-            vec![3, 3],
-            vec![4, 2],
-        ];
+        let x = vec![vec![1, 2], vec![2, 1], vec![3, 3], vec![4, 2]];
         let y = vec![9, 8, 16, 15];
 
         let mut model = MultipleLinearRegression::<f64>::new();
         model.fit(&x, &y).unwrap();
-        
+
         // Test prediction: 1 + 2*5 + 3*4 = 1 + 10 + 12 = 23
         assert!(approx_equal(model.predict(&[5u32, 4u32]), 23.0, Some(1e-6)));
     }
 
     #[test]
     fn test_prediction_many() {
-        let x = vec![
-            vec![1, 2],
-            vec![2, 1],
-            vec![3, 3],
-        ];
+        let x = vec![vec![1, 2], vec![2, 1], vec![3, 3]];
         let y = vec![9, 8, 16];
 
         let mut model = MultipleLinearRegression::<f64>::new();
         model.fit(&x, &y).unwrap();
-        
-        let new_x = vec![
-            vec![1u32, 2u32],
-            vec![5u32, 4u32],
-        ];
-        
+
+        let new_x = vec![vec![1u32, 2u32], vec![5u32, 4u32]];
+
         let predictions = model.predict_many(&new_x);
         assert_eq!(predictions.len(), 2);
         assert!(approx_equal(predictions[0], 9.0, Some(1e-6)));
@@ -541,7 +528,11 @@ mod tests {
         // Check that the loaded model has the same parameters
         assert_eq!(loaded.coefficients.len(), model.coefficients.len());
         for i in 0..model.coefficients.len() {
-            assert!(approx_equal(loaded.coefficients[i], model.coefficients[i], Some(1e-6)));
+            assert!(approx_equal(
+                loaded.coefficients[i],
+                model.coefficients[i],
+                Some(1e-6)
+            ));
         }
         assert!(approx_equal(loaded.r_squared, model.r_squared, Some(1e-6)));
         assert_eq!(loaded.n, model.n);
@@ -578,7 +569,11 @@ mod tests {
         // Check that the loaded model has the same parameters
         assert_eq!(loaded.coefficients.len(), model.coefficients.len());
         for i in 0..model.coefficients.len() {
-            assert!(approx_equal(loaded.coefficients[i], model.coefficients[i], Some(1e-6)));
+            assert!(approx_equal(
+                loaded.coefficients[i],
+                model.coefficients[i],
+                Some(1e-6)
+            ));
         }
         assert!(approx_equal(loaded.r_squared, model.r_squared, Some(1e-6)));
         assert_eq!(loaded.n, model.n);
@@ -612,7 +607,11 @@ mod tests {
         // Check that the loaded model has the same parameters
         assert_eq!(loaded.coefficients.len(), model.coefficients.len());
         for i in 0..model.coefficients.len() {
-            assert!(approx_equal(loaded.coefficients[i], model.coefficients[i], Some(1e-6)));
+            assert!(approx_equal(
+                loaded.coefficients[i],
+                model.coefficients[i],
+                Some(1e-6)
+            ));
         }
         assert!(approx_equal(loaded.r_squared, model.r_squared, Some(1e-6)));
         assert_eq!(loaded.n, model.n);

@@ -1,11 +1,11 @@
 // src/regression/linear_regression.rs
 
+use num_traits::{Float, NumCast};
+use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::fs::File;
-use std::io::{self, Read, Write};
+use std::io::{self};
 use std::path::Path;
-use num_traits::{Float, NumCast};
-use serde::{Serialize, Deserialize};
 
 /// Linear regression model that fits a line to data points.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,6 +23,15 @@ where
     pub standard_error: T,
     /// Number of data points used for regression
     pub n: usize,
+}
+
+impl<T> Default for LinearRegression<T>
+where
+    T: Float + Debug + Default + NumCast + Serialize + for<'de> Deserialize<'de>,
+{
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<T> LinearRegression<T>
@@ -88,7 +97,7 @@ where
         for i in 0..n {
             let x_diff = x_cast[i] - x_mean;
             let y_diff = y_cast[i] - y_mean;
-            
+
             sum_xy = sum_xy + (x_diff * y_diff);
             sum_xx = sum_xx + (x_diff * x_diff);
             sum_yy = sum_yy + (y_diff * y_diff);
@@ -105,7 +114,7 @@ where
 
         // Calculate R²
         self.r_squared = (sum_xy * sum_xy) / (sum_xx * sum_yy);
-        
+
         // Calculate residuals and standard error
         let mut sum_squared_residuals = T::zero();
         for i in 0..n {
@@ -113,7 +122,7 @@ where
             let residual = y_cast[i] - predicted;
             sum_squared_residuals = sum_squared_residuals + (residual * residual);
         }
-        
+
         // Standard error of the estimate
         if n > 2 {
             let two = T::from(2).unwrap();
@@ -145,7 +154,7 @@ where
             Some(val) => val,
             None => return T::nan(),
         };
-        
+
         self.predict_t(x_cast)
     }
 
@@ -160,9 +169,7 @@ where
     where
         U: NumCast + Copy,
     {
-        x_values.iter()
-            .map(|&x| self.predict(x))
-            .collect()
+        x_values.iter().map(|&x| self.predict(x)).collect()
     }
 
     /// Calculate confidence intervals for the regression line
@@ -181,10 +188,7 @@ where
             return None;
         }
 
-        let x_cast: T = match T::from(x) {
-            Some(val) => val,
-            None => return None,
-        };
+        let x_cast: T = T::from(x)?;
 
         // Get the t-critical value based on degrees of freedom and confidence level
         // For simplicity, we'll use a normal approximation with standard errors
@@ -217,8 +221,7 @@ where
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), io::Error> {
         let file = File::create(path)?;
         // Use JSON format for human-readability
-        serde_json::to_writer(file, self)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        serde_json::to_writer(file, self).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
     }
 
     /// Save the model in binary format
@@ -231,8 +234,7 @@ where
     pub fn save_binary<P: AsRef<Path>>(&self, path: P) -> Result<(), io::Error> {
         let file = File::create(path)?;
         // Use bincode for more compact binary format
-        bincode::serialize_into(file, self)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        bincode::serialize_into(file, self).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
     }
 
     /// Load a model from a file
@@ -245,8 +247,7 @@ where
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, io::Error> {
         let file = File::open(path)?;
         // Try to load as JSON format
-        serde_json::from_reader(file)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+        serde_json::from_reader(file).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
 
     /// Load a model from a binary file
@@ -259,8 +260,7 @@ where
     pub fn load_binary<P: AsRef<Path>>(path: P) -> Result<Self, io::Error> {
         let file = File::open(path)?;
         // Try to load as bincode format
-        bincode::deserialize_from(file)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+        bincode::deserialize_from(file).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
 
     /// Save the model to a string in JSON format
@@ -268,8 +268,7 @@ where
     /// # Returns
     /// * `Result<String, String>` - JSON string representation or error message
     pub fn to_json(&self) -> Result<String, String> {
-        serde_json::to_string(self)
-            .map_err(|e| format!("Failed to serialize model: {}", e))
+        serde_json::to_string(self).map_err(|e| format!("Failed to serialize model: {}", e))
     }
 
     /// Load a model from a JSON string
@@ -280,8 +279,7 @@ where
     /// # Returns
     /// * `Result<Self, String>` - Loaded model or error message
     pub fn from_json(json: &str) -> Result<Self, String> {
-        serde_json::from_str(json)
-            .map_err(|e| format!("Failed to deserialize model: {}", e))
+        serde_json::from_str(json).map_err(|e| format!("Failed to deserialize model: {}", e))
     }
 }
 
@@ -298,7 +296,7 @@ mod tests {
 
         let mut model = LinearRegression::<f64>::new();
         let result = model.fit(&x, &y);
-        
+
         assert!(result.is_ok());
         assert!(approx_equal(model.slope, 2.0, Some(1e-6)));
         assert!(approx_equal(model.intercept, 0.0, Some(1e-6)));
@@ -312,7 +310,7 @@ mod tests {
 
         let mut model = LinearRegression::<f32>::new();
         let result = model.fit(&x, &y);
-        
+
         assert!(result.is_ok());
         assert!(approx_equal(model.slope, 2.0f32, Some(1e-6)));
         assert!(approx_equal(model.intercept, 0.0f32, Some(1e-6)));
@@ -326,7 +324,7 @@ mod tests {
 
         let mut model = LinearRegression::<f64>::new();
         let result = model.fit(&x, &y);
-        
+
         assert!(result.is_ok());
         assert!(approx_equal(model.slope, 2.0, Some(1e-6)));
         assert!(approx_equal(model.intercept, 0.0, Some(1e-6)));
@@ -340,7 +338,7 @@ mod tests {
 
         let mut model = LinearRegression::<f64>::new();
         let result = model.fit(&x, &y);
-        
+
         assert!(result.is_ok());
         assert!(model.slope > 1.9 && model.slope < 2.1);
         assert!(model.intercept > -0.1 && model.intercept < 0.1);
@@ -354,7 +352,7 @@ mod tests {
 
         let mut model = LinearRegression::<f64>::new();
         model.fit(&x, &y).unwrap();
-        
+
         assert!(approx_equal(model.predict(6u32), 12.0, Some(1e-6)));
         assert!(approx_equal(model.predict(0i32), 0.0, Some(1e-6)));
     }
@@ -366,7 +364,7 @@ mod tests {
 
         let mut model = LinearRegression::<f64>::new();
         let result = model.fit(&x, &y);
-        
+
         assert!(result.is_err());
     }
 
@@ -377,7 +375,7 @@ mod tests {
 
         let mut model = LinearRegression::<f64>::new();
         let result = model.fit(&x, &y);
-        
+
         assert!(result.is_err());
     }
 
@@ -389,7 +387,9 @@ mod tests {
 
         // Create and fit a model
         let mut model = LinearRegression::<f64>::new();
-        model.fit(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 6.0, 8.0, 10.0]).unwrap();
+        model
+            .fit(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 6.0, 8.0, 10.0])
+            .unwrap();
 
         // Save the model
         let save_result = model.save(&file_path);
@@ -415,7 +415,9 @@ mod tests {
 
         // Create and fit a model
         let mut model = LinearRegression::<f64>::new();
-        model.fit(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 6.0, 8.0, 10.0]).unwrap();
+        model
+            .fit(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 6.0, 8.0, 10.0])
+            .unwrap();
 
         // Save the model
         let save_result = model.save_binary(&file_path);
@@ -437,7 +439,9 @@ mod tests {
     fn test_json_serialization() {
         // Create and fit a model
         let mut model = LinearRegression::<f64>::new();
-        model.fit(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 6.0, 8.0, 10.0]).unwrap();
+        model
+            .fit(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2.0, 4.0, 6.0, 8.0, 10.0])
+            .unwrap();
 
         // Serialize to JSON string
         let json_result = model.to_json();

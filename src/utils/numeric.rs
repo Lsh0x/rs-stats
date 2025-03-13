@@ -1,8 +1,6 @@
-/// Provides numerical utility functions for statistical calculations.
-
-
-use std::fmt::Debug;
 use num_traits::NumCast;
+/// Provides numerical utility functions for statistical calculations.
+use std::fmt::Debug;
 
 /// Computes the natural logarithm of x, handling edge cases safely.
 ///
@@ -45,30 +43,30 @@ where
         Some(val) => val,
         None => return false, // Can't compare if conversion fails
     };
-    
+
     let b_f64 = match U::to_f64(&b) {
         Some(val) => val,
         None => return false, // Can't compare if conversion fails
     };
     let eps = epsilon.unwrap_or(1e-10);
-    
+
     // Handle special casesc
     if a_f64.is_nan() || b_f64.is_nan() {
         return false;
     }
-    
+
     if a_f64.is_infinite() && b_f64.is_infinite() {
         return (a_f64 > 0.0 && b_f64 > 0.0) || (a_f64 < 0.0 && b_f64 < 0.0);
     }
-    
+
     // Calculate absolute and relative differences
     let abs_diff = (a_f64 - b_f64).abs();
-    
+
     // For values close to zero, use absolute difference
     if a_f64.abs() < eps || b_f64.abs() < eps {
         return abs_diff <= eps;
     }
-    
+
     // Otherwise use relative difference
     let rel_diff = abs_diff / f64::max(a_f64.abs(), b_f64.abs());
     rel_diff <= eps
@@ -86,14 +84,14 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_float_equality() {
         assert!(approx_equal(1.0, 1.0, None));
         assert!(approx_equal(1.0, 1.0000000001, Some(1e-9)));
         assert!(!approx_equal(1.0, 1.0000000001, Some(1e-10)));
     }
-    
+
     #[test]
     fn test_integer_equality() {
         assert!(approx_equal(1i32, 1i32, None));
@@ -101,7 +99,7 @@ mod tests {
         assert!(approx_equal(1000u64, 1000.0001, Some(1e-6)));
         assert!(!approx_equal(1000i32, 1001i32, None));
     }
-    
+
     #[test]
     fn test_mixed_type_equality() {
         assert!(approx_equal(1i32, 1.0f64, None));
@@ -109,7 +107,7 @@ mod tests {
         assert!(approx_equal(0i8, 0.0, None));
         assert!(!approx_equal(5u8, 5.1f64, None));
     }
-    
+
     #[test]
     fn test_edge_cases() {
         assert!(!approx_equal(f64::NAN, f64::NAN, None));
@@ -118,7 +116,7 @@ mod tests {
         assert!(!approx_equal(f64::INFINITY, f64::NEG_INFINITY, None));
         assert!(!approx_equal(f64::INFINITY, 1e100, None));
     }
-    
+
     #[test]
     fn test_near_zero() {
         assert!(approx_equal(0.0, 1e-11, None));
