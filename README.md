@@ -2,7 +2,7 @@
 
 [![Rust](https://img.shields.io/badge/rust-1.56%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.0.2-green.svg)](https://crates.io/crates/rs-stats)
+[![Version](https://img.shields.io/badge/version-1.1.0-green.svg)](https://crates.io/crates/rs-stats)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/lsh0x/rs-stats/actions)
 [![GitHub last commit](https://img.shields.io/github/last-commit/lsh0x/rs-stats)](https://github.com/lsh0x/rs-stats/commits/main)
 [![CI](https://github.com/lsh0x/rs-stats/workflows/CI/badge.svg)](https://github.com/lsh0x/rs-stats/actions)
@@ -32,6 +32,12 @@ rs-stats offers a broad range of statistical functionality implemented in pure R
   - Poisson distribution
   - Uniform distribution
 
+- **Regression Analysis**
+  - Linear Regression (fit, predict, confidence intervals)
+  - Multiple Linear Regression (multiple predictor variables)
+  - Model statistics (R², adjusted R², standard error)
+  - Model persistence (save/load models in JSON or binary format)
+
 - **Hypothesis Testing**
   - ANOVA (Analysis of Variance)
   - Chi-square tests (independence and goodness of fit)
@@ -43,7 +49,7 @@ Add rs-stats to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rs-stats = "1.0.2"
+rs-stats = "1.1.0"
 ```
 
 Or use cargo add:
@@ -133,6 +139,62 @@ fn main() {
     ];
     let result = chi_square_independence(&observed);
     println!("Chi-square independence test p-value: {}", result.p_value);
+}
+```
+
+### Regression Analysis
+
+```rust
+use rs_stats::regression::linear_regression::LinearRegression;
+use rs_stats::regression::multiple_linear_regression::MultipleLinearRegression;
+
+fn main() {
+    // Simple Linear Regression
+    let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+    let y = vec![2.0, 4.0, 6.0, 8.0, 10.0];
+    
+    let mut model = LinearRegression::new();
+    model.fit(&x, &y).unwrap();
+    
+    println!("Slope: {}", model.slope);
+    println!("Intercept: {}", model.intercept);
+    println!("R-squared: {}", model.r_squared);
+    
+    // Predict new values
+    let prediction = model.predict(6.0);
+    println!("Prediction for x=6: {}", prediction);
+    
+    // Calculate confidence interval (95%)
+    if let Some((lower, upper)) = model.confidence_interval(6.0, 0.95) {
+        println!("95% confidence interval: ({}, {})", lower, upper);
+    }
+    
+    // Multiple Linear Regression
+    let x_multi = vec![
+        vec![1.0, 2.0], // observation 1: x1=1.0, x2=2.0
+        vec![2.0, 1.0], // observation 2: x1=2.0, x2=1.0
+        vec![3.0, 3.0], // observation 3: x1=3.0, x2=3.0
+        vec![4.0, 2.0], // observation 4: x1=4.0, x2=2.0
+    ];
+    let y_multi = vec![9.0, 8.0, 16.0, 15.0];
+    
+    let mut multi_model = MultipleLinearRegression::new();
+    multi_model.fit(&x_multi, &y_multi).unwrap();
+    
+    println!("Coefficients: {:?}", multi_model.coefficients);
+    println!("R-squared: {}", multi_model.r_squared);
+    println!("Adjusted R-squared: {}", multi_model.adjusted_r_squared);
+    
+    // Predict with multiple variables
+    let new_observation = vec![5.0, 4.0];
+    let prediction = multi_model.predict(&new_observation);
+    println!("Prediction for new observation: {}", prediction);
+    
+    // Save model to file
+    multi_model.save("model.json").unwrap();
+    
+    // Load model from file
+    let loaded_model = MultipleLinearRegression::load("model.json").unwrap();
 }
 ```
 
