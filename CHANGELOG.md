@@ -10,6 +10,7 @@
 
 **Merged pull requests:**
 
+- feat: add decision tree to regression [\#19](https://github.com/Lsh0x/rs-stats/pull/19) ([Lsh0x](https://github.com/Lsh0x))
 - fix: cron for sync template [\#18](https://github.com/Lsh0x/rs-stats/pull/18) ([Lsh0x](https://github.com/Lsh0x))
 - feat: create pull request to sync rbase [\#17](https://github.com/Lsh0x/rs-stats/pull/17) ([Lsh0x](https://github.com/Lsh0x))
 - feat: update codecove version [\#16](https://github.com/Lsh0x/rs-stats/pull/16) ([Lsh0x](https://github.com/Lsh0x))
