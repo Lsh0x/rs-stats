@@ -2,7 +2,7 @@
 
 [![Rust](https://img.shields.io/badge/rust-1.56%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.1.0-green.svg)](https://crates.io/crates/rs-stats)
+[![Version](https://img.shields.io/badge/version-1.2.0-green.svg)](https://crates.io/crates/rs-stats)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/lsh0x/rs-stats/actions)
 [![GitHub last commit](https://img.shields.io/github/last-commit/lsh0x/rs-stats)](https://github.com/lsh0x/rs-stats/commits/main)
 [![CI](https://github.com/lsh0x/rs-stats/workflows/CI/badge.svg)](https://github.com/lsh0x/rs-stats/actions)
@@ -49,7 +49,7 @@ Add rs-stats to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rs-stats = "1.1.0"
+rs-stats = "1.2.0"
 ```
 
 Or use cargo add:
@@ -171,7 +171,7 @@ fn main() {
     
     // Multiple Linear Regression
     let x_multi = vec![
-        vec![1.0, 2.0], // observation 1: x1=1.0, x2=2.0
+        vec![1.0, 2.0], // observation 1: x1.2.0, x2=2.0
         vec![2.0, 1.0], // observation 2: x1=2.0, x2=1.0
         vec![3.0, 3.0], // observation 3: x1=3.0, x2=3.0
         vec![4.0, 2.0], // observation 4: x1=4.0, x2=2.0
@@ -197,6 +197,76 @@ fn main() {
     let loaded_model = MultipleLinearRegression::load("model.json").unwrap();
 }
 ```
+
+### Decision Trees
+
+```rust
+use rs_stats::regression::decision_tree::{DecisionTree, TreeType, SplitCriterion};
+
+// Example 1: Regression Tree for Patient Recovery Time Prediction
+let mut recovery_time_tree = DecisionTree::<f64, f64>::new(
+    TreeType::Regression,
+    SplitCriterion::Mse,
+    5,   // max_depth
+    2,   // min_samples_split
+    1    // min_samples_leaf
+);
+
+// Training data: [age, treatment_intensity, bmi, comorbidity_score, initial_severity]
+let patient_features = vec![
+    vec![45.0, 3.0, 28.5, 2.0, 7.0],  // Patient 1: 45 years, treatment intensity 3, BMI 28.5, etc.
+    vec![62.0, 4.0, 31.2, 3.0, 8.0],  // Patient 2
+    vec![38.0, 2.0, 24.3, 1.0, 5.0],  // Patient 3
+    // ... more patients
+];
+let recovery_days = vec![14.0, 28.0, 10.0];  // Recovery time in days
+
+// Train the model to predict recovery time
+recovery_time_tree.fit(&patient_features, &recovery_days);
+
+// Make predictions for a new patient
+let new_patient = vec![
+    vec![55.0, 3.0, 27.0, 2.0, 6.0],  // New patient characteristics
+];
+let predicted_recovery_days = recovery_time_tree.predict(&new_patient);
+
+// Example 2: Classification Tree for Diabetes Risk Assessment
+let mut diabetes_risk_tree = DecisionTree::<u8, f64>::new(
+    TreeType::Classification,
+    SplitCriterion::Gini,
+    4,   // max_depth
+    2,   // min_samples_split
+    1    // min_samples_leaf
+);
+
+// Training data: [glucose_level, bmi, blood_pressure, age, family_history]
+let medical_features = vec![
+    vec![85.0, 22.0, 120.0, 35.0, 0.0],  // Patient 1: glucose 85 mg/dL, BMI 22, BP 120, etc.
+    vec![140.0, 31.0, 145.0, 52.0, 1.0],  // Patient 2
+    vec![165.0, 34.0, 155.0, 48.0, 1.0],  // Patient 3
+    // ... more patients
+];
+let diabetes_status = vec![0, 1, 1];  // 0: No diabetes, 1: Diabetes
+
+// Train the classifier
+diabetes_risk_tree.fit(&medical_features, &diabetes_status);
+
+// Print tree structure and summary
+println!("Tree Structure:\n{}", diabetes_risk_tree.tree_structure());
+println!("Tree Summary:\n{}", diabetes_risk_tree.summary());
+
+// Feature importance - which medical measurements are most predictive
+let importance = diabetes_risk_tree.feature_importances();
+println!("Feature Importance: {:?}", importance);
+```
+
+The Decision Tree implementation supports:
+- Both regression and classification tasks
+- Multiple split criteria (MSE, MAE for regression; Gini, Entropy for classification)
+- Generic types with appropriate trait bounds
+- Parallel processing for optimal performance
+- Tree visualization and interpretation tools
+- Feature importance calculation
 
 ## Documentation
 
