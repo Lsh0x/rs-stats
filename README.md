@@ -2,7 +2,7 @@
 
 [![Rust](https://img.shields.io/badge/rust-1.56%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.1.0-green.svg)](https://crates.io/crates/rs-stats)
+[![Version](https://img.shields.io/badge/version-1.2.0-green.svg)](https://crates.io/crates/rs-stats)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/lsh0x/rs-stats/actions)
 [![GitHub last commit](https://img.shields.io/github/last-commit/lsh0x/rs-stats)](https://github.com/lsh0x/rs-stats/commits/main)
 [![CI](https://github.com/lsh0x/rs-stats/workflows/CI/badge.svg)](https://github.com/lsh0x/rs-stats/actions)
@@ -49,7 +49,7 @@ Add rs-stats to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rs-stats = "1.1.0"
+rs-stats = "1.2.0"
 ```
 
 Or use cargo add:
@@ -171,7 +171,7 @@ fn main() {
     
     // Multiple Linear Regression
     let x_multi = vec![
-        vec![1.0, 2.0], // observation 1: x1=1.0, x2=2.0
+        vec![1.0, 2.0], // observation 1: x1.2.0, x2=2.0
         vec![2.0, 1.0], // observation 2: x1=2.0, x2=1.0
         vec![3.0, 3.0], // observation 3: x1=3.0, x2=3.0
         vec![4.0, 2.0], // observation 4: x1=4.0, x2=2.0
