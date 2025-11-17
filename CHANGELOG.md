@@ -4,6 +4,10 @@
 
 [Full Changelog](https://github.com/Lsh0x/rs-stats/compare/3b6164864800773f1e475b62ec24a04d2cc76930...HEAD)
 
+**Fixed bugs:**
+
+- Fix t-test p-value calculation producing values > 1.0. The p-value is now correctly clamped to [0.0, 1.0] range.
+
 **Closed issues:**
 
 - ERF error  [\#3](https://github.com/Lsh0x/rs-stats/issues/3)

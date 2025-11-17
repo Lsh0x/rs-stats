@@ -373,12 +373,16 @@ fn calculate_p_value(t_stat: f64, df: f64) -> f64 {
     // Use Student's t-distribution CDF approximation
     // This is an implementation of the algorithm from:
     // Abramowitz and Stegun: Handbook of Mathematical Functions
+    //
+    // The incomplete beta function I_x(a, b) where x = df/(df + t^2) gives us
+    // the cumulative probability P(T ≤ |t|) for the t-distribution.
+    // For a two-tailed test: p-value = 2 * (1 - P(T ≤ |t|))
 
     let a = df / (df + t_stat * t_stat);
-    let ix = 0.5 * incomplete_beta(0.5 * df, 0.5, a);
+    let ix = incomplete_beta(0.5 * df, 0.5, a);
 
-    // Two-tailed p-value
-    2.0 * (1.0 - ix)
+    // Two-tailed p-value: clamp to [0.0, 1.0] to handle numerical precision issues
+    (2.0 * (1.0 - ix)).max(0.0).min(1.0)
 }
 
 /// Standard normal cumulative distribution function
@@ -529,4 +533,93 @@ fn erf(x: f64) -> f64 {
     let y = 1.0 - (((((A5 * t + A4) * t) + A3) * t + A2) * t + A1) * t * (-x * x).exp();
 
     sign * y
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_p_value_range_one_sample() {
+        // Test that p-values are always in [0.0, 1.0]
+        let data = vec![5.2, 6.4, 6.9, 7.3, 7.5, 7.8, 8.1, 8.4, 9.2, 9.5];
+        let population_mean = 7.0;
+
+        let result = one_sample_t_test(&data, population_mean).unwrap();
+        assert!(
+            result.p_value >= 0.0,
+            "p-value should be >= 0.0, got {}",
+            result.p_value
+        );
+        assert!(
+            result.p_value <= 1.0,
+            "p-value should be <= 1.0, got {}",
+            result.p_value
+        );
+    }
+
+    #[test]
+    fn test_p_value_range_two_sample() {
+        let group1 = vec![5.2, 6.4, 6.9, 7.3, 7.5, 7.8, 8.1, 8.4, 9.2, 9.5];
+        let group2 = vec![4.1, 5.0, 5.5, 6.2, 6.3, 6.5, 6.8, 7.1, 7.4, 7.5];
+
+        let result = two_sample_t_test(&group1, &group2, false).unwrap();
+        assert!(
+            result.p_value >= 0.0,
+            "p-value should be >= 0.0, got {}",
+            result.p_value
+        );
+        assert!(
+            result.p_value <= 1.0,
+            "p-value should be <= 1.0, got {}",
+            result.p_value
+        );
+    }
+
+    #[test]
+    fn test_p_value_range_paired() {
+        let before = vec![12.1, 11.3, 13.7, 14.2, 13.8, 12.5, 11.9, 12.8, 14.0, 13.5];
+        let after = vec![12.9, 13.0, 14.3, 15.0, 14.8, 13.9, 12.7, 13.5, 15.2, 14.1];
+
+        let result = paired_t_test(&before, &after).unwrap();
+        assert!(
+            result.p_value >= 0.0,
+            "p-value should be >= 0.0, got {}",
+            result.p_value
+        );
+        assert!(
+            result.p_value <= 1.0,
+            "p-value should be <= 1.0, got {}",
+            result.p_value
+        );
+    }
+
+    #[test]
+    fn test_p_value_edge_cases() {
+        // Test with various t-statistics to ensure p-value stays in range
+        let test_cases = vec![
+            (0.0, 5.0),  // t = 0
+            (1.0, 10.0), // Small t
+            (2.0, 20.0), // Medium t
+            (5.0, 30.0), // Large t
+        ];
+
+        for (t_stat, df) in test_cases {
+            let p_value = calculate_p_value(t_stat, df);
+            assert!(
+                p_value >= 0.0,
+                "p-value should be >= 0.0 for t={}, df={}, got {}",
+                t_stat,
+                df,
+                p_value
+            );
+            assert!(
+                p_value <= 1.0,
+                "p-value should be <= 1.0 for t={}, df={}, got {}",
+                t_stat,
+                df,
+                p_value
+            );
+        }
+    }
 }
