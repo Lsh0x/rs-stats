@@ -2,7 +2,7 @@
 
 [![Rust](https://img.shields.io/badge/rust-1.56%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.2.0-green.svg)](https://crates.io/crates/rs-stats)
+[![Version](https://img.shields.io/badge/version-1.2.1-green.svg)](https://crates.io/crates/rs-stats)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/lsh0x/rs-stats/actions)
 [![GitHub last commit](https://img.shields.io/github/last-commit/lsh0x/rs-stats)](https://github.com/lsh0x/rs-stats/commits/main)
 [![CI](https://github.com/lsh0x/rs-stats/workflows/CI/badge.svg)](https://github.com/lsh0x/rs-stats/actions)
@@ -49,7 +49,7 @@ Add rs-stats to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rs-stats = "1.2.0"
+rs-stats = "1.2.1"
 ```
 
 Or use cargo add:
