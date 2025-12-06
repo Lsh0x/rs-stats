@@ -56,17 +56,19 @@ where
 {
     if data.is_empty() {
         return Err(StatsError::empty_data(
-            "Cannot calculate average of empty dataset"
+            "Cannot calculate average of empty dataset",
         ));
     }
     let sum: f64 = data
         .iter()
         .enumerate()
         .map(|(i, x)| {
-            x.to_f64().ok_or_else(|| StatsError::conversion_error(format!(
-                "Failed to convert value at index {} to f64",
-                i
-            )))
+            x.to_f64().ok_or_else(|| {
+                StatsError::conversion_error(format!(
+                    "Failed to convert value at index {} to f64",
+                    i
+                ))
+            })
         })
         .collect::<Result<Vec<f64>, _>>()?
         .iter()
@@ -103,10 +105,7 @@ mod tests {
         let data: Vec<f64> = Vec::new();
         let result = average(&data);
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            StatsError::EmptyData { .. }
-        ));
+        assert!(matches!(result.unwrap_err(), StatsError::EmptyData { .. }));
     }
 
     #[test]

@@ -45,9 +45,10 @@ pub fn factorial(n: u64) -> u64 {
 /// ```
 pub fn permutation(n: u64, k: u64) -> StatsResult<u64> {
     if k > n {
-        return Err(StatsError::invalid_input(
-            format!("k ({}) cannot be greater than n ({})", k, n),
-        ));
+        return Err(StatsError::invalid_input(format!(
+            "k ({}) cannot be greater than n ({})",
+            k, n
+        )));
     }
     Ok(((n - k + 1)..=n).product::<u64>())
 }
@@ -76,9 +77,10 @@ pub fn permutation(n: u64, k: u64) -> StatsResult<u64> {
 /// ```
 pub fn combination(n: u64, k: u64) -> StatsResult<u64> {
     if k > n {
-        return Err(StatsError::invalid_input(
-            format!("k ({}) cannot be greater than n ({})", k, n),
-        ));
+        return Err(StatsError::invalid_input(format!(
+            "k ({}) cannot be greater than n ({})",
+            k, n
+        )));
     }
     let k = if k > n - k { n - k } else { k };
     Ok((1..=k).fold(1, |acc, x| acc * (n - x + 1) / x))

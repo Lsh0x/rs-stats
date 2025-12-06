@@ -58,17 +58,16 @@ where
 {
     if data.is_empty() {
         return Err(StatsError::empty_data(
-            "Cannot calculate variance of empty dataset"
+            "Cannot calculate variance of empty dataset",
         ));
     }
 
     let avg = average(data)?;
     let mut sum = 0.0;
     for (i, x) in data.iter().enumerate() {
-        let x = x.to_f64().ok_or_else(|| StatsError::conversion_error(format!(
-            "Failed to convert value at index {} to f64",
-            i
-        )))?;
+        let x = x.to_f64().ok_or_else(|| {
+            StatsError::conversion_error(format!("Failed to convert value at index {} to f64", i))
+        })?;
         sum += (x - avg).powi(2);
     }
     Ok(sum / data.len() as f64)

@@ -90,7 +90,7 @@ where
     // Check if we have at least 2 groups
     if groups_data.len() < 2 {
         return Err(StatsError::invalid_input(
-            "ANOVA requires at least 2 groups"
+            "ANOVA requires at least 2 groups",
         ));
     }
 
@@ -110,7 +110,8 @@ where
         if converted_group.len() < 2 {
             return Err(StatsError::invalid_input(format!(
                 "Each group must have at least 2 observations (group {} has {})",
-                group_idx, converted_group.len()
+                group_idx,
+                converted_group.len()
             )));
         }
         groups.push(converted_group);

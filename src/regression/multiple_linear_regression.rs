@@ -76,7 +76,7 @@ where
         // Validate inputs
         if x_values.is_empty() || y_values.is_empty() {
             return Err(StatsError::empty_data(
-                "Cannot fit regression with empty arrays"
+                "Cannot fit regression with empty arrays",
             ));
         }
 
@@ -101,7 +101,9 @@ where
             if row.len() != self.p {
                 return Err(StatsError::invalid_input(format!(
                     "All rows in X must have the same number of features (row {} has {} features, expected {})",
-                    i, row.len(), self.p
+                    i,
+                    row.len(),
+                    self.p
                 )));
             }
         }
@@ -113,10 +115,12 @@ where
                 .iter()
                 .enumerate()
                 .map(|(col_idx, &x)| {
-                    T::from(x).ok_or_else(|| StatsError::conversion_error(format!(
-                        "Failed to cast X value at row {}, column {} to type T",
-                        row_idx, col_idx
-                    )))
+                    T::from(x).ok_or_else(|| {
+                        StatsError::conversion_error(format!(
+                            "Failed to cast X value at row {}, column {} to type T",
+                            row_idx, col_idx
+                        ))
+                    })
                 })
                 .collect();
             x_cast.push(row_cast?);
@@ -126,10 +130,12 @@ where
             .iter()
             .enumerate()
             .map(|(i, &y)| {
-                T::from(y).ok_or_else(|| StatsError::conversion_error(format!(
-                    "Failed to cast Y value at index {} to type T",
-                    i
-                )))
+                T::from(y).ok_or_else(|| {
+                    StatsError::conversion_error(format!(
+                        "Failed to cast Y value at index {} to type T",
+                        i
+                    ))
+                })
             })
             .collect::<StatsResult<Vec<T>>>()?;
 
@@ -157,10 +163,9 @@ where
         }
 
         // Calculate fitted values and R²
-        let n_as_t = T::from(self.n).ok_or_else(|| StatsError::conversion_error(format!(
-            "Failed to convert {} to type T",
-            self.n
-        )))?;
+        let n_as_t = T::from(self.n).ok_or_else(|| {
+            StatsError::conversion_error(format!("Failed to convert {} to type T", self.n))
+        })?;
         let y_mean = y_cast.iter().fold(T::zero(), |acc, &y| acc + y) / n_as_t;
 
         let mut ss_total = T::zero();
@@ -181,14 +186,18 @@ where
 
             // Adjusted R² = 1 - [(1 - R²) * (n - 1) / (n - p - 1)]
             if self.n > self.p + 1 {
-                let n_minus_1 = T::from(self.n - 1).ok_or_else(|| StatsError::conversion_error(format!(
-                    "Failed to convert {} to type T",
-                    self.n - 1
-                )))?;
-                let n_minus_p_minus_1 = T::from(self.n - self.p - 1).ok_or_else(|| StatsError::conversion_error(format!(
-                    "Failed to convert {} to type T",
-                    self.n - self.p - 1
-                )))?;
+                let n_minus_1 = T::from(self.n - 1).ok_or_else(|| {
+                    StatsError::conversion_error(format!(
+                        "Failed to convert {} to type T",
+                        self.n - 1
+                    ))
+                })?;
+                let n_minus_p_minus_1 = T::from(self.n - self.p - 1).ok_or_else(|| {
+                    StatsError::conversion_error(format!(
+                        "Failed to convert {} to type T",
+                        self.n - self.p - 1
+                    ))
+                })?;
 
                 self.adjusted_r_squared =
                     T::one() - ((T::one() - self.r_squared) * n_minus_1 / n_minus_p_minus_1);
@@ -197,10 +206,12 @@ where
 
         // Calculate standard error
         if self.n > self.p + 1 {
-            let n_minus_p_minus_1 = T::from(self.n - self.p - 1).ok_or_else(|| StatsError::conversion_error(format!(
-                "Failed to convert {} to type T",
-                self.n - self.p - 1
-            )))?;
+            let n_minus_p_minus_1 = T::from(self.n - self.p - 1).ok_or_else(|| {
+                StatsError::conversion_error(format!(
+                    "Failed to convert {} to type T",
+                    self.n - self.p - 1
+                ))
+            })?;
             self.standard_error = (ss_residual / n_minus_p_minus_1).sqrt();
         }
 
@@ -272,7 +283,7 @@ where
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), io::Error> {
         let file = File::create(path)?;
         // Use JSON format for human-readability
-        serde_json::to_writer(file, self).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        serde_json::to_writer(file, self).map_err(|e| io::Error::other(e))
     }
 
     /// Save the model in binary format
@@ -285,7 +296,7 @@ where
     pub fn save_binary<P: AsRef<Path>>(&self, path: P) -> Result<(), io::Error> {
         let file = File::create(path)?;
         // Use bincode for more compact binary format
-        bincode::serialize_into(file, self).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        bincode::serialize_into(file, self).map_err(|e| io::Error::other(e))
     }
 
     /// Load a model from a file
@@ -408,12 +419,12 @@ where
                 }
             }
 
-            let epsilon: T = T::from(1e-10).ok_or_else(|| StatsError::conversion_error(
-                "Failed to convert epsilon (1e-10) to type T"
-            ))?;
+            let epsilon: T = T::from(1e-10).ok_or_else(|| {
+                StatsError::conversion_error("Failed to convert epsilon (1e-10) to type T")
+            })?;
             if max_val < epsilon {
                 return Err(StatsError::mathematical_error(
-                    "Matrix is singular or near-singular, cannot solve linear system"
+                    "Matrix is singular or near-singular, cannot solve linear system",
                 ));
             }
 

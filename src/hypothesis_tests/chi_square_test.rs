@@ -56,16 +56,23 @@ use std::fmt::Debug;
 /// println!("P-value: {}", p_value);
 /// # Ok::<(), rs_stats::StatsError>(())
 /// ```
-pub fn chi_square_goodness_of_fit<T, U>(observed: &[T], expected: &[U]) -> StatsResult<(f64, usize, f64)>
+pub fn chi_square_goodness_of_fit<T, U>(
+    observed: &[T],
+    expected: &[U],
+) -> StatsResult<(f64, usize, f64)>
 where
     T: ToPrimitive + Debug + Copy,
     U: ToPrimitive + Debug + Copy,
 {
     if observed.is_empty() {
-        return Err(StatsError::empty_data("Observed frequencies cannot be empty"));
+        return Err(StatsError::empty_data(
+            "Observed frequencies cannot be empty",
+        ));
     }
     if expected.is_empty() {
-        return Err(StatsError::empty_data("Expected frequencies cannot be empty"));
+        return Err(StatsError::empty_data(
+            "Expected frequencies cannot be empty",
+        ));
     }
     if observed.len() != expected.len() {
         return Err(StatsError::dimension_mismatch(format!(
@@ -79,18 +86,18 @@ where
     let degrees_of_freedom = observed.len() - 1;
 
     for i in 0..observed.len() {
-        let obs = observed[i]
-            .to_f64()
-            .ok_or_else(|| StatsError::conversion_error(format!(
+        let obs = observed[i].to_f64().ok_or_else(|| {
+            StatsError::conversion_error(format!(
                 "Failed to convert observed value at index {} to f64",
                 i
-            )))?;
-        let exp = expected[i]
-            .to_f64()
-            .ok_or_else(|| StatsError::conversion_error(format!(
+            ))
+        })?;
+        let exp = expected[i].to_f64().ok_or_else(|| {
+            StatsError::conversion_error(format!(
                 "Failed to convert expected value at index {} to f64",
                 i
-            )))?;
+            ))
+        })?;
 
         if exp <= 0.0 {
             return Err(StatsError::invalid_parameter(format!(
@@ -163,7 +170,7 @@ where
     if observed_matrix.is_empty() {
         return Err(StatsError::empty_data("Observed matrix cannot be empty"));
     }
-    
+
     let row_count = observed_matrix.len();
     let col_count = observed_matrix[0].len();
 
@@ -172,7 +179,9 @@ where
         if row.len() != col_count {
             return Err(StatsError::dimension_mismatch(format!(
                 "All rows in the observed matrix must have the same length (row {} has length {}, expected {})",
-                row_idx, row.len(), col_count
+                row_idx,
+                row.len(),
+                col_count
             )));
         }
     }
@@ -186,15 +195,19 @@ where
         for (j, col_sum) in col_sums.iter_mut().enumerate().take(col_count) {
             let value = observed_matrix[i]
                 .get(j)
-                .ok_or_else(|| StatsError::index_out_of_bounds(format!(
-                    "Index out of bounds: row {}, column {}",
-                    i, j
-                )))?
+                .ok_or_else(|| {
+                    StatsError::index_out_of_bounds(format!(
+                        "Index out of bounds: row {}, column {}",
+                        i, j
+                    ))
+                })?
                 .to_f64()
-                .ok_or_else(|| StatsError::conversion_error(format!(
-                    "Failed to convert observed value at row {}, column {} to f64",
-                    i, j
-                )))?;
+                .ok_or_else(|| {
+                    StatsError::conversion_error(format!(
+                        "Failed to convert observed value at row {}, column {} to f64",
+                        i, j
+                    ))
+                })?;
 
             row_sums[i] += value;
             *col_sum += value;
@@ -220,15 +233,19 @@ where
 
             let observed = observed_matrix[i]
                 .get(j)
-                .ok_or_else(|| StatsError::index_out_of_bounds(format!(
-                    "Index out of bounds: row {}, column {}",
-                    i, j
-                )))?
+                .ok_or_else(|| {
+                    StatsError::index_out_of_bounds(format!(
+                        "Index out of bounds: row {}, column {}",
+                        i, j
+                    ))
+                })?
                 .to_f64()
-                .ok_or_else(|| StatsError::conversion_error(format!(
-                    "Failed to convert observed value at row {}, column {} to f64",
-                    i, j
-                )))?;
+                .ok_or_else(|| {
+                    StatsError::conversion_error(format!(
+                        "Failed to convert observed value at row {}, column {} to f64",
+                        i, j
+                    ))
+                })?;
 
             let diff = observed - expected;
             // Use more precise calculation method
@@ -405,10 +422,7 @@ mod tests {
 
         let result = chi_square_goodness_of_fit(&observed, &expected);
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            StatsError::EmptyData { .. }
-        ));
+        assert!(matches!(result.unwrap_err(), StatsError::EmptyData { .. }));
     }
 
     #[test]
@@ -417,10 +431,7 @@ mod tests {
 
         let result = chi_square_independence(&observed);
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            StatsError::EmptyData { .. }
-        ));
+        assert!(matches!(result.unwrap_err(), StatsError::EmptyData { .. }));
     }
 
     #[test]

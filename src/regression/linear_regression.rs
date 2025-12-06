@@ -80,7 +80,7 @@ where
 
         if x_values.is_empty() {
             return Err(StatsError::empty_data(
-                "Cannot fit regression with empty arrays"
+                "Cannot fit regression with empty arrays",
             ));
         }
 
@@ -92,10 +92,12 @@ where
             .iter()
             .enumerate()
             .map(|(i, &x)| {
-                T::from(x).ok_or_else(|| StatsError::conversion_error(format!(
-                    "Failed to cast X value at index {} to type T",
-                    i
-                )))
+                T::from(x).ok_or_else(|| {
+                    StatsError::conversion_error(format!(
+                        "Failed to cast X value at index {} to type T",
+                        i
+                    ))
+                })
             })
             .collect::<StatsResult<Vec<T>>>()?;
 
@@ -103,18 +105,19 @@ where
             .iter()
             .enumerate()
             .map(|(i, &y)| {
-                T::from(y).ok_or_else(|| StatsError::conversion_error(format!(
-                    "Failed to cast Y value at index {} to type T",
-                    i
-                )))
+                T::from(y).ok_or_else(|| {
+                    StatsError::conversion_error(format!(
+                        "Failed to cast Y value at index {} to type T",
+                        i
+                    ))
+                })
             })
             .collect::<StatsResult<Vec<T>>>()?;
 
         // Calculate means
-        let n_as_t = T::from(n).ok_or_else(|| StatsError::conversion_error(format!(
-            "Failed to convert {} to type T",
-            n
-        )))?;
+        let n_as_t = T::from(n).ok_or_else(|| {
+            StatsError::conversion_error(format!("Failed to convert {} to type T", n))
+        })?;
         let x_mean = x_cast.iter().fold(T::zero(), |acc, &x| acc + x) / n_as_t;
         let y_mean = y_cast.iter().fold(T::zero(), |acc, &y| acc + y) / n_as_t;
 
@@ -135,7 +138,7 @@ where
         // Check if there's any variance in x
         if sum_xx == T::zero() {
             return Err(StatsError::invalid_parameter(
-                "No variance in X values, cannot fit regression line"
+                "No variance in X values, cannot fit regression line",
             ));
         }
 
@@ -156,9 +159,8 @@ where
 
         // Standard error of the estimate
         if n > 2 {
-            let two = T::from(2).ok_or_else(|| StatsError::conversion_error(
-                "Failed to convert 2 to type T"
-            ))?;
+            let two = T::from(2)
+                .ok_or_else(|| StatsError::conversion_error("Failed to convert 2 to type T"))?;
             let n_minus_two = n_as_t - two;
             self.standard_error = (sum_squared_residuals / n_minus_two).sqrt();
         } else {
@@ -225,30 +227,31 @@ where
     {
         if self.n < 3 {
             return Err(StatsError::invalid_input(
-                "Need at least 3 data points to calculate confidence interval"
+                "Need at least 3 data points to calculate confidence interval",
             ));
         }
 
-        let x_cast: T = T::from(x).ok_or_else(|| StatsError::conversion_error(
-            "Failed to convert x value to type T"
-        ))?;
+        let x_cast: T = T::from(x)
+            .ok_or_else(|| StatsError::conversion_error("Failed to convert x value to type T"))?;
 
         // Get the t-critical value based on degrees of freedom and confidence level
         // For simplicity, we'll use a normal approximation with standard errors
         let z_score: T = match confidence_level {
-            0.90 => T::from(1.645).ok_or_else(|| StatsError::conversion_error(
-                "Failed to convert z-score 1.645 to type T"
-            ))?,
-            0.95 => T::from(1.96).ok_or_else(|| StatsError::conversion_error(
-                "Failed to convert z-score 1.96 to type T"
-            ))?,
-            0.99 => T::from(2.576).ok_or_else(|| StatsError::conversion_error(
-                "Failed to convert z-score 2.576 to type T"
-            ))?,
-            _ => return Err(StatsError::invalid_parameter(format!(
-                "Unsupported confidence level: {}. Supported values: 0.90, 0.95, 0.99",
-                confidence_level
-            ))),
+            0.90 => T::from(1.645).ok_or_else(|| {
+                StatsError::conversion_error("Failed to convert z-score 1.645 to type T")
+            })?,
+            0.95 => T::from(1.96).ok_or_else(|| {
+                StatsError::conversion_error("Failed to convert z-score 1.96 to type T")
+            })?,
+            0.99 => T::from(2.576).ok_or_else(|| {
+                StatsError::conversion_error("Failed to convert z-score 2.576 to type T")
+            })?,
+            _ => {
+                return Err(StatsError::invalid_parameter(format!(
+                    "Unsupported confidence level: {}. Supported values: 0.90, 0.95, 0.99",
+                    confidence_level
+                )));
+            }
         };
 
         let predicted = self.predict_t(x_cast);
@@ -273,7 +276,7 @@ where
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), io::Error> {
         let file = File::create(path)?;
         // Use JSON format for human-readability
-        serde_json::to_writer(file, self).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        serde_json::to_writer(file, self).map_err(|e| io::Error::other(e))
     }
 
     /// Save the model in binary format
@@ -286,7 +289,7 @@ where
     pub fn save_binary<P: AsRef<Path>>(&self, path: P) -> Result<(), io::Error> {
         let file = File::create(path)?;
         // Use bincode for more compact binary format
-        bincode::serialize_into(file, self).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        bincode::serialize_into(file, self).map_err(|e| io::Error::other(e))
     }
 
     /// Load a model from a file

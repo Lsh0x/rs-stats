@@ -74,18 +74,20 @@ where
     T: ToPrimitive + Debug + Copy,
 {
     if data.is_empty() {
-        return Err(StatsError::empty_data("Cannot perform t-test on empty data"));
+        return Err(StatsError::empty_data(
+            "Cannot perform t-test on empty data",
+        ));
     }
 
     if data.len() < 2 {
         return Err(StatsError::invalid_input(
-            "Need at least 2 data points for t-test"
+            "Need at least 2 data points for t-test",
         ));
     }
 
-    let pop_mean = population_mean.to_f64().ok_or_else(|| {
-        StatsError::conversion_error("Failed to convert population mean to f64")
-    })?;
+    let pop_mean = population_mean
+        .to_f64()
+        .ok_or_else(|| StatsError::conversion_error("Failed to convert population mean to f64"))?;
 
     // Calculate sample statistics
     let n = data.len() as f64;
@@ -152,12 +154,14 @@ where
     T: ToPrimitive + Debug + Copy,
 {
     if data1.is_empty() || data2.is_empty() {
-        return Err(StatsError::empty_data("Cannot perform t-test on empty data"));
+        return Err(StatsError::empty_data(
+            "Cannot perform t-test on empty data",
+        ));
     }
 
     if data1.len() < 2 || data2.len() < 2 {
         return Err(StatsError::invalid_input(
-            "Need at least 2 data points in each group for t-test"
+            "Need at least 2 data points in each group for t-test",
         ));
     }
 
@@ -242,7 +246,9 @@ where
     T: ToPrimitive + Debug + Copy,
 {
     if data1.is_empty() || data2.is_empty() {
-        return Err(StatsError::empty_data("Cannot perform paired t-test on empty data"));
+        return Err(StatsError::empty_data(
+            "Cannot perform paired t-test on empty data",
+        ));
     }
 
     if data1.len() != data2.len() {
@@ -255,7 +261,7 @@ where
 
     if data1.len() < 2 {
         return Err(StatsError::invalid_input(
-            "Need at least 2 pairs for paired t-test"
+            "Need at least 2 pairs for paired t-test",
         ));
     }
 
@@ -264,11 +270,17 @@ where
 
     for i in 0..data1.len() {
         let val1 = data1[i].to_f64().ok_or_else(|| {
-            StatsError::conversion_error(format!("Failed to convert data1 value at index {} to f64", i))
+            StatsError::conversion_error(format!(
+                "Failed to convert data1 value at index {} to f64",
+                i
+            ))
         })?;
 
         let val2 = data2[i].to_f64().ok_or_else(|| {
-            StatsError::conversion_error(format!("Failed to convert data2 value at index {} to f64", i))
+            StatsError::conversion_error(format!(
+                "Failed to convert data2 value at index {} to f64",
+                i
+            ))
         })?;
 
         differences.push(val1 - val2);
@@ -320,7 +332,9 @@ where
     T: ToPrimitive + Debug,
 {
     if data.is_empty() {
-        return Err(StatsError::empty_data("Cannot calculate mean of empty data"));
+        return Err(StatsError::empty_data(
+            "Cannot calculate mean of empty data",
+        ));
     }
 
     let mut sum = 0.0;
@@ -342,12 +356,14 @@ where
     T: ToPrimitive + Debug,
 {
     if data.is_empty() {
-        return Err(StatsError::empty_data("Cannot calculate variance of empty data"));
+        return Err(StatsError::empty_data(
+            "Cannot calculate variance of empty data",
+        ));
     }
 
     if data.len() < 2 {
         return Err(StatsError::invalid_input(
-            "Need at least 2 data points to calculate variance"
+            "Need at least 2 data points to calculate variance",
         ));
     }
 
@@ -392,7 +408,7 @@ fn calculate_p_value(t_stat: f64, df: f64) -> f64 {
     let ix = incomplete_beta(0.5 * df, 0.5, a);
 
     // Two-tailed p-value: clamp to [0.0, 1.0] to handle numerical precision issues
-    (2.0 * (1.0 - ix)).max(0.0).min(1.0)
+    (2.0 * (1.0 - ix)).clamp(0.0, 1.0)
 }
 
 /// Standard normal cumulative distribution function

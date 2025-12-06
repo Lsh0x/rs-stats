@@ -186,7 +186,9 @@ where
             if feature_vec.len() != n_features {
                 return Err(StatsError::invalid_input(format!(
                     "All feature vectors must have the same length (vector {} has {} features, expected {})",
-                    i, feature_vec.len(), n_features
+                    i,
+                    feature_vec.len(),
+                    n_features
                 )));
             }
         }
@@ -256,7 +258,7 @@ where
         // Create a threshold value of type T from the numerical value we calculated
         let t_threshold = NumCast::from(threshold).ok_or_else(|| {
             StatsError::conversion_error(
-                "Failed to convert threshold to the feature type".to_string()
+                "Failed to convert threshold to the feature type".to_string(),
             )
         })?;
 
@@ -288,7 +290,7 @@ where
         // Initialize with worst possible impurity
         let mut best_impurity = F::infinity();
         let mut best_feature = 0;
-        let mut best_threshold = features[indices[0]][0].clone();
+        let mut best_threshold = features[indices[0]][0];
         let mut best_left = Vec::new();
         let mut best_right = Vec::new();
 
@@ -299,7 +301,7 @@ where
                 // Get all unique values for this feature
                 let mut feature_values: Vec<(usize, D)> = indices
                     .iter()
-                    .map(|&idx| (idx, features[idx][feature_idx].clone()))
+                    .map(|&idx| (idx, features[idx][feature_idx]))
                     .collect();
 
                 // Sort values by feature value
@@ -317,7 +319,7 @@ where
                             .unwrap_or(Ordering::Equal)
                             != Ordering::Equal
                     {
-                        values.push(val.clone());
+                        values.push(*val);
                         prev_val = Some(val);
                     }
                 }
@@ -329,7 +331,7 @@ where
 
                 // Try all possible thresholds between consecutive values
                 let mut feature_best_impurity = F::infinity();
-                let mut feature_best_threshold = values[0].clone();
+                let mut feature_best_threshold = values[0];
                 let mut feature_best_left = Vec::new();
                 let mut feature_best_right = Vec::new();
 
@@ -531,16 +533,14 @@ where
         let (_, class_counts) = self.calculate_class_distribution(target, indices);
         let n_samples = indices.len();
 
-        let gini = F::one()
+        F::one()
             - class_counts
                 .values()
                 .map(|&count| {
                     let probability: F = (count as f64 / n_samples as f64).as_();
                     probability * probability
                 })
-                .fold(F::zero(), |a, b| a + b);
-
-        gini
+                .fold(F::zero(), |a, b| a + b)
     }
 
     /// Calculate the entropy for a set of samples
@@ -552,7 +552,7 @@ where
         let (_, class_counts) = self.calculate_class_distribution(target, indices);
         let n_samples = indices.len();
 
-        let entropy = -class_counts
+        -class_counts
             .values()
             .map(|&count| {
                 let probability: F = (count as f64 / n_samples as f64).as_();
@@ -562,16 +562,14 @@ where
                     F::zero()
                 }
             })
-            .fold(F::zero(), |a, b| a + b);
-
-        entropy
+            .fold(F::zero(), |a, b| a + b)
     }
 
     /// Calculate the mean of target values for a set of samples
     fn calculate_mean(&self, target: &[T], indices: &[usize]) -> StatsResult<T> {
         if indices.is_empty() {
             return Err(StatsError::empty_data(
-                "Cannot calculate mean for empty indices"
+                "Cannot calculate mean for empty indices",
             ));
         }
 
@@ -582,16 +580,15 @@ where
             .map(|&idx| target[idx].as_())
             .fold(F::zero(), |a, b| a + b);
 
-        let count: F = F::from(indices.len()).ok_or_else(|| StatsError::conversion_error(format!(
-            "Failed to convert {} to type F",
-            indices.len()
-        )))?;
+        let count: F = F::from(indices.len()).ok_or_else(|| {
+            StatsError::conversion_error(format!("Failed to convert {} to type F", indices.len()))
+        })?;
         let mean_f = sum / count;
 
         // Convert back to T (this might round for integer types)
-        NumCast::from(mean_f).ok_or_else(|| StatsError::conversion_error(
-            "Failed to convert mean to the target type".to_string()
-        ))
+        NumCast::from(mean_f).ok_or_else(|| {
+            StatsError::conversion_error("Failed to convert mean to the target type".to_string())
+        })
     }
 
     /// Calculate the class distribution and majority class for a set of samples
@@ -603,7 +600,7 @@ where
         let mut class_counts: HashMap<T, usize> = HashMap::new();
 
         for &idx in indices {
-            let class = target[idx].clone();
+            let class = target[idx];
             *class_counts.entry(class).or_insert(0) += 1;
         }
 
@@ -611,7 +608,7 @@ where
         let (majority_class, _) = class_counts
             .iter()
             .max_by_key(|&(_, count)| *count)
-            .map(|(class, count)| (class.clone(), *count))
+            .map(|(&class, count)| (class, *count))
             .unwrap_or_else(|| {
                 // Default value if empty (should never happen)
                 (NumCast::from(0.0).unwrap(), 0)
@@ -659,7 +656,7 @@ where
     {
         if self.nodes.is_empty() {
             return Err(StatsError::not_fitted(
-                "Decision tree has not been trained yet"
+                "Decision tree has not been trained yet",
             ));
         }
 
@@ -668,24 +665,24 @@ where
             let node = &self.nodes[node_idx];
 
             if node.is_leaf() {
-                return node.value.as_ref()
-                    .ok_or_else(|| StatsError::invalid_input(
-                        "Leaf node missing value"
-                    ))
-                    .map(|v| v.clone());
+                return node.value.clone().ok_or_else(|| {
+                    StatsError::invalid_input("Leaf node missing value")
+                });
             }
 
-            let feature_idx = node.feature_idx.ok_or_else(|| StatsError::invalid_input(
-                "Internal node missing feature index"
-            ))?;
-            let threshold = node.threshold.as_ref().ok_or_else(|| StatsError::invalid_input(
-                "Internal node missing threshold"
-            ))?;
+            let feature_idx = node
+                .feature_idx
+                .ok_or_else(|| StatsError::invalid_input("Internal node missing feature index"))?;
+            let threshold = node
+                .threshold
+                .as_ref()
+                .ok_or_else(|| StatsError::invalid_input("Internal node missing threshold"))?;
 
             if feature_idx >= features.len() {
                 return Err(StatsError::index_out_of_bounds(format!(
                     "Feature index {} is out of bounds (features has {} elements)",
-                    feature_idx, features.len()
+                    feature_idx,
+                    features.len()
                 )));
             }
 
@@ -693,24 +690,25 @@ where
 
             // Use partial_cmp for comparison to handle all types
             // Convert threshold (type T) to type D for comparison
-            let threshold_d = D::from(threshold.clone())
-                .ok_or_else(|| StatsError::conversion_error(format!(
+            let threshold_d = D::from(*threshold).ok_or_else(|| {
+                StatsError::conversion_error(format!(
                     "Failed to convert threshold {:?} to feature type",
                     threshold
-                )))?;
+                ))
+            })?;
 
             let comparison = feature_val
                 .partial_cmp(&threshold_d)
                 .unwrap_or(Ordering::Equal);
 
             if comparison != Ordering::Greater {
-                node_idx = node.left.ok_or_else(|| StatsError::invalid_input(
-                    "Internal node missing left child"
-                ))?;
+                node_idx = node
+                    .left
+                    .ok_or_else(|| StatsError::invalid_input("Internal node missing left child"))?;
             } else {
-                node_idx = node.right.ok_or_else(|| StatsError::invalid_input(
-                    "Internal node missing right child"
-                ))?;
+                node_idx = node.right.ok_or_else(|| {
+                    StatsError::invalid_input("Internal node missing right child")
+                })?;
             }
         }
     }
@@ -1379,7 +1377,10 @@ mod tests {
         let empty_target: Vec<i32> = vec![];
 
         let result = tree.fit(&empty_features, &empty_target);
-        assert!(result.is_err(), "Fitting with empty features should return an error");
+        assert!(
+            result.is_err(),
+            "Fitting with empty features should return an error"
+        );
     }
 
     // Edge case test: Only one class in classification
