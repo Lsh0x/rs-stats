@@ -667,7 +667,6 @@ where
             if node.is_leaf() {
                 return node
                     .value
-                    .clone()
                     .ok_or_else(|| StatsError::invalid_input("Leaf node missing value"));
             }
 

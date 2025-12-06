@@ -276,7 +276,7 @@ where
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), io::Error> {
         let file = File::create(path)?;
         // Use JSON format for human-readability
-        serde_json::to_writer(file, self).map_err(|e| io::Error::other(e))
+        serde_json::to_writer(file, self).map_err(io::Error::other)
     }
 
     /// Save the model in binary format
@@ -289,7 +289,7 @@ where
     pub fn save_binary<P: AsRef<Path>>(&self, path: P) -> Result<(), io::Error> {
         let file = File::create(path)?;
         // Use bincode for more compact binary format
-        bincode::serialize_into(file, self).map_err(|e| io::Error::other(e))
+        bincode::serialize_into(file, self).map_err(io::Error::other)
     }
 
     /// Load a model from a file
