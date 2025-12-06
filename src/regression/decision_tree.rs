@@ -665,9 +665,10 @@ where
             let node = &self.nodes[node_idx];
 
             if node.is_leaf() {
-                return node.value.clone().ok_or_else(|| {
-                    StatsError::invalid_input("Leaf node missing value")
-                });
+                return node
+                    .value
+                    .clone()
+                    .ok_or_else(|| StatsError::invalid_input("Leaf node missing value"));
             }
 
             let feature_idx = node
