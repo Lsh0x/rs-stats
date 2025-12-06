@@ -13,6 +13,7 @@
 //! - Big integers (BigInt, BigUint)
 //! - Any custom type that implements ToPrimitive
 
+use crate::error::StatsResult;
 use crate::prob::variance::variance;
 use num_traits::ToPrimitive;
 use std::fmt::Debug;
@@ -26,13 +27,11 @@ use std::fmt::Debug;
 /// * `data` - A slice of numeric values implementing `ToPrimitive`
 ///
 /// # Returns
-/// * `Some(f64)` - The standard deviation as a `f64` if the input slice is non-empty
-/// * `None` - If the input slice is empty
+/// * `StatsResult<f64>` - The standard deviation as a `f64`, or an error if the input is invalid
 ///
 /// # Errors
-/// Returns `None` if:
-/// - The input slice is empty
-/// - Any value cannot be converted to f64
+/// Returns `StatsError::EmptyData` if the input slice is empty.
+/// Returns `StatsError::ConversionError` if any value cannot be converted to f64.
 ///
 /// # Examples
 /// ```
@@ -40,20 +39,21 @@ use std::fmt::Debug;
 ///
 /// // Calculate standard deviation of integers
 /// let int_data = [1, 2, 3, 4, 5];
-/// let sd = std_dev(&int_data).unwrap();
+/// let sd = std_dev(&int_data)?;
 /// println!("Standard deviation of integers: {}", sd);
 ///
 /// // Calculate standard deviation of floats
 /// let float_data = [1.0, 2.5, 3.0, 4.5, 5.0];
-/// let sd = std_dev(&float_data).unwrap();
+/// let sd = std_dev(&float_data)?;
 /// println!("Standard deviation of floats: {}", sd);
 ///
 /// // Handle empty input
 /// let empty_data: &[i32] = &[];
-/// assert!(std_dev(empty_data).is_none());
+/// assert!(std_dev(empty_data).is_err());
+/// # Ok::<(), rs_stats::StatsError>(())
 /// ```
 #[inline]
-pub fn std_dev<T>(data: &[T]) -> Option<f64>
+pub fn std_dev<T>(data: &[T]) -> StatsResult<f64>
 where
     T: ToPrimitive + Debug,
 {
@@ -69,10 +69,10 @@ mod tests {
     #[test]
     fn test_population_std_dev_integers() {
         let data = vec![1, 2, 3, 4, 5];
-        let result = std_dev(&data);
+        let result = std_dev(&data).unwrap();
         let expected = 2.0_f64.sqrt(); // sqrt of population variance (2.0)
         assert!(
-            (result.unwrap() - expected).abs() < EPSILON,
+            (result - expected).abs() < EPSILON,
             "Population std_dev for integers should be sqrt(2.0)"
         );
     }
@@ -80,10 +80,10 @@ mod tests {
     #[test]
     fn test_population_std_dev_floats() {
         let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-        let result = std_dev(&data);
+        let result = std_dev(&data).unwrap();
         let expected = 2.0_f64.sqrt(); // sqrt of population variance (2.0)
         assert!(
-            (result.unwrap() - expected).abs() < EPSILON,
+            (result - expected).abs() < EPSILON,
             "Population std_dev for floats should be sqrt(2.0)"
         );
     }
@@ -91,10 +91,10 @@ mod tests {
     #[test]
     fn test_population_std_dev_mixed_floats() {
         let data = vec![1.5, 2.5, 3.5, 4.5, 5.5];
-        let result = std_dev(&data);
+        let result = std_dev(&data).unwrap();
         let expected = 2.0_f64.sqrt(); // sqrt of population variance (2.0)
         assert!(
-            (result.unwrap() - expected).abs() < EPSILON,
+            (result - expected).abs() < EPSILON,
             "Population std_dev for mixed floats should be sqrt(2.0)"
         );
     }
