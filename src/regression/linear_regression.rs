@@ -1,5 +1,6 @@
 // src/regression/linear_regression.rs
 
+use crate::error::{StatsError, StatsResult};
 use num_traits::{Float, NumCast};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -56,19 +57,31 @@ where
     /// * `y_values` - Dependent variable values (observations)
     ///
     /// # Returns
-    /// * `Result<(), String>` - Ok if successful, Err with message if the inputs are invalid
-    pub fn fit<U, V>(&mut self, x_values: &[U], y_values: &[V]) -> Result<(), String>
+    /// * `StatsResult<()>` - Ok if successful, Err with StatsError if the inputs are invalid
+    ///
+    /// # Errors
+    /// Returns `StatsError::DimensionMismatch` if X and Y arrays have different lengths.
+    /// Returns `StatsError::EmptyData` if the input arrays are empty.
+    /// Returns `StatsError::ConversionError` if value conversion fails.
+    /// Returns `StatsError::InvalidParameter` if there's no variance in X values.
+    pub fn fit<U, V>(&mut self, x_values: &[U], y_values: &[V]) -> StatsResult<()>
     where
         U: NumCast + Copy,
         V: NumCast + Copy,
     {
         // Validate inputs
         if x_values.len() != y_values.len() {
-            return Err("X and Y arrays must have the same length".to_string());
+            return Err(StatsError::dimension_mismatch(format!(
+                "X and Y arrays must have the same length (got {} and {})",
+                x_values.len(),
+                y_values.len()
+            )));
         }
 
         if x_values.is_empty() {
-            return Err("Cannot fit regression with empty arrays".to_string());
+            return Err(StatsError::empty_data(
+                "Cannot fit regression with empty arrays"
+            ));
         }
 
         let n = x_values.len();
@@ -77,17 +90,33 @@ where
         // Convert input arrays to T type
         let x_cast: Vec<T> = x_values
             .iter()
-            .map(|&x| T::from(x).ok_or_else(|| "Failed to cast X value".to_string()))
-            .collect::<Result<Vec<T>, String>>()?;
+            .enumerate()
+            .map(|(i, &x)| {
+                T::from(x).ok_or_else(|| StatsError::conversion_error(format!(
+                    "Failed to cast X value at index {} to type T",
+                    i
+                )))
+            })
+            .collect::<StatsResult<Vec<T>>>()?;
 
         let y_cast: Vec<T> = y_values
             .iter()
-            .map(|&y| T::from(y).ok_or_else(|| "Failed to cast Y value".to_string()))
-            .collect::<Result<Vec<T>, String>>()?;
+            .enumerate()
+            .map(|(i, &y)| {
+                T::from(y).ok_or_else(|| StatsError::conversion_error(format!(
+                    "Failed to cast Y value at index {} to type T",
+                    i
+                )))
+            })
+            .collect::<StatsResult<Vec<T>>>()?;
 
         // Calculate means
-        let x_mean = x_cast.iter().fold(T::zero(), |acc, &x| acc + x) / T::from(n).unwrap();
-        let y_mean = y_cast.iter().fold(T::zero(), |acc, &y| acc + y) / T::from(n).unwrap();
+        let n_as_t = T::from(n).ok_or_else(|| StatsError::conversion_error(format!(
+            "Failed to convert {} to type T",
+            n
+        )))?;
+        let x_mean = x_cast.iter().fold(T::zero(), |acc, &x| acc + x) / n_as_t;
+        let y_mean = y_cast.iter().fold(T::zero(), |acc, &y| acc + y) / n_as_t;
 
         // Calculate variance and covariance
         let mut sum_xy = T::zero();
@@ -105,7 +134,9 @@ where
 
         // Check if there's any variance in x
         if sum_xx == T::zero() {
-            return Err("No variance in X values, cannot fit regression line".to_string());
+            return Err(StatsError::invalid_parameter(
+                "No variance in X values, cannot fit regression line"
+            ));
         }
 
         // Calculate slope and intercept
@@ -125,8 +156,11 @@ where
 
         // Standard error of the estimate
         if n > 2 {
-            let two = T::from(2).unwrap();
-            self.standard_error = (sum_squared_residuals / (T::from(n).unwrap() - two)).sqrt();
+            let two = T::from(2).ok_or_else(|| StatsError::conversion_error(
+                "Failed to convert 2 to type T"
+            ))?;
+            let n_minus_two = n_as_t - two;
+            self.standard_error = (sum_squared_residuals / n_minus_two).sqrt();
         } else {
             self.standard_error = T::zero();
         }
@@ -179,30 +213,48 @@ where
     /// * `confidence_level` - Confidence level (0.95 for 95% confidence)
     ///
     /// # Returns
-    /// * `Option<(T, T)>` - Tuple of (lower_bound, upper_bound) or None if not enough data
-    pub fn confidence_interval<U>(&self, x: U, confidence_level: f64) -> Option<(T, T)>
+    /// * `StatsResult<(T, T)>` - Tuple of (lower_bound, upper_bound), or an error if invalid
+    ///
+    /// # Errors
+    /// Returns `StatsError::InvalidInput` if there are fewer than 3 data points.
+    /// Returns `StatsError::InvalidParameter` if confidence level is not supported (only 0.90, 0.95, 0.99).
+    /// Returns `StatsError::ConversionError` if value conversion fails.
+    pub fn confidence_interval<U>(&self, x: U, confidence_level: f64) -> StatsResult<(T, T)>
     where
         U: NumCast + Copy,
     {
         if self.n < 3 {
-            return None;
+            return Err(StatsError::invalid_input(
+                "Need at least 3 data points to calculate confidence interval"
+            ));
         }
 
-        let x_cast: T = T::from(x)?;
+        let x_cast: T = T::from(x).ok_or_else(|| StatsError::conversion_error(
+            "Failed to convert x value to type T"
+        ))?;
 
         // Get the t-critical value based on degrees of freedom and confidence level
         // For simplicity, we'll use a normal approximation with standard errors
         let z_score: T = match confidence_level {
-            0.90 => T::from(1.645).unwrap(),
-            0.95 => T::from(1.96).unwrap(),
-            0.99 => T::from(2.576).unwrap(),
-            _ => return None, // Only supporting common confidence levels for simplicity
+            0.90 => T::from(1.645).ok_or_else(|| StatsError::conversion_error(
+                "Failed to convert z-score 1.645 to type T"
+            ))?,
+            0.95 => T::from(1.96).ok_or_else(|| StatsError::conversion_error(
+                "Failed to convert z-score 1.96 to type T"
+            ))?,
+            0.99 => T::from(2.576).ok_or_else(|| StatsError::conversion_error(
+                "Failed to convert z-score 2.576 to type T"
+            ))?,
+            _ => return Err(StatsError::invalid_parameter(format!(
+                "Unsupported confidence level: {}. Supported values: 0.90, 0.95, 0.99",
+                confidence_level
+            ))),
         };
 
         let predicted = self.predict_t(x_cast);
         let margin = z_score * self.standard_error;
 
-        Some((predicted - margin, predicted + margin))
+        Ok((predicted - margin, predicted + margin))
     }
 
     /// Get the correlation coefficient (r)

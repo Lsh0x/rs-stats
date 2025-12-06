@@ -1,5 +1,6 @@
 // src/regression/multiple_linear_regression.rs
 
+use crate::error::{StatsError, StatsResult};
 use num_traits::{Float, NumCast};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -59,50 +60,78 @@ where
     /// * `y_values` - Dependent variable values (observations)
     ///
     /// # Returns
-    /// * `Result<(), String>` - Ok if successful, Err with message if the inputs are invalid
-    pub fn fit<U, V>(&mut self, x_values: &[Vec<U>], y_values: &[V]) -> Result<(), String>
+    /// * `StatsResult<()>` - Ok if successful, Err with StatsError if the inputs are invalid
+    ///
+    /// # Errors
+    /// Returns `StatsError::EmptyData` if input arrays are empty.
+    /// Returns `StatsError::DimensionMismatch` if X and Y arrays have different lengths.
+    /// Returns `StatsError::InvalidInput` if rows in X have inconsistent lengths.
+    /// Returns `StatsError::ConversionError` if value conversion fails.
+    /// Returns `StatsError::MathematicalError` if the linear system cannot be solved.
+    pub fn fit<U, V>(&mut self, x_values: &[Vec<U>], y_values: &[V]) -> StatsResult<()>
     where
         U: NumCast + Copy,
         V: NumCast + Copy,
     {
         // Validate inputs
         if x_values.is_empty() || y_values.is_empty() {
-            return Err("Cannot fit regression with empty arrays".to_string());
+            return Err(StatsError::empty_data(
+                "Cannot fit regression with empty arrays"
+            ));
         }
 
         if x_values.len() != y_values.len() {
-            return Err("Number of observations in X and Y must match".to_string());
+            return Err(StatsError::dimension_mismatch(format!(
+                "Number of observations in X and Y must match (got {} and {})",
+                x_values.len(),
+                y_values.len()
+            )));
         }
 
         self.n = x_values.len();
 
         // Check that all rows in x_values have the same length
         if x_values.is_empty() {
-            return Err("X values array is empty".to_string());
+            return Err(StatsError::empty_data("X values array is empty"));
         }
 
         self.p = x_values[0].len();
 
-        for row in x_values {
+        for (i, row) in x_values.iter().enumerate() {
             if row.len() != self.p {
-                return Err("All rows in X must have the same number of features".to_string());
+                return Err(StatsError::invalid_input(format!(
+                    "All rows in X must have the same number of features (row {} has {} features, expected {})",
+                    i, row.len(), self.p
+                )));
             }
         }
 
         // Convert input arrays to T type
         let mut x_cast: Vec<Vec<T>> = Vec::with_capacity(self.n);
-        for row in x_values {
-            let row_cast: Result<Vec<T>, String> = row
+        for (row_idx, row) in x_values.iter().enumerate() {
+            let row_cast: StatsResult<Vec<T>> = row
                 .iter()
-                .map(|&x| T::from(x).ok_or_else(|| "Failed to cast X value".to_string()))
+                .enumerate()
+                .map(|(col_idx, &x)| {
+                    T::from(x).ok_or_else(|| StatsError::conversion_error(format!(
+                        "Failed to cast X value at row {}, column {} to type T",
+                        row_idx, col_idx
+                    )))
+                })
                 .collect();
             x_cast.push(row_cast?);
         }
 
         let y_cast: Vec<T> = y_values
             .iter()
-            .map(|&y| T::from(y).ok_or_else(|| "Failed to cast Y value".to_string()))
-            .collect::<Result<Vec<T>, String>>()?;
+            .enumerate()
+            .map(|(i, &y)| {
+                T::from(y).ok_or_else(|| StatsError::conversion_error(format!(
+                    "Failed to cast Y value at index {} to type T",
+                    i
+                )))
+            })
+            .collect::<StatsResult<Vec<T>>>()?;
 
         // Augment the X matrix with a column of 1s for the intercept
         let mut augmented_x = Vec::with_capacity(self.n);
@@ -128,7 +157,11 @@ where
         }
 
         // Calculate fitted values and R²
-        let y_mean = y_cast.iter().fold(T::zero(), |acc, &y| acc + y) / T::from(self.n).unwrap();
+        let n_as_t = T::from(self.n).ok_or_else(|| StatsError::conversion_error(format!(
+            "Failed to convert {} to type T",
+            self.n
+        )))?;
+        let y_mean = y_cast.iter().fold(T::zero(), |acc, &y| acc + y) / n_as_t;
 
         let mut ss_total = T::zero();
         let mut ss_residual = T::zero();
@@ -148,8 +181,14 @@ where
 
             // Adjusted R² = 1 - [(1 - R²) * (n - 1) / (n - p - 1)]
             if self.n > self.p + 1 {
-                let n_minus_1 = T::from(self.n - 1).unwrap();
-                let n_minus_p_minus_1 = T::from(self.n - self.p - 1).unwrap();
+                let n_minus_1 = T::from(self.n - 1).ok_or_else(|| StatsError::conversion_error(format!(
+                    "Failed to convert {} to type T",
+                    self.n - 1
+                )))?;
+                let n_minus_p_minus_1 = T::from(self.n - self.p - 1).ok_or_else(|| StatsError::conversion_error(format!(
+                    "Failed to convert {} to type T",
+                    self.n - self.p - 1
+                )))?;
 
                 self.adjusted_r_squared =
                     T::one() - ((T::one() - self.r_squared) * n_minus_1 / n_minus_p_minus_1);
@@ -158,7 +197,10 @@ where
 
         // Calculate standard error
         if self.n > self.p + 1 {
-            let n_minus_p_minus_1 = T::from(self.n - self.p - 1).unwrap();
+            let n_minus_p_minus_1 = T::from(self.n - self.p - 1).ok_or_else(|| StatsError::conversion_error(format!(
+                "Failed to convert {} to type T",
+                self.n - self.p - 1
+            )))?;
             self.standard_error = (ss_residual / n_minus_p_minus_1).sqrt();
         }
 
@@ -333,10 +375,15 @@ where
     }
 
     // Helper function: Solve a system of linear equations using Gaussian elimination
-    fn solve_linear_system(&self, a: &[Vec<T>], b: &[T]) -> Result<Vec<T>, String> {
+    fn solve_linear_system(&self, a: &[Vec<T>], b: &[T]) -> StatsResult<Vec<T>> {
         let n = a.len();
         if n == 0 || a[0].len() != n || b.len() != n {
-            return Err("Invalid matrix dimensions for linear system solving".to_string());
+            return Err(StatsError::dimension_mismatch(format!(
+                "Invalid matrix dimensions for linear system solving: A is {}x{}, b has {} elements",
+                n,
+                if n > 0 { a[0].len() } else { 0 },
+                b.len()
+            )));
         }
 
         // Create augmented matrix [A|b]
@@ -361,9 +408,13 @@ where
                 }
             }
 
-            let epsilon: T = T::from(1e-10).unwrap();
+            let epsilon: T = T::from(1e-10).ok_or_else(|| StatsError::conversion_error(
+                "Failed to convert epsilon (1e-10) to type T"
+            ))?;
             if max_val < epsilon {
-                return Err("Matrix is singular or near-singular".to_string());
+                return Err(StatsError::mathematical_error(
+                    "Matrix is singular or near-singular, cannot solve linear system"
+                ));
             }
 
             // Swap rows if needed

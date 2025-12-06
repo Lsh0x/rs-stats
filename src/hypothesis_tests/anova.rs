@@ -24,6 +24,7 @@
 //! - The p-value indicates the probability of observing the obtained F-statistic (or more extreme)
 //!   under the null hypothesis that all group means are equal.
 
+use crate::error::{StatsError, StatsResult};
 use num_traits::ToPrimitive;
 use std::fmt::Debug;
 
@@ -59,8 +60,12 @@ pub struct AnovaResult {
 /// * `groups_data` - A slice of slices, where each inner slice contains the data for one group
 ///
 /// # Returns
-/// An `AnovaResult` struct containing the F-statistic, degrees of freedom, and p-value,
-/// or `None` if any group has fewer than 2 observations or if there are fewer than 2 groups.
+/// `StatsResult<AnovaResult>` containing the F-statistic, degrees of freedom, and p-value.
+///
+/// # Errors
+/// Returns `StatsError::InvalidInput` if there are fewer than 2 groups.
+/// Returns `StatsError::InvalidInput` if any group has fewer than 2 observations.
+/// Returns `StatsError::ConversionError` if any value cannot be converted to f64.
 ///
 /// # Examples
 /// ```
@@ -72,33 +77,43 @@ pub struct AnovaResult {
 /// let group3 = vec![8, 9, 10, 7, 8];
 ///
 /// let groups = vec![&group1[..], &group2[..], &group3[..]];
-/// let result = one_way_anova(&groups).unwrap();
+/// let result = one_way_anova(&groups)?;
 ///
 /// println!("F-statistic: {}", result.f_statistic);
 /// println!("p-value: {}", result.p_value);
+/// # Ok::<(), rs_stats::StatsError>(())
 /// ```
-pub fn one_way_anova<T>(groups_data: &[&[T]]) -> Option<AnovaResult>
+pub fn one_way_anova<T>(groups_data: &[&[T]]) -> StatsResult<AnovaResult>
 where
     T: ToPrimitive + Copy + Debug,
 {
     // Check if we have at least 2 groups
     if groups_data.len() < 2 {
-        return None;
+        return Err(StatsError::invalid_input(
+            "ANOVA requires at least 2 groups"
+        ));
     }
 
     // Convert all data to f64 and check that each group has at least 2 observations
-    let groups: Vec<Vec<f64>> = groups_data
-        .iter()
-        .map(|group| {
-            group
-                .iter()
-                .filter_map(|&x| x.to_f64())
-                .collect::<Vec<f64>>()
-        })
-        .collect();
-
-    if groups.iter().any(|group| group.len() < 2) {
-        return None;
+    let mut groups: Vec<Vec<f64>> = Vec::with_capacity(groups_data.len());
+    for (group_idx, group) in groups_data.iter().enumerate() {
+        let mut converted_group = Vec::with_capacity(group.len());
+        for (value_idx, &value) in group.iter().enumerate() {
+            let f64_value = value.to_f64().ok_or_else(|| {
+                StatsError::conversion_error(format!(
+                    "Failed to convert value at group {}, index {} to f64",
+                    group_idx, value_idx
+                ))
+            })?;
+            converted_group.push(f64_value);
+        }
+        if converted_group.len() < 2 {
+            return Err(StatsError::invalid_input(format!(
+                "Each group must have at least 2 observations (group {} has {})",
+                group_idx, converted_group.len()
+            )));
+        }
+        groups.push(converted_group);
     }
 
     // Calculate total number of observations
@@ -150,7 +165,7 @@ where
     // Calculate p-value using the F-distribution
     let p_value = 1.0 - f_distribution_cdf(f_statistic, df_between as u32, df_within as u32);
 
-    Some(AnovaResult {
+    Ok(AnovaResult {
         f_statistic,
         df_between,
         df_within,
@@ -328,15 +343,30 @@ mod tests {
         let group1: [i32; 0] = [];
         let group2 = [1, 2, 3];
         let groups1 = [&group1[..], &group2[..]];
-        assert!(one_way_anova(&groups1).is_none());
+        let result = one_way_anova(&groups1);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
 
         // Test with only one group
         let groups2 = [&group2[..]];
-        assert!(one_way_anova(&groups2).is_none());
+        let result = one_way_anova(&groups2);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
 
         // Test with empty input
         let groups3: [&[i32]; 0] = [];
-        assert!(one_way_anova(&groups3).is_none());
+        let result = one_way_anova(&groups3);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]

@@ -16,6 +16,7 @@
 //! heavier tails compared to the normal distribution to account for the additional
 //! uncertainty from estimating the standard deviation.
 
+use crate::error::{StatsError, StatsResult};
 use num_traits::ToPrimitive;
 use std::f64;
 use std::fmt::Debug;
@@ -68,22 +69,23 @@ pub struct TTestResult {
 ///     println!("Fail to reject null hypothesis");
 /// }
 /// ```
-pub fn one_sample_t_test<T>(data: &[T], population_mean: T) -> Result<TTestResult, &'static str>
+pub fn one_sample_t_test<T>(data: &[T], population_mean: T) -> StatsResult<TTestResult>
 where
     T: ToPrimitive + Debug + Copy,
 {
     if data.is_empty() {
-        return Err("Cannot perform t-test on empty data");
+        return Err(StatsError::empty_data("Cannot perform t-test on empty data"));
     }
 
     if data.len() < 2 {
-        return Err("Need at least 2 data points for t-test");
+        return Err(StatsError::invalid_input(
+            "Need at least 2 data points for t-test"
+        ));
     }
 
-    let pop_mean = match population_mean.to_f64() {
-        Some(v) => v,
-        None => return Err("Failed to convert population mean to f64"),
-    };
+    let pop_mean = population_mean.to_f64().ok_or_else(|| {
+        StatsError::conversion_error("Failed to convert population mean to f64")
+    })?;
 
     // Calculate sample statistics
     let n = data.len() as f64;
@@ -145,16 +147,18 @@ pub fn two_sample_t_test<T>(
     data1: &[T],
     data2: &[T],
     equal_variances: bool,
-) -> Result<TTestResult, &'static str>
+) -> StatsResult<TTestResult>
 where
     T: ToPrimitive + Debug + Copy,
 {
     if data1.is_empty() || data2.is_empty() {
-        return Err("Cannot perform t-test on empty data");
+        return Err(StatsError::empty_data("Cannot perform t-test on empty data"));
     }
 
     if data1.len() < 2 || data2.len() < 2 {
-        return Err("Need at least 2 data points in each group for t-test");
+        return Err(StatsError::invalid_input(
+            "Need at least 2 data points in each group for t-test"
+        ));
     }
 
     // Calculate sample statistics
@@ -233,35 +237,39 @@ where
 ///     println!("Fail to reject null hypothesis");
 /// }
 /// ```
-pub fn paired_t_test<T>(data1: &[T], data2: &[T]) -> Result<TTestResult, &'static str>
+pub fn paired_t_test<T>(data1: &[T], data2: &[T]) -> StatsResult<TTestResult>
 where
     T: ToPrimitive + Debug + Copy,
 {
     if data1.is_empty() || data2.is_empty() {
-        return Err("Cannot perform paired t-test on empty data");
+        return Err(StatsError::empty_data("Cannot perform paired t-test on empty data"));
     }
 
     if data1.len() != data2.len() {
-        return Err("Paired t-test requires equal sample sizes");
+        return Err(StatsError::dimension_mismatch(format!(
+            "Paired t-test requires equal sample sizes (got {} and {})",
+            data1.len(),
+            data2.len()
+        )));
     }
 
     if data1.len() < 2 {
-        return Err("Need at least 2 pairs for paired t-test");
+        return Err(StatsError::invalid_input(
+            "Need at least 2 pairs for paired t-test"
+        ));
     }
 
     // Calculate differences between paired samples
     let mut differences: Vec<f64> = Vec::with_capacity(data1.len());
 
     for i in 0..data1.len() {
-        let val1 = match data1[i].to_f64() {
-            Some(v) => v,
-            None => return Err("Failed to convert data to f64"),
-        };
+        let val1 = data1[i].to_f64().ok_or_else(|| {
+            StatsError::conversion_error(format!("Failed to convert data1 value at index {} to f64", i))
+        })?;
 
-        let val2 = match data2[i].to_f64() {
-            Some(v) => v,
-            None => return Err("Failed to convert data to f64"),
-        };
+        let val2 = data2[i].to_f64().ok_or_else(|| {
+            StatsError::conversion_error(format!("Failed to convert data2 value at index {} to f64", i))
+        })?;
 
         differences.push(val1 - val2);
     }
@@ -307,48 +315,50 @@ where
 // Helper functions
 
 /// Calculates the mean of a sample
-fn calculate_mean<T>(data: &[T]) -> Result<f64, &'static str>
+fn calculate_mean<T>(data: &[T]) -> StatsResult<f64>
 where
     T: ToPrimitive + Debug,
 {
     if data.is_empty() {
-        return Err("Cannot calculate mean of empty data");
+        return Err(StatsError::empty_data("Cannot calculate mean of empty data"));
     }
 
     let mut sum = 0.0;
     let n = data.len() as f64;
 
-    for value in data {
-        match value.to_f64() {
-            Some(v) => sum += v,
-            None => return Err("Failed to convert data to f64"),
-        }
+    for (i, value) in data.iter().enumerate() {
+        let v = value.to_f64().ok_or_else(|| {
+            StatsError::conversion_error(format!("Failed to convert value at index {} to f64", i))
+        })?;
+        sum += v;
     }
 
     Ok(sum / n)
 }
 
 /// Calculates the variance of a sample
-fn calculate_variance<T>(data: &[T], mean: f64) -> Result<f64, &'static str>
+fn calculate_variance<T>(data: &[T], mean: f64) -> StatsResult<f64>
 where
     T: ToPrimitive + Debug,
 {
     if data.is_empty() {
-        return Err("Cannot calculate variance of empty data");
+        return Err(StatsError::empty_data("Cannot calculate variance of empty data"));
     }
 
     if data.len() < 2 {
-        return Err("Need at least 2 data points to calculate variance");
+        return Err(StatsError::invalid_input(
+            "Need at least 2 data points to calculate variance"
+        ));
     }
 
     let mut sum_squared_diff = 0.0;
     let n = data.len() as f64;
 
-    for value in data {
-        match value.to_f64() {
-            Some(v) => sum_squared_diff += (v - mean).powi(2),
-            None => return Err("Failed to convert data to f64"),
-        }
+    for (i, value) in data.iter().enumerate() {
+        let v = value.to_f64().ok_or_else(|| {
+            StatsError::conversion_error(format!("Failed to convert value at index {} to f64", i))
+        })?;
+        sum_squared_diff += (v - mean).powi(2);
     }
 
     Ok(sum_squared_diff / (n - 1.0))

@@ -1,3 +1,4 @@
+use crate::error::{StatsError, StatsResult};
 use num_traits::cast::AsPrimitive;
 use num_traits::{Float, FromPrimitive, NumCast, ToPrimitive};
 use rayon::prelude::*;
@@ -154,27 +155,40 @@ where
     }
 
     /// Train the decision tree on the given data
-    pub fn fit<D>(&mut self, features: &[Vec<D>], target: &[T])
+    ///
+    /// # Errors
+    /// Returns `StatsError::EmptyData` if features or target arrays are empty.
+    /// Returns `StatsError::DimensionMismatch` if features and target have different lengths.
+    /// Returns `StatsError::InvalidInput` if feature vectors have inconsistent lengths.
+    /// Returns `StatsError::ConversionError` if value conversion fails.
+    pub fn fit<D>(&mut self, features: &[Vec<D>], target: &[T]) -> StatsResult<()>
     where
         D: Clone + PartialOrd + NumCast + ToPrimitive + AsPrimitive<F> + Send + Sync,
         T: FromPrimitive,
     {
-        assert!(!features.is_empty(), "Features cannot be empty");
-        assert!(!target.is_empty(), "Target cannot be empty");
-        assert_eq!(
-            features.len(),
-            target.len(),
-            "Features and target must have the same length"
-        );
+        if features.is_empty() {
+            return Err(StatsError::empty_data("Features cannot be empty"));
+        }
+        if target.is_empty() {
+            return Err(StatsError::empty_data("Target cannot be empty"));
+        }
+        if features.len() != target.len() {
+            return Err(StatsError::dimension_mismatch(format!(
+                "Features and target must have the same length (got {} and {})",
+                features.len(),
+                target.len()
+            )));
+        }
 
         // Get the number of features
         let n_features = features[0].len();
-        for feature_vec in features {
-            assert_eq!(
-                feature_vec.len(),
-                n_features,
-                "All feature vectors must have the same length"
-            );
+        for (i, feature_vec) in features.iter().enumerate() {
+            if feature_vec.len() != n_features {
+                return Err(StatsError::invalid_input(format!(
+                    "All feature vectors must have the same length (vector {} has {} features, expected {})",
+                    i, feature_vec.len(), n_features
+                )));
+            }
         }
 
         // Reset the tree
@@ -184,7 +198,8 @@ where
         let indices: Vec<usize> = (0..features.len()).collect();
 
         // Build the tree recursively
-        self.build_tree(features, target, &indices, 0);
+        self.build_tree(features, target, &indices, 0)?;
+        Ok(())
     }
 
     /// Build the tree recursively
@@ -194,7 +209,7 @@ where
         target: &[T],
         indices: &[usize],
         depth: usize,
-    ) -> usize
+    ) -> StatsResult<usize>
     where
         D: Clone + PartialOrd + NumCast + ToPrimitive + AsPrimitive<F> + Send + Sync,
     {
@@ -206,7 +221,7 @@ where
             let node_idx = self.nodes.len();
             if self.tree_type == TreeType::Regression {
                 // For regression, use the mean value
-                let value = self.calculate_mean(target, indices);
+                let value = self.calculate_mean(target, indices)?;
                 self.nodes.push(Node::new_leaf_regression(value));
             } else {
                 // For classification, use the most common class
@@ -214,7 +229,7 @@ where
                 self.nodes
                     .push(Node::new_leaf_classification(value, class_counts));
             }
-            return node_idx;
+            return Ok(node_idx);
         }
 
         // Find the best split
@@ -225,35 +240,37 @@ where
         if left_indices.is_empty() || right_indices.is_empty() {
             let node_idx = self.nodes.len();
             if self.tree_type == TreeType::Regression {
-                let value = self.calculate_mean(target, indices);
+                let value = self.calculate_mean(target, indices)?;
                 self.nodes.push(Node::new_leaf_regression(value));
             } else {
                 let (value, class_counts) = self.calculate_class_distribution(target, indices);
                 self.nodes
                     .push(Node::new_leaf_classification(value, class_counts));
             }
-            return node_idx;
+            return Ok(node_idx);
         }
 
         // Create a split node
         let node_idx = self.nodes.len();
 
         // Create a threshold value of type T from the numerical value we calculated
-        let t_threshold = NumCast::from(threshold).unwrap_or_else(|| {
-            panic!("Failed to convert threshold to the feature type");
-        });
+        let t_threshold = NumCast::from(threshold).ok_or_else(|| {
+            StatsError::conversion_error(
+                "Failed to convert threshold to the feature type".to_string()
+            )
+        })?;
 
         self.nodes.push(Node::new_split(feature_idx, t_threshold));
 
         // Recursively build left and right subtrees
-        let left_idx = self.build_tree(features, target, &left_indices, depth + 1);
-        let right_idx = self.build_tree(features, target, &right_indices, depth + 1);
+        let left_idx = self.build_tree(features, target, &left_indices, depth + 1)?;
+        let right_idx = self.build_tree(features, target, &right_indices, depth + 1)?;
 
         // Connect the children
         self.nodes[node_idx].left = Some(left_idx);
         self.nodes[node_idx].right = Some(right_idx);
 
-        node_idx
+        Ok(node_idx)
     }
 
     /// Find the best split for the given samples
@@ -322,12 +339,17 @@ where
                     let val2: F = values[i + 1].as_();
 
                     // Find the midpoint
-                    let mid_value = (val1 + val2) / F::from(2.0).unwrap();
+                    let two = match F::from(2.0) {
+                        Some(t) => t,
+                        None => continue, // Skip this threshold if conversion fails
+                    };
+                    let mid_value = (val1 + val2) / two;
 
                     // Convert the midpoint back to D type
-                    let threshold = NumCast::from(mid_value).unwrap_or_else(|| {
-                        panic!("Failed to convert threshold to the feature type");
-                    });
+                    let threshold = match NumCast::from(mid_value) {
+                        Some(t) => t,
+                        None => continue, // Skip this threshold if conversion fails
+                    };
 
                     // Split the samples based on the threshold
                     let mut left_indices = Vec::new();
@@ -442,7 +464,11 @@ where
                 let right_entropy = self.calculate_entropy(target, right_indices);
                 left_ratio * left_entropy + right_ratio * right_entropy
             }
-            _ => panic!("Invalid combination of tree_type and criterion"),
+            _ => {
+                // This should never happen if the tree is properly constructed
+                // Return infinity as a sentinel value that will be ignored
+                F::infinity()
+            }
         }
     }
 
@@ -452,7 +478,11 @@ where
             return F::zero();
         }
 
-        let mean = self.calculate_mean(target, indices);
+        // If calculate_mean fails, return infinity to make this split undesirable
+        let mean = match self.calculate_mean(target, indices) {
+            Ok(m) => m,
+            Err(_) => return F::infinity(),
+        };
         let mean_f: F = mean.as_();
 
         let sum_squared_error: F = indices
@@ -463,7 +493,8 @@ where
             })
             .fold(F::zero(), |a, b| a + b);
 
-        sum_squared_error / F::from(indices.len()).unwrap()
+        let count = F::from(indices.len()).unwrap_or(F::one());
+        sum_squared_error / count
     }
 
     /// Calculate the mean absolute error for a set of samples
@@ -472,7 +503,11 @@ where
             return F::zero();
         }
 
-        let mean = self.calculate_mean(target, indices);
+        // If calculate_mean fails, return infinity to make this split undesirable
+        let mean = match self.calculate_mean(target, indices) {
+            Ok(m) => m,
+            Err(_) => return F::infinity(),
+        };
         let mean_f: F = mean.as_();
 
         let sum_absolute_error: F = indices
@@ -483,7 +518,8 @@ where
             })
             .fold(F::zero(), |a, b| a + b);
 
-        sum_absolute_error / F::from(indices.len()).unwrap()
+        let count = F::from(indices.len()).unwrap_or(F::one());
+        sum_absolute_error / count
     }
 
     /// Calculate the Gini impurity for a set of samples
@@ -532,11 +568,11 @@ where
     }
 
     /// Calculate the mean of target values for a set of samples
-    fn calculate_mean(&self, target: &[T], indices: &[usize]) -> T {
+    fn calculate_mean(&self, target: &[T], indices: &[usize]) -> StatsResult<T> {
         if indices.is_empty() {
-            return NumCast::from(0.0).unwrap_or_else(|| {
-                panic!("Failed to convert 0.0 to the target type");
-            });
+            return Err(StatsError::empty_data(
+                "Cannot calculate mean for empty indices"
+            ));
         }
 
         // For integer types, we need to be careful about computing means
@@ -546,13 +582,16 @@ where
             .map(|&idx| target[idx].as_())
             .fold(F::zero(), |a, b| a + b);
 
-        let count: F = F::from(indices.len()).unwrap();
+        let count: F = F::from(indices.len()).ok_or_else(|| StatsError::conversion_error(format!(
+            "Failed to convert {} to type F",
+            indices.len()
+        )))?;
         let mean_f = sum / count;
 
         // Convert back to T (this might round for integer types)
-        NumCast::from(mean_f).unwrap_or_else(|| {
-            panic!("Failed to convert mean to the target type");
-        })
+        NumCast::from(mean_f).ok_or_else(|| StatsError::conversion_error(
+            "Failed to convert mean to the target type".to_string()
+        ))
     }
 
     /// Calculate the class distribution and majority class for a set of samples
@@ -597,9 +636,14 @@ where
     }
 
     /// Make predictions for new data
-    pub fn predict<D>(&self, features: &[Vec<D>]) -> Vec<T>
+    ///
+    /// # Errors
+    /// Returns `StatsError::NotFitted` if the tree has not been trained.
+    /// Returns `StatsError::ConversionError` if value conversion fails.
+    pub fn predict<D>(&self, features: &[Vec<D>]) -> StatsResult<Vec<T>>
     where
         D: Clone + PartialOrd + NumCast,
+        T: NumCast,
     {
         features
             .iter()
@@ -608,13 +652,15 @@ where
     }
 
     /// Make a prediction for a single sample
-    fn predict_single<D>(&self, features: &[D]) -> T
+    fn predict_single<D>(&self, features: &[D]) -> StatsResult<T>
     where
         D: Clone + PartialOrd + NumCast,
         T: NumCast,
     {
         if self.nodes.is_empty() {
-            panic!("Decision tree has not been trained yet");
+            return Err(StatsError::not_fitted(
+                "Decision tree has not been trained yet"
+            ));
         }
 
         let mut node_idx = 0;
@@ -622,27 +668,49 @@ where
             let node = &self.nodes[node_idx];
 
             if node.is_leaf() {
-                return node.value.as_ref().unwrap().clone();
+                return node.value.as_ref()
+                    .ok_or_else(|| StatsError::invalid_input(
+                        "Leaf node missing value"
+                    ))
+                    .map(|v| v.clone());
             }
 
-            let feature_idx = node.feature_idx.unwrap();
-            let threshold = node.threshold.as_ref().unwrap();
+            let feature_idx = node.feature_idx.ok_or_else(|| StatsError::invalid_input(
+                "Internal node missing feature index"
+            ))?;
+            let threshold = node.threshold.as_ref().ok_or_else(|| StatsError::invalid_input(
+                "Internal node missing threshold"
+            ))?;
+
+            if feature_idx >= features.len() {
+                return Err(StatsError::index_out_of_bounds(format!(
+                    "Feature index {} is out of bounds (features has {} elements)",
+                    feature_idx, features.len()
+                )));
+            }
 
             let feature_val = &features[feature_idx];
 
             // Use partial_cmp for comparison to handle all types
             // Convert threshold (type T) to type D for comparison
             let threshold_d = D::from(threshold.clone())
-                .unwrap_or_else(|| panic!("Failed to convert threshold to feature type"));
+                .ok_or_else(|| StatsError::conversion_error(format!(
+                    "Failed to convert threshold {:?} to feature type",
+                    threshold
+                )))?;
 
             let comparison = feature_val
                 .partial_cmp(&threshold_d)
                 .unwrap_or(Ordering::Equal);
 
             if comparison != Ordering::Greater {
-                node_idx = node.left.unwrap();
+                node_idx = node.left.ok_or_else(|| StatsError::invalid_input(
+                    "Internal node missing left child"
+                ))?;
             } else {
-                node_idx = node.right.unwrap();
+                node_idx = node.right.ok_or_else(|| StatsError::invalid_input(
+                    "Internal node missing right child"
+                ))?;
             }
         }
     }
@@ -965,7 +1033,7 @@ mod tests {
             vec![62.0, 31.0, 145.0, 155.0, 1.0], // should be high risk
         ];
 
-        let predictions = tree.predict(&test_features);
+        let predictions = tree.predict(&test_features).unwrap();
 
         // Verify predictions make sense
         assert!(
@@ -1028,7 +1096,7 @@ mod tests {
             vec![2, 0, 1, 3, 0, 0], // Should be Migraine
         ];
 
-        let predictions = tree.predict(&test_features);
+        let predictions = tree.predict(&test_features).unwrap();
 
         // Verify predictions
         assert_eq!(predictions[0], 1, "Should diagnose as Flu");
@@ -1095,14 +1163,14 @@ mod tests {
                 vec![90, 95, 10], // Clearly failing
             ];
 
-            // Make predictions - use a try-catch equivalent to handle potential errors
-            let predictions = match std::panic::catch_unwind(|| tree.predict(&test_features)) {
+            // Make predictions - handle potential errors
+            let predictions = match tree.predict(&test_features) {
                 Ok(preds) => {
                     println!("Successfully made predictions: {:?}", preds);
                     preds
                 }
-                Err(_) => {
-                    println!("Error during prediction - likely an issue with tree node references");
+                Err(e) => {
+                    println!("Error during prediction: {:?}", e);
                     return; // Skip the rest of the test
                 }
             };
@@ -1163,7 +1231,7 @@ mod tests {
             vec![17, 3, 2, 1, 1], // Should be potential breach
         ];
 
-        let predictions = tree.predict(&test_features);
+        let predictions = tree.predict(&test_features).unwrap();
 
         // Verify predictions
         assert_eq!(predictions[0], 0, "Should classify as normal activity");
@@ -1284,7 +1352,7 @@ mod tests {
             vec![90, 55, 11, 0], // Should be slow response
         ];
 
-        let predictions = tree.predict(&test_features);
+        let predictions = tree.predict(&test_features).unwrap();
 
         // Verify predictions
         assert!(
@@ -1302,16 +1370,16 @@ mod tests {
 
     // Special case test: Empty data handling
     #[test]
-    #[should_panic(expected = "Features cannot be empty")]
     fn test_empty_features() {
         let mut tree =
             DecisionTree::<i32, f64>::new(TreeType::Regression, SplitCriterion::Mse, 3, 2, 1);
 
-        // Try to fit with empty features
+        // Try to fit with empty features - should return an error
         let empty_features: Vec<Vec<f64>> = vec![];
         let empty_target: Vec<i32> = vec![];
 
-        tree.fit(&empty_features, &empty_target);
+        let result = tree.fit(&empty_features, &empty_target);
+        assert!(result.is_err(), "Fitting with empty features should return an error");
     }
 
     // Edge case test: Only one class in classification
@@ -1335,7 +1403,7 @@ mod tests {
         tree.fit(&features, &target);
 
         // Test prediction
-        let prediction = tree.predict(&vec![vec![2, 3, 4]]);
+        let prediction = tree.predict(&vec![vec![2, 3, 4]]).unwrap();
 
         // Should always predict the only class
         assert_eq!(prediction[0], 1);
