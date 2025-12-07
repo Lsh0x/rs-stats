@@ -78,8 +78,10 @@ impl<T> UniformConfig<T> where T: ToPrimitive + PartialOrd {
 /// * 1/(b-a) if a ≤ x ≤ b
 /// * 0 otherwise
 ///
-/// # Panics
-/// Panics if a ≥ b
+/// # Errors
+/// Returns an error if:
+/// - a ≥ b
+/// - Type conversion to f64 fails
 ///
 /// # Examples
 /// ```
@@ -130,8 +132,10 @@ pub fn uniform_pdf<T>(x: T, a: T, b: T) -> StatsResult<f64> where T: ToPrimitive
 /// * (x-a)/(b-a) if a ≤ x ≤ b
 /// * 1 if x > b
 ///
-/// # Panics
-/// Panics if a ≥ b
+/// # Errors
+/// Returns an error if:
+/// - a ≥ b
+/// - Type conversion to f64 fails
 ///
 /// # Examples
 /// ```
@@ -188,10 +192,11 @@ pub fn uniform_cdf<T>(x: T, a: T, b: T) -> StatsResult<f64> where T: ToPrimitive
 /// # Returns
 /// The value x such that P(X ≤ x) = p
 ///
-/// # Panics
-/// Panics if:
+/// # Errors
+/// Returns an error if:
 /// - a ≥ b
 /// - p < 0 or p > 1
+/// - Type conversion to f64 fails
 ///
 /// # Examples
 /// ```
@@ -244,8 +249,10 @@ pub fn uniform_inverse_cdf<T>(p: T, a: T, b: T) -> StatsResult<f64> where T: ToP
 /// # Returns
 /// The mean of the uniform distribution: (a + b) / 2
 ///
-/// # Panics
-/// Panics if a ≥ b
+/// # Errors
+/// Returns an error if:
+/// - a ≥ b
+/// - Type conversion to f64 fails
 ///
 /// # Examples
 /// ```

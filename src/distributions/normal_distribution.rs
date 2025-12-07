@@ -75,8 +75,10 @@ impl<T> NormalConfig<T> where T: ToPrimitive {
 /// # Returns
 /// The probability density at point x
 ///
-/// # Panics
-/// Panics if std_dev is not positive.
+/// # Errors
+/// Returns an error if:
+/// - std_dev is not positive
+/// - Type conversion to f64 fails
 ///
 /// # Examples
 /// ```
@@ -119,8 +121,10 @@ pub fn normal_pdf<T>(x: T, mean: f64, std_dev: f64) -> StatsResult<f64> where T:
 /// # Returns
 /// The probability that a random variable is less than or equal to x
 ///
-/// # Panics
-/// Panics if std_dev is not positive.
+/// # Errors
+/// Returns an error if:
+/// - std_dev is not positive
+/// - Type conversion to f64 fails
 ///
 /// # Examples
 /// ```

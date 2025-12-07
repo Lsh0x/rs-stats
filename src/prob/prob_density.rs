@@ -63,7 +63,7 @@ pub fn probability_density<T>(x: T, avg: f64, stddev: f64) -> StatsResult<f64> w
 }
 
 /// normal_probability_density return the PDF with z already normalized
-/// https://en.wikipedia.org/wiki/Probability_density_function
+/// <https://en.wikipedia.org/wiki/Probability_density_function>
 #[inline]
 pub fn normal_probability_density(z: f64) -> StatsResult<f64> {
     let exponent = -0.5 * z * z;

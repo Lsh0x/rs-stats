@@ -81,8 +81,11 @@ impl<T> PoissonConfig<T> where T: ToPrimitive {
 /// # Returns
 /// The probability of exactly `k` events occurring.
 ///
-/// # Panics
-/// Panics if lambda is not positive
+/// # Errors
+/// Returns an error if:
+/// - lambda is not positive
+/// - Type conversion to f64 fails
+/// - k is too large to compute factorial
 ///
 /// # Examples
 /// ```
@@ -142,8 +145,11 @@ pub fn pmf<T>(k: u64, lambda: T) -> StatsResult<f64> where T: ToPrimitive {
 /// # Returns
 /// The cumulative probability of `k` or fewer events occurring.
 ///
-/// # Panics
-/// Panics if lambda is not positive
+/// # Errors
+/// Returns an error if:
+/// - lambda is not positive
+/// - Type conversion to f64 fails
+/// - k is too large to compute factorial
 ///
 /// # Examples
 /// ```

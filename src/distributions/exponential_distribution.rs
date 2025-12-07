@@ -84,10 +84,11 @@ impl<T> ExponentialConfig<T> where T: ToPrimitive {
 /// # Returns
 /// The probability density at point `x`.
 ///
-/// # Panics
-/// Panics if:
+/// # Errors
+/// Returns an error if:
 /// - `x` is negative
 /// - `lambda` is not positive
+/// - Type conversion to f64 fails
 ///
 /// # Examples
 /// ```
@@ -134,10 +135,11 @@ pub fn exponential_pdf<T>(x: T, lambda: T) -> StatsResult<f64> where T: ToPrimit
 /// # Returns
 /// The cumulative probability at point `x`.
 ///
-/// # Panics
-/// Panics if:
+/// # Errors
+/// Returns an error if:
 /// - `x` is negative
 /// - `lambda` is not positive
+/// - Type conversion to f64 fails
 ///
 /// # Examples
 /// ```
@@ -182,10 +184,11 @@ pub fn exponential_cdf<T>(x: T, lambda: T) -> StatsResult<f64> where T: ToPrimit
 /// # Returns
 /// The value `x` such that P(X ≤ x) = p.
 ///
-/// # Panics
-/// Panics if:
+/// # Errors
+/// Returns an error if:
 /// - `p` is not between 0 and 1
 /// - `lambda` is not positive
+/// - Type conversion to f64 fails
 ///
 /// # Examples
 /// ```
@@ -232,8 +235,10 @@ pub fn exponential_inverse_cdf<T>(p: T, lambda: T) -> StatsResult<f64> where T: 
 /// # Returns
 /// The mean of the distribution.
 ///
-/// # Panics
-/// Panics if `lambda` is not positive
+/// # Errors
+/// Returns an error if:
+/// - `lambda` is not positive
+/// - Type conversion to f64 fails
 ///
 /// # Examples
 /// ```
@@ -267,8 +272,10 @@ pub fn exponential_mean<T>(lambda: T) -> StatsResult<f64> where T: ToPrimitive {
 /// # Returns
 /// The variance of the distribution.
 ///
-/// # Panics
-/// Panics if `lambda` is not positive
+/// # Errors
+/// Returns an error if:
+/// - `lambda` is not positive
+/// - Type conversion to f64 fails
 ///
 /// # Examples
 /// ```

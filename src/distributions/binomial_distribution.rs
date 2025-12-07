@@ -92,11 +92,12 @@ impl<T> BinomialConfig<T> where T: ToPrimitive {
 /// # Returns
 /// The probability of exactly `k` successes occurring.
 ///
-/// # Panics
-/// Panics if:
+/// # Errors
+/// Returns an error if:
 /// - n is zero
 /// - p is not between 0 and 1
 /// - k > n
+/// - Type conversion to f64 fails
 ///
 /// # Examples
 /// ```
@@ -166,11 +167,12 @@ pub fn pmf<T>(k: u64, n: u64, p: T) -> StatsResult<f64> where T: ToPrimitive {
 /// # Returns
 /// The cumulative probability of `k` or fewer successes occurring.
 ///
-/// # Panics
-/// Panics if:
+/// # Errors
+/// Returns an error if:
 /// - n is zero
 /// - p is not between 0 and 1
 /// - k > n
+/// - Type conversion to f64 fails
 ///
 /// # Examples
 /// ```
