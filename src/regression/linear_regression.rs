@@ -181,17 +181,37 @@ where
     /// * `x` - The x value to predict for
     ///
     /// # Returns
-    /// * The predicted y value
-    pub fn predict<U>(&self, x: U) -> T
+    /// * `StatsResult<T>` - The predicted y value
+    ///
+    /// # Errors
+    /// Returns `StatsError::NotFitted` if the model has not been fitted (n == 0).
+    /// Returns `StatsError::ConversionError` if type conversion fails.
+    ///
+    /// # Examples
+    /// ```
+    /// use rs_stats::regression::linear_regression::LinearRegression;
+    ///
+    /// let mut model = LinearRegression::<f64>::new();
+    /// model.fit(&[1.0, 2.0, 3.0], &[2.0, 4.0, 6.0]).unwrap();
+    ///
+    /// let prediction = model.predict(4.0).unwrap();
+    /// assert!((prediction - 8.0).abs() < 1e-10);
+    /// ```
+    pub fn predict<U>(&self, x: U) -> StatsResult<T>
     where
         U: NumCast + Copy,
     {
-        let x_cast: T = match T::from(x) {
-            Some(val) => val,
-            None => return T::nan(),
-        };
+        if self.n == 0 {
+            return Err(StatsError::not_fitted(
+                "Model has not been fitted. Call fit() before predicting.",
+            ));
+        }
 
-        self.predict_t(x_cast)
+        let x_cast: T = T::from(x).ok_or_else(|| {
+            StatsError::conversion_error("Failed to convert x value to type T")
+        })?;
+
+        Ok(self.predict_t(x_cast))
     }
 
     /// Calculate predictions for multiple x values
@@ -200,12 +220,30 @@ where
     /// * `x_values` - Slice of x values to predict for
     ///
     /// # Returns
-    /// * Vector of predicted y values
-    pub fn predict_many<U>(&self, x_values: &[U]) -> Vec<T>
+    /// * `StatsResult<Vec<T>>` - Vector of predicted y values
+    ///
+    /// # Errors
+    /// Returns `StatsError::NotFitted` if the model has not been fitted.
+    /// Returns `StatsError::ConversionError` if type conversion fails for any value.
+    ///
+    /// # Examples
+    /// ```
+    /// use rs_stats::regression::linear_regression::LinearRegression;
+    ///
+    /// let mut model = LinearRegression::<f64>::new();
+    /// model.fit(&[1.0, 2.0, 3.0], &[2.0, 4.0, 6.0]).unwrap();
+    ///
+    /// let predictions = model.predict_many(&[4.0, 5.0]).unwrap();
+    /// assert_eq!(predictions.len(), 2);
+    /// ```
+    pub fn predict_many<U>(&self, x_values: &[U]) -> StatsResult<Vec<T>>
     where
         U: NumCast + Copy,
     {
-        x_values.iter().map(|&x| self.predict(x)).collect()
+        x_values
+            .iter()
+            .map(|&x| self.predict(x))
+            .collect()
     }
 
     /// Calculate confidence intervals for the regression line
@@ -261,9 +299,34 @@ where
     }
 
     /// Get the correlation coefficient (r)
-    pub fn correlation_coefficient(&self) -> T {
+    ///
+    /// The correlation coefficient ranges from -1 to 1, indicating the strength
+    /// and direction of the linear relationship between x and y.
+    ///
+    /// # Returns
+    /// * `StatsResult<T>` - The correlation coefficient
+    ///
+    /// # Errors
+    /// Returns `StatsError::NotFitted` if the model has not been fitted (n == 0).
+    ///
+    /// # Examples
+    /// ```
+    /// use rs_stats::regression::linear_regression::LinearRegression;
+    ///
+    /// let mut model = LinearRegression::<f64>::new();
+    /// model.fit(&[1.0, 2.0, 3.0], &[2.0, 4.0, 6.0]).unwrap();
+    ///
+    /// let r = model.correlation_coefficient().unwrap();
+    /// assert!((r - 1.0).abs() < 1e-10); // Perfect positive correlation
+    /// ```
+    pub fn correlation_coefficient(&self) -> StatsResult<T> {
+        if self.n == 0 {
+            return Err(StatsError::not_fitted(
+                "Model has not been fitted. Call fit() before getting correlation coefficient.",
+            ));
+        }
         let r = self.r_squared.sqrt();
-        if self.slope >= T::zero() { r } else { -r }
+        Ok(if self.slope >= T::zero() { r } else { -r })
     }
 
     /// Save the model to a file
@@ -408,8 +471,8 @@ mod tests {
         let mut model = LinearRegression::<f64>::new();
         model.fit(&x, &y).unwrap();
 
-        assert!(approx_equal(model.predict(6u32), 12.0, Some(1e-6)));
-        assert!(approx_equal(model.predict(0i32), 0.0, Some(1e-6)));
+        assert!(approx_equal(model.predict(6u32).unwrap(), 12.0, Some(1e-6)));
+        assert!(approx_equal(model.predict(0i32).unwrap(), 0.0, Some(1e-6)));
     }
 
     #[test]
@@ -539,11 +602,11 @@ mod tests {
 
     #[test]
     fn test_predict_when_not_fitted() {
-        // Test that predict works even when model is not fitted (returns 0.0)
+        // Test that predict returns an error when model is not fitted
         let model = LinearRegression::<f64>::new();
-        let prediction = model.predict(5.0);
-        // When not fitted, slope and intercept are 0, so prediction is 0
-        assert_eq!(prediction, 0.0);
+        let result = model.predict(5.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::NotFitted { .. }));
     }
 
     #[test]
@@ -631,7 +694,7 @@ mod tests {
         let y = vec![2.0, 4.0, 6.0];
         model.fit(&x, &y).unwrap();
         
-        let r = model.correlation_coefficient();
+        let r = model.correlation_coefficient().unwrap();
         assert!(r >= 0.0, "Correlation should be positive for positive slope");
     }
 
@@ -643,8 +706,38 @@ mod tests {
         let y = vec![6.0, 4.0, 2.0];
         model.fit(&x, &y).unwrap();
         
-        let r = model.correlation_coefficient();
+        let r = model.correlation_coefficient().unwrap();
         assert!(r <= 0.0, "Correlation should be negative for negative slope");
+    }
+
+    #[test]
+    fn test_correlation_coefficient_not_fitted() {
+        // Test correlation_coefficient when model is not fitted
+        let model = LinearRegression::<f64>::new();
+        let result = model.correlation_coefficient();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::NotFitted { .. }));
+    }
+
+    #[test]
+    fn test_predict_many_not_fitted() {
+        // Test predict_many when model is not fitted
+        let model = LinearRegression::<f64>::new();
+        let result = model.predict_many(&[1.0, 2.0, 3.0]);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::NotFitted { .. }));
+    }
+
+    #[test]
+    fn test_predict_many_success() {
+        // Test predict_many with valid data
+        let mut model = LinearRegression::<f64>::new();
+        model.fit(&[1.0, 2.0, 3.0], &[2.0, 4.0, 6.0]).unwrap();
+        
+        let predictions = model.predict_many(&[4.0, 5.0]).unwrap();
+        assert_eq!(predictions.len(), 2);
+        assert!((predictions[0] - 8.0).abs() < 1e-10);
+        assert!((predictions[1] - 10.0).abs() < 1e-10);
     }
 
     #[test]

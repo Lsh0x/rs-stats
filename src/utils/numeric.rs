@@ -2,19 +2,36 @@ use num_traits::NumCast;
 /// Provides numerical utility functions for statistical calculations.
 use std::fmt::Debug;
 
+use crate::error::{StatsResult, StatsError};
+
 /// Computes the natural logarithm of x, handling edge cases safely.
 ///
 /// # Arguments
 /// * `x` - The input number.
 ///
 /// # Returns
-/// * `Result<f64>` - The natural logarithm of x, or an error message if x is invalid.
+/// * `StatsResult<f64>` - The natural logarithm of x, or an error if x is invalid.
 ///
 /// # Errors
-/// Returns an error if x is less than or equal to 0.
-pub fn safe_log(x: f64) -> Result<f64, String> {
+/// Returns `StatsError::InvalidInput` if x is less than or equal to 0.
+///
+/// # Examples
+/// ```
+/// use rs_stats::utils::safe_log;
+///
+/// let result = safe_log(2.71828).unwrap();
+/// assert!((result - 1.0).abs() < 1e-5);
+///
+/// // Error case
+/// let result = safe_log(0.0);
+/// assert!(result.is_err());
+/// ```
+
+pub fn safe_log(x: f64) -> StatsResult<f64> {
     if x <= 0.0 {
-        Err("Logarithm is only defined for positive numbers.".to_string())
+        Err(StatsError::invalid_input(
+            "Logarithm is only defined for positive numbers.",
+        ))
     } else {
         Ok(x.ln())
     }
@@ -167,5 +184,34 @@ mod tests {
         assert!(approx_equal(1e-11, 0.0, None));
         assert!(approx_equal(0.0, 1e-11, None));
         assert!(!approx_equal(1e-9, 0.0, None));
+    }
+
+    #[test]
+    fn test_safe_log_positive() {
+        let result = safe_log(1.0);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0.0);
+    }
+
+    #[test]
+    fn test_safe_log_zero() {
+        let result = safe_log(0.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_safe_log_negative() {
+        let result = safe_log(-1.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_safe_log_known_value() {
+        // ln(e) = 1
+        let result = safe_log(std::f64::consts::E);
+        assert!(result.is_ok());
+        assert!((result.unwrap() - 1.0).abs() < 1e-10);
     }
 }

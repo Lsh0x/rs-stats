@@ -238,25 +238,65 @@ where
     /// Predict y value for a given set of x values using the fitted model
     ///
     /// # Arguments
-    /// * `x` - Vector of x values for prediction
+    /// * `x` - Vector of x values for prediction (must match the number of features used during fitting)
     ///
     /// # Returns
-    /// * The predicted y value
-    pub fn predict<U>(&self, x: &[U]) -> T
+    /// * `StatsResult<T>` - The predicted y value
+    ///
+    /// # Errors
+    /// Returns `StatsError::NotFitted` if the model has not been fitted (coefficients is empty).
+    /// Returns `StatsError::DimensionMismatch` if the number of features doesn't match the model (x.len() != p).
+    /// Returns `StatsError::ConversionError` if type conversion fails.
+    ///
+    /// # Examples
+    /// ```
+    /// use rs_stats::regression::multiple_linear_regression::MultipleLinearRegression;
+    ///
+    /// let mut model = MultipleLinearRegression::<f64>::new();
+    /// let x = vec![
+    ///     vec![1.0, 2.0],
+    ///     vec![2.0, 1.0],
+    ///     vec![3.0, 3.0],
+    ///     vec![4.0, 2.0],
+    /// ];
+    /// let y = vec![5.0, 4.0, 9.0, 8.0];
+    /// model.fit(&x, &y).unwrap();
+    ///
+    /// let prediction = model.predict(&[3.0, 4.0]).unwrap();
+    /// ```
+    pub fn predict<U>(&self, x: &[U]) -> StatsResult<T>
     where
         U: NumCast + Copy,
     {
+        if self.coefficients.is_empty() {
+            return Err(StatsError::not_fitted(
+                "Model has not been fitted. Call fit() before predicting.",
+            ));
+        }
+
         if x.len() != self.p {
-            return T::nan();
+            return Err(StatsError::dimension_mismatch(format!(
+                "Expected {} features, but got {}",
+                self.p,
+                x.len()
+            )));
         }
 
         // Convert input to T type
-        let x_cast: Result<Vec<T>, ()> = x.iter().map(|&val| T::from(val).ok_or(())).collect();
+        let x_cast: StatsResult<Vec<T>> = x
+            .iter()
+            .enumerate()
+            .map(|(i, &val)| {
+                T::from(val).ok_or_else(|| {
+                    StatsError::conversion_error(format!(
+                        "Failed to convert feature value at index {} to type T",
+                        i
+                    ))
+                })
+            })
+            .collect();
 
-        match x_cast {
-            Ok(x_t) => self.predict_t(&x_t),
-            Err(_) => T::nan(),
-        }
+        Ok(self.predict_t(&x_cast?))
     }
 
     /// Calculate predictions for multiple observations
@@ -265,12 +305,37 @@ where
     /// * `x_values` - 2D array of feature values for prediction
     ///
     /// # Returns
-    /// * Vector of predicted y values
-    pub fn predict_many<U>(&self, x_values: &[Vec<U>]) -> Vec<T>
+    /// * `StatsResult<Vec<T>>` - Vector of predicted y values
+    ///
+    /// # Errors
+    /// Returns `StatsError::NotFitted` if the model has not been fitted.
+    /// Returns an error if any prediction fails (dimension mismatch or conversion error).
+    ///
+    /// # Examples
+    /// ```
+    /// use rs_stats::regression::multiple_linear_regression::MultipleLinearRegression;
+    ///
+    /// let mut model = MultipleLinearRegression::<f64>::new();
+    /// let x = vec![
+    ///     vec![1.0, 2.0],
+    ///     vec![2.0, 1.0],
+    ///     vec![3.0, 3.0],
+    ///     vec![4.0, 2.0],
+    /// ];
+    /// let y = vec![5.0, 4.0, 9.0, 8.0];
+    /// model.fit(&x, &y).unwrap();
+    ///
+    /// let predictions = model.predict_many(&[vec![3.0, 4.0], vec![5.0, 6.0]]).unwrap();
+    /// assert_eq!(predictions.len(), 2);
+    /// ```
+    pub fn predict_many<U>(&self, x_values: &[Vec<U>]) -> StatsResult<Vec<T>>
     where
         U: NumCast + Copy,
     {
-        x_values.iter().map(|x| self.predict(x)).collect()
+        x_values
+            .iter()
+            .map(|x| self.predict(x))
+            .collect()
     }
 
     /// Save the model to a file
@@ -541,7 +606,7 @@ mod tests {
         model.fit(&x, &y).unwrap();
 
         // Test prediction: 1 + 2*5 + 3*4 = 1 + 10 + 12 = 23
-        assert!(approx_equal(model.predict(&[5u32, 4u32]), 23.0, Some(1e-6)));
+        assert!(approx_equal(model.predict(&[5u32, 4u32]).unwrap(), 23.0, Some(1e-6)));
     }
 
     #[test]
@@ -554,7 +619,7 @@ mod tests {
 
         let new_x = vec![vec![1u32, 2u32], vec![5u32, 4u32]];
 
-        let predictions = model.predict_many(&new_x);
+        let predictions = model.predict_many(&new_x).unwrap();
         assert_eq!(predictions.len(), 2);
         assert!(approx_equal(predictions[0], 9.0, Some(1e-6)));
         assert!(approx_equal(predictions[1], 23.0, Some(1e-6)));
@@ -686,11 +751,11 @@ mod tests {
         let model = MultipleLinearRegression::<f64>::new();
         // Don't fit the model
         
-        // Predict should work (with default coefficients which are empty)
+        // Predict should return an error when model is not fitted
         let features = vec![1.0, 2.0];
-        let prediction = model.predict(&features);
-        // When not fitted, coefficients are empty, so prediction should be NaN (due to dimension mismatch)
-        assert!(prediction.is_nan(), "Prediction should be NaN for unfitted model");
+        let result = model.predict(&features);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::NotFitted { .. }));
     }
 
     #[test]
@@ -710,8 +775,9 @@ mod tests {
         // Try to predict with wrong number of features
         let wrong_features = vec![1.0]; // Should be 2 features
         let result = model.predict(&wrong_features);
-        // predict returns NaN when dimension mismatch
-        assert!(result.is_nan(), "Predict with wrong number of features should return NaN");
+        // predict returns error when dimension mismatch
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::DimensionMismatch { .. }));
     }
 
     #[test]
@@ -777,7 +843,8 @@ mod tests {
         let features = vec![1.0, 2.0];
         // predict_t is private, but we can test through predict
         let result = model.predict(&features);
-        assert!(result.is_nan(), "Predict with empty coefficients should return NaN");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::NotFitted { .. }));
     }
 
     #[test]
@@ -790,5 +857,50 @@ mod tests {
         let y: Vec<f64> = vec![];
         let result = model.fit(&x, &y);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_predict_many_not_fitted() {
+        // Test predict_many when model is not fitted
+        let model = MultipleLinearRegression::<f64>::new();
+        let result = model.predict_many(&[vec![1.0, 2.0]]);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::NotFitted { .. }));
+    }
+
+    #[test]
+    fn test_predict_many_dimension_mismatch() {
+        // Test predict_many with wrong number of features
+        let mut model = MultipleLinearRegression::<f64>::new();
+        let x = vec![
+            vec![1.0, 2.0],
+            vec![2.0, 1.0],
+            vec![3.0, 3.0],
+        ];
+        let y = vec![3.0, 3.0, 6.0];
+        model.fit(&x, &y).unwrap();
+        
+        // Try to predict with wrong number of features
+        let wrong_features = vec![vec![1.0]]; // Should be 2 features
+        let result = model.predict_many(&wrong_features);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::DimensionMismatch { .. }));
+    }
+
+    #[test]
+    fn test_predict_many_success() {
+        // Test predict_many with valid data
+        let mut model = MultipleLinearRegression::<f64>::new();
+        let x = vec![
+            vec![1.0, 2.0],
+            vec![2.0, 1.0],
+            vec![3.0, 3.0],
+            vec![4.0, 2.0],
+        ];
+        let y = vec![3.0, 3.0, 6.0, 6.0];
+        model.fit(&x, &y).unwrap();
+        
+        let predictions = model.predict_many(&[vec![3.0, 4.0], vec![5.0, 6.0]]).unwrap();
+        assert_eq!(predictions.len(), 2);
     }
 }
