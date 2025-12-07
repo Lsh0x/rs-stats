@@ -49,7 +49,7 @@ use crate::error::{StatsResult, StatsError};
 #[inline]
 pub fn erfc<T>(x: T) -> StatsResult<f64> where T: ToPrimitive {
     let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError {
-        message: "Failed to convert x to f64".to_string(),
+        message: "prob::erfc: Failed to convert x to f64".to_string(),
     })?;
     Ok(1.0 - erf(x_64)?)
 }

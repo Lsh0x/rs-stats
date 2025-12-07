@@ -17,9 +17,12 @@
 //! - `normal_probability_density`: Calculates PDF for a given z-score (pre-normalized value)
 
 use num_traits::ToPrimitive;
-use crate::prob::z_score::z_score;
-use std::f64::consts::PI;
 use crate::error::{StatsResult, StatsError};
+
+
+/// Inverse square root of 2π (precomputed constant)
+/// Value: 1.0 / sqrt(2π) ≈ 0.3989422804014327
+const INV_SQRT_2PI: f64 = 0.3989422804014327;
 
 /// Calculate the probability density function (PDF) for a normal distribution
 ///
@@ -46,16 +49,29 @@ use crate::error::{StatsResult, StatsError};
 #[inline]
 pub fn probability_density<T>(x: T, avg: f64, stddev: f64) -> StatsResult<f64> where T: ToPrimitive {
     let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError {
-        message: "probability_density: Failed to convert x to f64".to_string(),
+        message: "prob::probability_density: Failed to convert x to f64".to_string(),
     })?;
-    Ok((z_score(x_64, avg, stddev)?.powi(2) / -2.0).exp() / (stddev * (PI * 2.0).sqrt()))
+
+    if stddev == 0.0 {
+        return Err(StatsError::InvalidInput {
+            message: "prob::probability_density: Standard deviation must be non-zero".to_string(),
+        });
+    }
+    // Inline z-score calculation instead of calling z_score()
+    let z = (x_64 - avg) / stddev;
+    // Use multiplication instead of powi(2) for better performance
+    let exponent = -0.5 * z * z;
+    
+    Ok(exponent.exp() * INV_SQRT_2PI / stddev)
+
 }
 
 /// normal_probability_density return the PDF with z already normalized
 /// https://en.wikipedia.org/wiki/Probability_density_function
 #[inline]
 pub fn normal_probability_density(z: f64) -> StatsResult<f64> {
-    Ok((z.powi(2) / -2.0).exp() / (PI * 2.0).sqrt())
+    let exponent = -0.5 * z * z;
+    Ok(exponent.exp() * INV_SQRT_2PI)
 }
 
 #[cfg(test)]

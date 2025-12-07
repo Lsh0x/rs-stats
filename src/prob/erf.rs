@@ -19,7 +19,7 @@
 //! with maximum error of 1.5 × 10⁻⁷
 
 use num_traits::ToPrimitive;
-use crate::error::{StatsResult};
+use crate::error::{StatsResult, StatsError};
 
 /// Calculate the error function (erf) of a value
 ///
@@ -46,7 +46,9 @@ use crate::error::{StatsResult};
 /// ```
 
 pub fn erf<T>(x: T) -> StatsResult<f64> where T: ToPrimitive {
-    let x = x.to_f64().unwrap();
+    let x = x.to_f64().ok_or_else(|| StatsError::ConversionError{
+        message: "prob::erf: Failed to convert x to f64".to_string(),
+    })?;
     // Special case: return exactly 0.0 when x is 0.0
     if x == 0.0 {
         return Ok(0.0);

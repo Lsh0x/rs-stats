@@ -21,7 +21,6 @@
 
 use num_traits::ToPrimitive;
 use crate::prob::erf::erf;
-use crate::prob::z_score::z_score;
 use std::f64::consts::SQRT_2;
 use crate::error::{StatsResult, StatsError};
 
@@ -52,10 +51,17 @@ use crate::error::{StatsResult, StatsError};
 #[inline]
 pub fn cumulative_distrib<T>(x: T, avg: f64, stddev: f64) -> StatsResult<f64> where T: ToPrimitive {
     let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError {
-        message: "Failed to convert x to f64".to_string(),
+        message: "prob::cumulative_distrib: Failed to convert x to f64".to_string(),
     })?;
 
-    Ok((1.0 + erf(z_score(x_64, avg, stddev)? / SQRT_2)?) / 2.0)
+    if stddev == 0.0 {
+        return Err(StatsError::InvalidInput {
+            message: "prob::cumulative_distrib: Standard deviation must be non-zero".to_string(),
+        });
+    }
+
+    let z = (x_64 - avg) / stddev;
+    Ok((1.0 + erf(z / SQRT_2)?) / 2.0)
 }
 
 #[cfg(test)]

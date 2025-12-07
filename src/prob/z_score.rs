@@ -58,7 +58,7 @@ pub fn z_score<T>(x: T, avg: f64, stddev: f64) -> StatsResult<f64> where T: ToPr
     }
 
     let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError {
-        message: "Failed to convert x to f64".to_string(),
+        message: "prob::z_score: Failed to convert x to f64".to_string(),
     })?;
 
     Ok((x_64 - avg) / stddev)
