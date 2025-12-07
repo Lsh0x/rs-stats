@@ -19,9 +19,11 @@
 //! - Φ(μ) = 0.5
 //! - Φ(μ + a) = 1 - Φ(μ - a) (symmetry property)
 
+use num_traits::ToPrimitive;
 use crate::prob::erf::erf;
 use crate::prob::z_score::z_score;
 use std::f64::consts::SQRT_2;
+use crate::error::{StatsResult, StatsError};
 
 /// Calculate the cumulative distribution function (CDF) for a normal distribution
 ///
@@ -40,16 +42,20 @@ use std::f64::consts::SQRT_2;
 /// use rs_stats::prob::cumulative_distrib;
 ///
 /// // Calculate CDF for standard normal distribution at x = 0
-/// let cdf = cumulative_distrib(0.0, 0.0, 1.0);
+/// let cdf = cumulative_distrib(0.0, 0.0, 1.0).unwrap();
 /// assert!((cdf - 0.5).abs() < 1e-8);
 ///
 /// // Calculate CDF for non-standard normal distribution
-/// let cdf = cumulative_distrib(12.0, 10.0, 2.0);
+/// let cdf = cumulative_distrib(12.0, 10.0, 2.0).unwrap();
 /// assert!((cdf - 0.841344746).abs() < 1e-8);
 /// ```
 #[inline]
-pub fn cumulative_distrib(x: f64, avg: f64, stddev: f64) -> f64 {
-    (1.0 + erf(z_score(x, avg, stddev) / SQRT_2)) / 2.0
+pub fn cumulative_distrib<T>(x: T, avg: f64, stddev: f64) -> StatsResult<f64> where T: ToPrimitive {
+    let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError {
+        message: "Failed to convert x to f64".to_string(),
+    })?;
+
+    Ok((1.0 + erf(z_score(x_64, avg, stddev)? / SQRT_2)?) / 2.0)
 }
 
 #[cfg(test)]
@@ -64,7 +70,7 @@ mod tests {
         let x = 0.0;
         let avg = 0.0;
         let stddev = 1.0;
-        let result = cumulative_distrib(x, avg, stddev);
+        let result = cumulative_distrib(x, avg, stddev).unwrap();
         let expected = 0.5;
         assert!(
             (result - expected).abs() < EPSILON,
@@ -79,7 +85,7 @@ mod tests {
         let x = 1.0;
         let avg = 0.0;
         let stddev = 1.0;
-        let result = cumulative_distrib(x, avg, stddev);
+        let result = cumulative_distrib(x, avg, stddev).unwrap();
         let expected = 0.841344746;
         assert!(
             (result - expected).abs() < EPSILON,
@@ -94,7 +100,7 @@ mod tests {
         let x = -1.0;
         let avg = 0.0;
         let stddev = 1.0;
-        let result = cumulative_distrib(x, avg, stddev);
+        let result = cumulative_distrib(x, avg, stddev).unwrap();
         let expected = 0.158655254;
         assert!(
             (result - expected).abs() < EPSILON,
@@ -109,7 +115,7 @@ mod tests {
         let x = 12.0;
         let avg = 10.0;
         let stddev = 2.0;
-        let result = cumulative_distrib(x, avg, stddev);
+        let result = cumulative_distrib(x, avg, stddev).unwrap();
         let expected = 0.841344746; // CDF for z = 1.0 in standard normal
         assert!(
             (result - expected).abs() < EPSILON,
@@ -123,7 +129,7 @@ mod tests {
         let x = 5.0;
         let avg = 0.0;
         let stddev = 1.0;
-        let result = cumulative_distrib(x, avg, stddev);
+        let result = cumulative_distrib(x, avg, stddev).unwrap();
         let expected = 0.999999713; // Approximate value of CDF(5.0)
         assert!(
             (result - expected).abs() < EPSILON,
@@ -137,7 +143,7 @@ mod tests {
         let x = -5.0;
         let avg = 0.0;
         let stddev = 1.0;
-        let result = cumulative_distrib(x, avg, stddev);
+        let result = cumulative_distrib(x, avg, stddev).unwrap();
         println!("resuilit large negatif : {:?}", result);
         let expected = 0.000000287; // Approximate value of CDF(-5.0)
         assert!(

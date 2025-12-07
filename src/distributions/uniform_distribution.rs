@@ -21,8 +21,9 @@
 //! Mean: (a + b)/2
 //! Variance: (b - a)²/12
 
-use rand::Rng;
-use rand::distributions::{Distribution, Uniform};
+use num_traits::ToPrimitive;
+use std::cmp::PartialOrd;
+use crate::error::{StatsResult, StatsError};
 use serde::{Deserialize, Serialize};
 
 /// Configuration for the Uniform distribution.
@@ -39,14 +40,14 @@ use serde::{Deserialize, Serialize};
 /// assert!(config.a < config.b);
 /// ```
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct UniformConfig {
+pub struct UniformConfig<T> where T: ToPrimitive + PartialOrd {
     /// The lower bound of the distribution.
-    pub a: f64,
+    pub a: T,
     /// The upper bound of the distribution.
-    pub b: f64,
+    pub b: T,
 }
 
-impl UniformConfig {
+impl<T> UniformConfig<T> where T: ToPrimitive + PartialOrd {
     /// Creates a new UniformConfig with validation
     ///
     /// # Arguments
@@ -55,8 +56,10 @@ impl UniformConfig {
     ///
     /// # Returns
     /// `Some(UniformConfig)` if parameters are valid (a < b), `None` otherwise
-    pub fn new(a: f64, b: f64) -> Option<Self> {
-        if a < b { Some(Self { a, b }) } else { None }
+    pub fn new(a: T, b: T) -> StatsResult<Self> {
+        if a < b { Ok(Self { a, b }) } else { Err(StatsError::InvalidInput {
+            message: "UniformConfig::new: a must be less than b".to_string(),
+        }) }
     }
 }
 
@@ -212,63 +215,6 @@ pub fn uniform_mean(a: f64, b: f64) -> f64 {
     assert!(a < b, "Lower bound must be less than upper bound");
 
     (a + b) / 2.0
-}
-
-/// Calculate the variance of a Uniform distribution.
-///
-/// # Arguments
-/// * `a` - The lower bound of the distribution
-/// * `b` - The upper bound of the distribution (must be > a)
-///
-/// # Returns
-/// The variance of the uniform distribution: (b - a)² / 12
-///
-/// # Panics
-/// Panics if a ≥ b
-///
-/// # Examples
-/// ```
-/// use rs_stats::distributions::uniform_distribution::uniform_variance;
-///
-/// let variance = uniform_variance(0.0, 1.0);
-/// assert!((variance - 1.0/12.0).abs() < 1e-10);
-///
-/// let variance = uniform_variance(0.0, 12.0);
-/// assert!((variance - 12.0).abs() < 1e-10);
-/// ```
-pub fn uniform_variance(a: f64, b: f64) -> f64 {
-    assert!(a < b, "Lower bound must be less than upper bound");
-
-    ((b - a) * (b - a)) / 12.0
-}
-
-/// Generate a random sample from a Uniform distribution.
-///
-/// # Arguments
-/// * `a` - The lower bound of the distribution
-/// * `b` - The upper bound of the distribution (must be > a)
-/// * `rng` - Random number generator
-///
-/// # Returns
-/// A random value from the uniform distribution on [a, b]
-///
-/// # Panics
-/// Panics if a ≥ b
-///
-/// # Examples
-/// ```
-/// use rs_stats::distributions::uniform_distribution::uniform_sample;
-/// use rand::thread_rng;
-///
-/// let mut rng = thread_rng();
-/// let sample = uniform_sample(0.0, 1.0, &mut rng);
-/// assert!(sample >= 0.0 && sample <= 1.0);
-/// ```
-pub fn uniform_sample<R: Rng + ?Sized>(a: f64, b: f64, rng: &mut R) -> f64 {
-    assert!(a < b, "Lower bound must be less than upper bound");
-
-    let dist = Uniform::new(a, b);
-    dist.sample(rng)
 }
 
 #[cfg(test)]

@@ -27,10 +27,9 @@
 //!
 //! F(x; λ) = 1 - e^(-λx) for x ≥ 0
 
-use rand::Rng;
-use rand::distributions::Distribution;
-use rand_distr::Exp;
+use num_traits::ToPrimitive;
 use serde::{Deserialize, Serialize};
+use crate::error::{StatsResult, StatsError};
 
 /// Configuration for the Exponential distribution.
 ///
@@ -45,12 +44,12 @@ use serde::{Deserialize, Serialize};
 /// assert!(config.lambda > 0.0);
 /// ```
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct ExponentialConfig {
+pub struct ExponentialConfig<T> where T: ToPrimitive {
     /// The rate parameter.
-    pub lambda: f64,
+    pub lambda: T,
 }
 
-impl ExponentialConfig {
+impl<T> ExponentialConfig<T> where T: ToPrimitive {
     /// Creates a new ExponentialConfig with validation
     ///
     /// # Arguments
@@ -58,11 +57,17 @@ impl ExponentialConfig {
     ///
     /// # Returns
     /// `Some(ExponentialConfig)` if parameter is valid, `None` otherwise
-    pub fn new(lambda: f64) -> Option<Self> {
-        if lambda > 0.0 {
-            Some(Self { lambda })
+    pub fn new(lambda: T) -> StatsResult<Self> {
+        let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError{
+            message: "ExponentialConfig::new: Failed to convert lambda to f64".to_string(),
+        })?;
+
+        if lambda_64 > 0.0 {
+            Ok(Self { lambda })
         } else {
-            None
+            Err(StatsError::InvalidInput {
+                message: "ExponentialConfig::new: lambda must be positive".to_string(),
+            })
         }
     }
 }
@@ -89,18 +94,31 @@ impl ExponentialConfig {
 /// use rs_stats::distributions::exponential_distribution::exponential_pdf;
 ///
 /// // Calculate PDF at x = 1.0 with rate parameter lambda = 2.0
-/// let pdf = exponential_pdf(1.0, 2.0);
+/// let pdf = exponential_pdf(1.0, 2.0).unwrap();
 /// assert!((pdf - 0.27067).abs() < 1e-5);
 /// ```
-pub fn exponential_pdf(x: f64, lambda: f64) -> f64 {
-    assert!(x >= 0.0, "x must be non-negative");
-    assert!(lambda > 0.0, "lambda must be positive");
+pub fn exponential_pdf<T>(x: T, lambda: T) -> StatsResult<f64> where T: ToPrimitive {
+    let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError{
+        message: "exponential_pdf: Failed to convert x to f64".to_string(),
+    })?;
 
-    if x == 0.0 {
-        lambda
-    } else {
-        lambda * (-lambda * x).exp()
+    if x_64 < 0.0 {
+        return Err(StatsError::InvalidInput {
+            message: "exponential_pdf: x must be non-negative".to_string(),
+        });
     }
+
+    let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError{
+        message: "exponential_pdf: Failed to convert lambda to f64".to_string(),
+    })?;
+
+    if lambda_64 <= 0.0 {
+        return Err(StatsError::InvalidInput {
+            message: "exponential_pdf: lambda must be positive".to_string(),
+        });
+    }
+
+    Ok(if x_64 == 0.0 { lambda_64 } else { lambda_64 * (-lambda_64 * x_64).exp() })
 }
 
 /// Cumulative distribution function (CDF) for the Exponential distribution.
@@ -125,14 +143,30 @@ pub fn exponential_pdf(x: f64, lambda: f64) -> f64 {
 /// use rs_stats::distributions::exponential_distribution::exponential_cdf;
 ///
 /// // Calculate CDF at x = 1.0 with rate parameter lambda = 2.0
-/// let cdf = exponential_cdf(1.0, 2.0);
+/// let cdf = exponential_cdf(1.0, 2.0).unwrap();
 /// assert!((cdf - 0.86466).abs() < 1e-5);
 /// ```
-pub fn exponential_cdf(x: f64, lambda: f64) -> f64 {
-    assert!(x >= 0.0, "x must be non-negative");
-    assert!(lambda > 0.0, "lambda must be positive");
+pub fn exponential_cdf<T>(x: T, lambda: T) -> StatsResult<f64> where T: ToPrimitive {
+    let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError{
+        message: "exponential_cdf: Failed to convert x to f64".to_string(),
+    })?;
 
-    1.0 - (-lambda * x).exp()
+    if x_64 < 0.0 {
+        return Err(StatsError::InvalidInput {
+            message: "exponential_cdf: x must be non-negative".to_string(),
+        });
+    } 
+    
+    let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError{
+        message: "exponential_cdf: Failed to convert lambda to f64".to_string(),
+    })?;
+
+    if lambda_64 <= 0.0 {
+        return Err(StatsError::InvalidInput {
+            message: "exponential_cdf: lambda must be positive".to_string(),
+        });
+    }
+    Ok(1.0 - (-lambda_64 * x_64).exp())
 }
 
 /// Inverse cumulative distribution function for the Exponential distribution.
@@ -156,17 +190,33 @@ pub fn exponential_cdf(x: f64, lambda: f64) -> f64 {
 /// use rs_stats::distributions::exponential_distribution::{exponential_inverse_cdf, exponential_cdf};
 ///
 /// // Calculate inverse CDF for p = 0.5 with rate parameter lambda = 2.0
-/// let x = exponential_inverse_cdf(0.5, 2.0);
+/// let x = exponential_inverse_cdf(0.5, 2.0).unwrap();
 ///
 /// // Verify that CDF(x) is approximately p
-/// let p = exponential_cdf(x, 2.0);
+/// let p = exponential_cdf(x, 2.0).unwrap();
 /// assert!((p - 0.5).abs() < 1e-10);
 /// ```
-pub fn exponential_inverse_cdf(p: f64, lambda: f64) -> f64 {
-    assert!((0.0..=1.0).contains(&p), "p must be between 0 and 1");
-    assert!(lambda > 0.0, "lambda must be positive");
+pub fn exponential_inverse_cdf<T>(p: T, lambda: T) -> StatsResult<f64> where T: ToPrimitive {
+    let p_64 = p.to_f64().ok_or_else(|| StatsError::ConversionError{
+        message: "exponential_inverse_cdf: Failed to convert p to f64".to_string(),
+    })?;
 
-    -((1.0 - p).ln()) / lambda
+    if p_64 < 0.0 || p_64 > 1.0 {
+        return Err(StatsError::InvalidInput {
+            message: "exponential_inverse_cdf: p must be between 0 and 1".to_string(),
+        });
+    }
+    
+    let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError{
+        message: "exponential_inverse_cdf: Failed to convert lambda to f64".to_string(),
+    })?;
+
+    if lambda_64 <= 0.0 {
+        return Err(StatsError::InvalidInput {
+            message: "exponential_inverse_cdf: lambda must be positive".to_string(),
+        });
+    }
+    Ok(-((1.0 - p_64).ln()) / lambda_64)
 }
 
 /// Mean (expected value) of the Exponential distribution.
@@ -187,13 +237,20 @@ pub fn exponential_inverse_cdf(p: f64, lambda: f64) -> f64 {
 /// use rs_stats::distributions::exponential_distribution::exponential_mean;
 ///
 /// // Mean of exponential distribution with rate parameter lambda = 2.0
-/// let mean = exponential_mean(2.0);
+/// let mean = exponential_mean(2.0).unwrap();
 /// assert!((mean - 0.5).abs() < 1e-10);
 /// ```
-pub fn exponential_mean(lambda: f64) -> f64 {
-    assert!(lambda > 0.0, "lambda must be positive");
+pub fn exponential_mean<T>(lambda: T) -> StatsResult<f64> where T: ToPrimitive {
+    let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError{
+        message: "exponential_mean: Failed to convert lambda to f64".to_string(),
+    })?;
+    if lambda_64 <= 0.0 {
+        return Err(StatsError::InvalidInput {
+            message: "exponential_mean: lambda must be positive".to_string(),
+        });
+    }
 
-    1.0 / lambda
+    Ok(1.0 / lambda_64)
 }
 
 /// Variance of the Exponential distribution.
@@ -214,47 +271,22 @@ pub fn exponential_mean(lambda: f64) -> f64 {
 /// use rs_stats::distributions::exponential_distribution::exponential_variance;
 ///
 /// // Variance of exponential distribution with rate parameter lambda = 2.0
-/// let variance = exponential_variance(2.0);
+/// let variance = exponential_variance(2.0).unwrap();
 /// assert!((variance - 0.25).abs() < 1e-10);
 /// ```
-pub fn exponential_variance(lambda: f64) -> f64 {
-    assert!(lambda > 0.0, "lambda must be positive");
+pub fn exponential_variance(lambda: f64) -> StatsResult<f64> {
+    if lambda <= 0.0 {
+        return Err(StatsError::InvalidInput {
+            message: "exponential_variance: lambda must be positive".to_string(),
+        });
+    }
 
-    1.0 / (lambda * lambda)
-}
-
-/// Generate a random sample from an Exponential distribution.
-///
-/// # Arguments
-/// * `lambda` - The rate parameter (must be positive)
-/// * `rng` - A random number generator
-///
-/// # Returns
-/// A random value from the exponential distribution.
-///
-/// # Panics
-/// Panics if `lambda` is not positive
-///
-/// # Examples
-/// ```
-/// use rs_stats::distributions::exponential_distribution::exponential_sample;
-/// use rand::thread_rng;
-///
-/// let mut rng = thread_rng();
-/// let sample = exponential_sample(2.0, &mut rng);
-/// assert!(sample >= 0.0); // Exponential distribution is always non-negative
-/// ```
-pub fn exponential_sample<R: Rng + ?Sized>(lambda: f64, rng: &mut R) -> f64 {
-    assert!(lambda > 0.0, "lambda must be positive");
-
-    let exp = Exp::new(lambda).unwrap();
-    exp.sample(rng)
+    Ok(1.0 / (lambda * lambda)) 
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::thread_rng;
 
     const EPSILON: f64 = 1e-10;
 
@@ -263,49 +295,49 @@ mod tests {
         let lambda = 2.0;
 
         // PDF at x = 0
-        let result = exponential_pdf(0.0, lambda);
+        let result = exponential_pdf(0.0, lambda).unwrap();
         assert_eq!(result, lambda);
 
         // PDF at x = 1
-        let result = exponential_pdf(1.0, lambda);
+        let result = exponential_pdf(1.0, lambda).unwrap();
         let expected = lambda * (-lambda).exp();
         assert!((result - expected).abs() < EPSILON);
 
         // PDF at x = 0.5
-        let result = exponential_pdf(0.5, lambda);
+        let result = exponential_pdf(0.5, lambda).unwrap();
         let expected = lambda * (-lambda * 0.5).exp();
         assert!((result - expected).abs() < EPSILON);
     }
 
     #[test]
     fn test_exponential_cdf() {
-        let lambda = 2.0;
+        let lambda = 2.0_f64;
 
         // CDF at x = 0
-        let result = exponential_cdf(0.0, lambda);
+        let result = exponential_cdf(0.0, lambda).unwrap();
         assert!((result - 0.0).abs() < EPSILON);
 
         // CDF at x = 1
-        let result = exponential_cdf(1.0, lambda);
+        let result = exponential_cdf(1.0, lambda).unwrap();
         let expected = 1.0 - (-lambda).exp();
         assert!((result - expected).abs() < EPSILON);
 
         // CDF at x = 0.5
-        let result = exponential_cdf(0.5, lambda);
+        let result = exponential_cdf(0.5, lambda).unwrap();
         let expected = 1.0 - (-lambda * 0.5).exp();
         assert!((result - expected).abs() < EPSILON);
     }
 
     #[test]
     fn test_exponential_inverse_cdf() {
-        let lambda = 2.0;
+        let lambda = 2.0_f64;
 
         // Test inverse CDF with various probabilities
         let test_cases = vec![0.1, 0.25, 0.5, 0.75, 0.9];
 
         for p in test_cases {
-            let x = exponential_inverse_cdf(p, lambda);
-            let cdf = exponential_cdf(x, lambda);
+            let x = exponential_inverse_cdf(p, lambda).unwrap();
+            let cdf = exponential_cdf(x, lambda).unwrap();
             assert!(
                 (cdf - p).abs() < EPSILON,
                 "Inverse CDF failed for p = {}: got {}, expected {}",
@@ -319,7 +351,7 @@ mod tests {
     #[test]
     fn test_exponential_mean() {
         let lambda = 2.0;
-        let result = exponential_mean(lambda);
+        let result = exponential_mean(lambda).unwrap();
         let expected = 1.0 / lambda;
         assert!((result - expected).abs() < EPSILON);
     }
@@ -327,66 +359,46 @@ mod tests {
     #[test]
     fn test_exponential_variance() {
         let lambda = 2.0;
-        let result = exponential_variance(lambda);
+        let result = exponential_variance(lambda).unwrap();
         let expected = 1.0 / (lambda * lambda);
         assert!((result - expected).abs() < EPSILON);
     }
 
     #[test]
-    fn test_exponential_sample() {
-        let lambda = 2.0;
-        let mut rng = thread_rng();
-
-        // Test that samples are non-negative
-        for _ in 0..100 {
-            let sample = exponential_sample(lambda, &mut rng);
-            assert!(sample >= 0.0);
-        }
-
-        // Test that mean of samples is close to theoretical mean
-        // This is a statistical test, so we allow some margin of error
-        let num_samples = 10000;
-        let mut sum = 0.0;
-
-        for _ in 0..num_samples {
-            sum += exponential_sample(lambda, &mut rng);
-        }
-
-        let sample_mean = sum / (num_samples as f64);
-        let theoretical_mean = exponential_mean(lambda);
-
-        // Allow a 10% margin of error for the mean
-        assert!(
-            (sample_mean - theoretical_mean).abs() < theoretical_mean * 0.1,
-            "Sample mean {} is too far from theoretical mean {}",
-            sample_mean,
-            theoretical_mean
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "lambda must be positive")]
     fn test_exponential_pdf_invalid_lambda() {
-        exponential_pdf(1.0, -2.0);
+        let result = exponential_pdf(1.0, -2.0);
+        assert!(result.is_err());
+        match result {
+            Err(StatsError::InvalidInput { message }) => {
+                assert!(message.contains("lambda must be positive"));
+            }
+            _ => panic!("Expected InvalidInput error"),
+        }
     }
 
     #[test]
-    #[should_panic(expected = "x must be non-negative")]
     fn test_exponential_pdf_invalid_x() {
-        exponential_pdf(-1.0, 2.0);
+        let result = exponential_pdf(-1.0, 2.0);
+        assert!(result.is_err());
+        match result {
+            Err(StatsError::InvalidInput { message }) => {
+                assert!(message.contains("x must be non-negative"));
+            }
+            _ => panic!("Expected InvalidInput error"),
+        }
     }
 
     #[test]
     fn test_exponential_config() {
         // Valid config
         let config = ExponentialConfig::new(2.0);
-        assert!(config.is_some());
+        assert!(config.is_ok());
 
         // Invalid config
         let config = ExponentialConfig::new(0.0);
-        assert!(config.is_none());
+        assert!(config.is_err());
 
         let config = ExponentialConfig::new(-1.0);
-        assert!(config.is_none());
+        assert!(config.is_err());
     }
 }

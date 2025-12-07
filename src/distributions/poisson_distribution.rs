@@ -25,6 +25,8 @@
 //! - k is the number of occurrences
 //! - e is Euler's number (~2.71828)
 
+use num_traits::ToPrimitive;
+use crate::error::{StatsResult, StatsError};
 use serde::{Deserialize, Serialize};
 
 /// Configuration for the Poisson distribution.
@@ -40,24 +42,30 @@ use serde::{Deserialize, Serialize};
 /// assert!(config.lambda > 0.0);
 /// ```
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct PoissonConfig {
+pub struct PoissonConfig<T> where T: ToPrimitive {
     /// The average rate (λ) of events.
-    pub lambda: f64,
+    pub lambda: T,
 }
 
-impl PoissonConfig {
+impl<T> PoissonConfig<T> where T: ToPrimitive {
     /// Creates a new PoissonConfig with validation
     ///
     /// # Arguments
     /// * `lambda` - The average rate (λ) of events
     ///
     /// # Returns
-    /// `Some(PoissonConfig)` if lambda is positive, `None` otherwise
-    pub fn new(lambda: f64) -> Option<Self> {
-        if lambda > 0.0 {
-            Some(Self { lambda })
+    /// `Ok(PoissonConfig)` if lambda is positive, `Err` otherwise
+    pub fn new(lambda: T) -> StatsResult<Self>  {
+        let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError{
+            message: "PoissonConfig::new: Failed to convert lambda to f64".to_string(),
+        })?;
+
+        if lambda_64 > 0.0 {
+            Ok(Self { lambda })
         } else {
-            None
+            Err(StatsError::InvalidInput {
+                message: "PoissonConfig::new: lambda must be positive".to_string(),
+            })
         }
     }
 }
@@ -81,14 +89,21 @@ impl PoissonConfig {
 /// use rs_stats::distributions::poisson_distribution::pmf;
 ///
 /// // Calculate probability of 2 events with λ=1.5
-/// let prob = pmf(2, 1.5);
+/// let prob = pmf(2, 1.5).unwrap();
 /// assert!((prob - 0.2510214301669835).abs() < 1e-10);
 /// ```
-pub fn pmf(k: u64, lambda: f64) -> f64 {
-    assert!(lambda > 0.0, "lambda must be positive");
+pub fn pmf<T>(k: u64, lambda: T) -> StatsResult<f64> where T: ToPrimitive {
+    let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError{
+        message: "poisson_distribution::pmf: Failed to convert lambda to f64".to_string(),
+    })?;
+    if lambda_64 <= 0.0 {
+        return Err(StatsError::InvalidInput {
+            message: "poisson_distribution::pmf: lambda must be positive".to_string(),
+        });
+    }
     let e = std::f64::consts::E;
     let fact = (1..=k as usize).fold(1.0, |acc, x| acc * x as f64);
-    ((e.powf(-lambda)) * (lambda.powf(k as f64))) / fact
+    Ok(((e.powf(-lambda_64)) * (lambda_64.powf(k as f64))) / fact)
 }
 
 /// Cumulative distribution function (CDF) for the Poisson distribution.
@@ -110,12 +125,19 @@ pub fn pmf(k: u64, lambda: f64) -> f64 {
 /// use rs_stats::distributions::poisson_distribution::cdf;
 ///
 /// // Calculate probability of 2 or fewer events with λ=1.5
-/// let prob = cdf(2, 1.5);
+/// let prob = cdf(2, 1.5).unwrap();
 /// assert!((prob - 0.8088468305380586).abs() < 1e-10);
 /// ```
-pub fn cdf(k: u64, lambda: f64) -> f64 {
-    assert!(lambda > 0.0, "lambda must be positive");
-    (0..=k).fold(0.0, |acc, i| acc + pmf(i, lambda))
+pub fn cdf<T>(k: u64, lambda: T) -> StatsResult<f64> where T: ToPrimitive {
+    let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError{
+        message: "poisson_distribution::cdf: Failed to convert lambda to f64".to_string(),
+    })?;
+    if lambda_64 <= 0.0 {
+        return Err(StatsError::InvalidInput {
+            message: "poisson_distribution::cdf: lambda must be positive".to_string(),
+        });
+    }
+    (0..=k).try_fold(0.0, |acc, i| pmf(i, lambda_64).map(|prob| acc + prob))
 }
 
 #[cfg(test)]
@@ -126,7 +148,7 @@ mod tests {
     fn test_poisson_pmf() {
         let lambda = 2.0;
         let k = 0;
-        let result = pmf(k, lambda);
+        let result = pmf(k, lambda).unwrap();
         assert!(
             !result.is_nan(),
             "PMF returned NaN for k={}, lambda={}",
@@ -141,7 +163,7 @@ mod tests {
         let k = 5;
         let result = cdf(k, lambda);
         assert!(
-            !result.is_nan(),
+            !result.unwrap().is_nan(),
             "CDF returned NaN for k={}, lambda={}",
             k,
             lambda
