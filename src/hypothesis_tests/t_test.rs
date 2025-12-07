@@ -18,6 +18,7 @@
 
 use crate::error::{StatsError, StatsResult};
 use crate::utils::constants::{SQRT_2, LN_2PI};
+use crate::prob::erf::erf;
 use num_traits::ToPrimitive;
 use std::f64;
 use std::fmt::Debug;
@@ -412,7 +413,8 @@ fn calculate_p_value(t_stat: f64, df: f64) -> f64 {
 /// Standard normal cumulative distribution function
 fn standard_normal_cdf(x: f64) -> f64 {
     // Use error function relationship with normal CDF
-    0.5 * (1.0 + erf(x / SQRT_2))
+    // unwrap is safe here as erf always succeeds for f64 values
+    0.5 * (1.0 + erf(x / SQRT_2).unwrap())
 }
 
 /// Incomplete beta function approximation
@@ -534,29 +536,6 @@ fn ln_gamma(x: f64) -> f64 {
         let t = x + 7.5;
         (x + 0.5) * t.ln() - t + LN_2PI * 0.5 + sum.ln() / x
     }
-}
-/// Error function implementation (erf)
-///
-/// Computes an approximation to the error function using a numerical approximation
-/// based on Abramowitz and Stegun formula 7.1.26.
-fn erf(x: f64) -> f64 {
-    // Constants for the approximation
-    const A1: f64 = 0.254829592;
-    const A2: f64 = -0.284496736;
-    const A3: f64 = 1.421413741;
-    const A4: f64 = -1.453152027;
-    const A5: f64 = 1.061405429;
-    const P: f64 = 0.3275911;
-
-    // Save the sign of x
-    let sign = if x < 0.0 { -1.0 } else { 1.0 };
-    let x = x.abs();
-
-    // Formula 7.1.26 from Abramowitz and Stegun
-    let t = 1.0 / (1.0 + P * x);
-    let y = 1.0 - (((((A5 * t + A4) * t) + A3) * t + A2) * t + A1) * t * (-x * x).exp();
-
-    sign * y
 }
 
 #[cfg(test)]
