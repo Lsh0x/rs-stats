@@ -92,6 +92,7 @@ impl<T> PoissonConfig<T> where T: ToPrimitive {
 /// let prob = pmf(2, 1.5).unwrap();
 /// assert!((prob - 0.2510214301669835).abs() < 1e-10);
 /// ```
+#[inline]
 pub fn pmf<T>(k: u64, lambda: T) -> StatsResult<f64> where T: ToPrimitive {
     let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError{
         message: "poisson_distribution::pmf: Failed to convert lambda to f64".to_string(),
@@ -108,7 +109,8 @@ pub fn pmf<T>(k: u64, lambda: T) -> StatsResult<f64> where T: ToPrimitive {
         });
     }
     
-    let fact = (1..=k as usize).fold(1.0, |acc, x| acc * x as f64);
+    
+    
     
     // Use log-space calculation to avoid:
     // 1. Casting u64 to i32 (information loss)
@@ -120,7 +122,8 @@ pub fn pmf<T>(k: u64, lambda: T) -> StatsResult<f64> where T: ToPrimitive {
     // Calculate in log space: k * ln(λ) - λ - ln(k!)
     // Note: ln(k!) = sum(ln(i)) for i=1..=k, but we already computed k! above
     let log_lambda_power = k_f64 * lambda_64.ln();
-    let log_prob = log_lambda_power - lambda_64 - fact.ln();
+    let log_fact: f64 = (1..=k as usize).map(|i| (i as f64).ln()).sum();
+    let log_prob = log_lambda_power - lambda_64 - log_fact;
     
     // Convert back from log space
     let prob = log_prob.exp();
@@ -150,6 +153,7 @@ pub fn pmf<T>(k: u64, lambda: T) -> StatsResult<f64> where T: ToPrimitive {
 /// let prob = cdf(2, 1.5).unwrap();
 /// assert!((prob - 0.8088468305380586).abs() < 1e-10);
 /// ```
+#[inline]
 pub fn cdf<T>(k: u64, lambda: T) -> StatsResult<f64> where T: ToPrimitive {
     let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError{
         message: "poisson_distribution::cdf: Failed to convert lambda to f64".to_string(),

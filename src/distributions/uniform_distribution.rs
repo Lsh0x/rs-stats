@@ -86,17 +86,32 @@ impl<T> UniformConfig<T> where T: ToPrimitive + PartialOrd {
 /// use rs_stats::distributions::uniform_distribution::uniform_pdf;
 ///
 /// // Calculate PDF for x = 0.5 in uniform distribution from 0 to 1
-/// let pdf = uniform_pdf(0.5, 0.0, 1.0);
+/// let pdf = uniform_pdf(0.5, 0.0, 1.0).unwrap();
 /// assert!((pdf - 1.0).abs() < 1e-10);
 ///
 /// // PDF is 0 outside the range
-/// let pdf = uniform_pdf(1.5, 0.0, 1.0);
+/// let pdf = uniform_pdf(1.5, 0.0, 1.0).unwrap();
 /// assert!((pdf - 0.0).abs() < 1e-10);
 /// ```
-pub fn uniform_pdf(x: f64, a: f64, b: f64) -> f64 {
-    assert!(a < b, "Lower bound must be less than upper bound");
+#[inline]
+pub fn uniform_pdf<T>(x: T, a: T, b: T) -> StatsResult<f64> where T: ToPrimitive + PartialOrd {
+    let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError {
+        message: "distributions::uniform_distribution::uniform_pdf: Failed to convert arg1 to f64".to_string(),
+    })?;
+    let a_64 = a.to_f64().ok_or_else(|| StatsError::ConversionError {
+        message: "distributions::uniform_distribution::uniform_pdf: Failed to convert arg2 to f64".to_string(),
+    })?;
+    let b_64 = b.to_f64().ok_or_else(|| StatsError::ConversionError {
+        message: "distributions::uniform_distribution::uniform_pdf: Failed to convert arg3 to f64".to_string(),
+    })?;
 
-    if x < a || x > b { 0.0 } else { 1.0 / (b - a) }
+    if a_64 >= b_64 {   
+        return Err(StatsError::InvalidInput {
+        message: "distributions::uniform_distribution::uniform_pdf: a must be less than b".to_string(),
+        });
+    }
+
+    Ok(if x_64 < a_64 || x_64 > b_64 { 0.0 } else { 1.0 / (b_64 - a_64) })
 }
 
 /// Cumulative distribution function (CDF) for the Uniform distribution.
@@ -123,27 +138,41 @@ pub fn uniform_pdf(x: f64, a: f64, b: f64) -> f64 {
 /// use rs_stats::distributions::uniform_distribution::uniform_cdf;
 ///
 /// // Calculate CDF for x = 0.5 in uniform distribution from 0 to 1
-/// let cdf = uniform_cdf(0.5, 0.0, 1.0);
+/// let cdf = uniform_cdf(0.5, 0.0, 1.0).unwrap();
 /// assert!((cdf - 0.5).abs() < 1e-10);
 ///
 /// // CDF is 0 below the range
-/// let cdf = uniform_cdf(-0.5, 0.0, 1.0);
+/// let cdf = uniform_cdf(-0.5, 0.0, 1.0).unwrap();
 /// assert!((cdf - 0.0).abs() < 1e-10);
 ///
 /// // CDF is 1 above the range
-/// let cdf = uniform_cdf(1.5, 0.0, 1.0);
+/// let cdf = uniform_cdf(1.5, 0.0, 1.0).unwrap();
 /// assert!((cdf - 1.0).abs() < 1e-10);
 /// ```
-pub fn uniform_cdf(x: f64, a: f64, b: f64) -> f64 {
-    assert!(a < b, "Lower bound must be less than upper bound");
+#[inline]
+pub fn uniform_cdf<T>(x: T, a: T, b: T) -> StatsResult<f64> where T: ToPrimitive + PartialOrd {
+    let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError {
+        message: "distributions::uniform_distribution::uniform_cdf: Failed to convert arg1 to f64".to_string(),
+    })?;
+    let a_64 = a.to_f64().ok_or_else(|| StatsError::ConversionError {
+        message: "distributions::uniform_distribution::uniform_cdf: Failed to convert arg2 to f64".to_string(),
+    })?;
+    let b_64 = b.to_f64().ok_or_else(|| StatsError::ConversionError {
+        message: "distributions::uniform_distribution::uniform_cdf: Failed to convert arg3 to f64".to_string(),
+    })?;
 
-    if x < a {
+    if a_64 >= b_64 {
+        return Err(StatsError::InvalidInput {
+            message: "distributions::uniform_distribution::uniform_cdf: a must be less than b".to_string(),
+        });
+    }
+    Ok(if x_64 < a_64 {
         0.0
-    } else if x > b {
+    } else if x_64 > b_64 {
         1.0
     } else {
-        (x - a) / (b - a)
-    }
+        (x_64 - a_64) / (b_64 - a_64)
+    })
 }
 
 /// Inverse cumulative distribution function (Quantile Function) for the Uniform distribution.
@@ -169,24 +198,41 @@ pub fn uniform_cdf(x: f64, a: f64, b: f64) -> f64 {
 /// use rs_stats::distributions::uniform_distribution::{uniform_cdf, uniform_inverse_cdf};
 ///
 /// // Calculate the value at which CDF = 0.7 in uniform distribution from 0 to 1
-/// let x = uniform_inverse_cdf(0.7, 0.0, 1.0);
+/// let x = uniform_inverse_cdf(0.7, 0.0, 1.0).unwrap();
 /// assert!((x - 0.7).abs() < 1e-10);
 ///
 /// // Verify inverse relationship with CDF
 /// let p = 0.3;
 /// let a = 2.0;
 /// let b = 5.0;
-/// let x = uniform_inverse_cdf(p, a, b);
-/// assert!((uniform_cdf(x, a, b) - p).abs() < 1e-10);
+/// let x = uniform_inverse_cdf(p, a, b).unwrap();
+/// assert!((uniform_cdf(x, a, b).unwrap() - p).abs() < 1e-10);
 /// ```
-pub fn uniform_inverse_cdf(p: f64, a: f64, b: f64) -> f64 {
-    assert!(a < b, "Lower bound must be less than upper bound");
-    assert!(
-        (0.0..=1.0).contains(&p),
-        "Probability must be between 0 and 1"
-    );
+#[inline]
+pub fn uniform_inverse_cdf<T>(p: T, a: T, b: T) -> StatsResult<f64> where T: ToPrimitive + PartialOrd {
+    let p_64 = p.to_f64().ok_or_else(|| StatsError::ConversionError {
+        message: "distributions::uniform_distribution::uniform_inverse_cdf: Failed to convert arg1 to f64".to_string(),
+    })?;
+    let a_64 = a.to_f64().ok_or_else(|| StatsError::ConversionError {
+        message: "distributions::uniform_distribution::uniform_inverse_cdf: Failed to convert arg2 to f64".to_string(),
+    })?;
+    let b_64 = b.to_f64().ok_or_else(|| StatsError::ConversionError {
+        message: "distributions::uniform_distribution::uniform_inverse_cdf: Failed to convert arg3 to f64".to_string(),
+    })?;
 
-    a + (p * (b - a))
+    if a_64 >= b_64 {
+        return Err(StatsError::InvalidInput {
+            message: "distributions::uniform_distribution::uniform_inverse_cdf: a must be less than b".to_string(),
+        });
+    }
+
+    if p_64 < 0.0 || p_64 > 1.0 {
+        return Err(StatsError::InvalidInput {
+            message: "distributions::uniform_distribution::uniform_inverse_cdf: p must be between 0 and 1".to_string(),
+        });
+    }
+
+    Ok(a_64 + (p_64 * (b_64 - a_64)))
 }
 
 /// Calculate the mean of a Uniform distribution.
@@ -205,16 +251,28 @@ pub fn uniform_inverse_cdf(p: f64, a: f64, b: f64) -> f64 {
 /// ```
 /// use rs_stats::distributions::uniform_distribution::uniform_mean;
 ///
-/// let mean = uniform_mean(0.0, 1.0);
+/// let mean = uniform_mean(0.0, 1.0).unwrap();
 /// assert!((mean - 0.5).abs() < 1e-10);
 ///
-/// let mean = uniform_mean(-3.0, 3.0);
+/// let mean = uniform_mean(-3.0, 3.0).unwrap();
 /// assert!((mean - 0.0).abs() < 1e-10);
 /// ```
-pub fn uniform_mean(a: f64, b: f64) -> f64 {
-    assert!(a < b, "Lower bound must be less than upper bound");
+#[inline]
+pub fn uniform_mean<T>(a: T, b: T) -> StatsResult<f64> where T: ToPrimitive + PartialOrd {
+    let a_64 = a.to_f64().ok_or_else(|| StatsError::ConversionError {
+        message: "distributions::uniform_distribution::uniform_mean: Failed to convert arg1 to f64".to_string(),
+    })?;
+    let b_64 = b.to_f64().ok_or_else(|| StatsError::ConversionError {
+        message: "distributions::uniform_distribution::uniform_mean: Failed to convert arg2 to f64".to_string(),
+    })?;
 
-    (a + b) / 2.0
+    if a_64 >= b_64 {
+        return Err(StatsError::InvalidInput {
+            message: "distributions::uniform_distribution::uniform_mean: a must be less than b".to_string(),
+        });
+    }
+
+    Ok((a_64 + b_64) / 2.0)
 }
 
 #[cfg(test)]
@@ -226,52 +284,52 @@ mod tests {
     #[test]
     fn test_uniform_pdf_inside_range() {
         // For a uniform distribution on [0, 1], PDF should be 1 inside the range
-        assert!((uniform_pdf(0.0, 0.0, 1.0) - 1.0).abs() < EPSILON);
-        assert!((uniform_pdf(0.5, 0.0, 1.0) - 1.0).abs() < EPSILON);
-        assert!((uniform_pdf(1.0, 0.0, 1.0) - 1.0).abs() < EPSILON);
+        assert!((uniform_pdf(0.0, 0.0, 1.0).unwrap() - 1.0).abs() < EPSILON);
+        assert!((uniform_pdf(0.5, 0.0, 1.0).unwrap() - 1.0).abs() < EPSILON);
+        assert!((uniform_pdf(1.0, 0.0, 1.0).unwrap() - 1.0).abs() < EPSILON);
 
         // For a uniform distribution on [2, 4], PDF should be 1/2 inside the range
-        assert!((uniform_pdf(2.0, 2.0, 4.0) - 0.5).abs() < EPSILON);
-        assert!((uniform_pdf(3.0, 2.0, 4.0) - 0.5).abs() < EPSILON);
-        assert!((uniform_pdf(4.0, 2.0, 4.0) - 0.5).abs() < EPSILON);
+        assert!((uniform_pdf(2.0, 2.0, 4.0).unwrap() - 0.5).abs() < EPSILON);
+        assert!((uniform_pdf(3.0, 2.0, 4.0).unwrap() - 0.5).abs() < EPSILON);
+        assert!((uniform_pdf(4.0, 2.0, 4.0).unwrap() - 0.5).abs() < EPSILON);
     }
 
     #[test]
     fn test_uniform_pdf_outside_range() {
         // PDF should be 0 outside the range
-        assert!((uniform_pdf(-1.0, 0.0, 1.0) - 0.0).abs() < EPSILON);
-        assert!((uniform_pdf(2.0, 0.0, 1.0) - 0.0).abs() < EPSILON);
+        assert!((uniform_pdf(-1.0, 0.0, 1.0).unwrap() - 0.0).abs() < EPSILON);
+        assert!((uniform_pdf(2.0, 0.0, 1.0).unwrap() - 0.0).abs() < EPSILON);
     }
 
     #[test]
-    #[should_panic]
     fn test_uniform_pdf_invalid_range() {
         // Should panic if a >= b
-        uniform_pdf(0.5, 1.0, 0.0);
+        let result = uniform_pdf(0.5, 1.0, 0.0);
+        assert!(result.is_err(), "Should return error for a >= b");
     }
 
     #[test]
     fn test_uniform_cdf_inside_range() {
         // For a uniform distribution on [0, 1], CDF should increase linearly from 0 to 1
-        assert!((uniform_cdf(0.0, 0.0, 1.0) - 0.0).abs() < EPSILON);
-        assert!((uniform_cdf(0.25, 0.0, 1.0) - 0.25).abs() < EPSILON);
-        assert!((uniform_cdf(0.5, 0.0, 1.0) - 0.5).abs() < EPSILON);
-        assert!((uniform_cdf(0.75, 0.0, 1.0) - 0.75).abs() < EPSILON);
-        assert!((uniform_cdf(1.0, 0.0, 1.0) - 1.0).abs() < EPSILON);
+        assert!((uniform_cdf(0.0, 0.0, 1.0).unwrap() - 0.0).abs() < EPSILON);
+        assert!((uniform_cdf(0.25, 0.0, 1.0).unwrap() - 0.25).abs() < EPSILON);
+        assert!((uniform_cdf(0.5, 0.0, 1.0).unwrap() - 0.5).abs() < EPSILON);
+        assert!((uniform_cdf(0.75, 0.0, 1.0).unwrap() - 0.75).abs() < EPSILON);
+        assert!((uniform_cdf(1.0, 0.0, 1.0).unwrap() - 1.0).abs() < EPSILON);
 
         // For a uniform distribution on [2, 4]
-        assert!((uniform_cdf(2.0, 2.0, 4.0) - 0.0).abs() < EPSILON);
-        assert!((uniform_cdf(3.0, 2.0, 4.0) - 0.5).abs() < EPSILON);
-        assert!((uniform_cdf(4.0, 2.0, 4.0) - 1.0).abs() < EPSILON);
+        assert!((uniform_cdf(2.0, 2.0, 4.0).unwrap() - 0.0).abs() < EPSILON);
+        assert!((uniform_cdf(3.0, 2.0, 4.0).unwrap() - 0.5).abs() < EPSILON);
+        assert!((uniform_cdf(4.0, 2.0, 4.0).unwrap() - 1.0).abs() < EPSILON);
     }
 
     #[test]
     fn test_uniform_cdf_outside_range() {
         // CDF should be 0 below the range
-        assert!((uniform_cdf(-1.0, 0.0, 1.0) - 0.0).abs() < EPSILON);
+        assert!((uniform_cdf(-1.0, 0.0, 1.0).unwrap() - 0.0).abs() < EPSILON);
 
         // CDF should be 1 above the range
-        assert!((uniform_cdf(2.0, 0.0, 1.0) - 1.0).abs() < EPSILON);
+        assert!((uniform_cdf(2.0, 0.0, 1.0).unwrap() - 1.0).abs() < EPSILON);
     }
 
     #[test]
@@ -281,8 +339,8 @@ mod tests {
         let b = 5.0;
 
         for p in [0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0] {
-            let x = uniform_inverse_cdf(p, a, b);
-            let p_result = uniform_cdf(x, a, b);
+            let x = uniform_inverse_cdf(p, a, b).unwrap();
+            let p_result = uniform_cdf(x, a, b).unwrap();
             assert!(
                 (p - p_result).abs() < EPSILON,
                 "CDF(inverse_CDF(p)) should equal p"
@@ -291,8 +349,8 @@ mod tests {
             // Also verify that inverse_CDF(CDF(x)) ≈ x for points within the range
             if p > 0.0 && p < 1.0 {
                 let x_within_range = a + p * (b - a);
-                let p_cdf = uniform_cdf(x_within_range, a, b);
-                let x_result = uniform_inverse_cdf(p_cdf, a, b);
+                let p_cdf = uniform_cdf(x_within_range, a, b).unwrap();
+                let x_result = uniform_inverse_cdf(p_cdf, a, b).unwrap();
                 assert!(
                     (x_within_range - x_result).abs() < EPSILON,
                     "inverse_CDF(CDF(x)) should equal x"

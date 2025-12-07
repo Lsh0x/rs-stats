@@ -97,6 +97,7 @@ impl<T> ExponentialConfig<T> where T: ToPrimitive {
 /// let pdf = exponential_pdf(1.0, 2.0).unwrap();
 /// assert!((pdf - 0.27067).abs() < 1e-5);
 /// ```
+#[inline]
 pub fn exponential_pdf<T>(x: T, lambda: T) -> StatsResult<f64> where T: ToPrimitive {
     let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError{
         message: "exponential_pdf: Failed to convert x to f64".to_string(),
@@ -146,6 +147,7 @@ pub fn exponential_pdf<T>(x: T, lambda: T) -> StatsResult<f64> where T: ToPrimit
 /// let cdf = exponential_cdf(1.0, 2.0).unwrap();
 /// assert!((cdf - 0.86466).abs() < 1e-5);
 /// ```
+#[inline]
 pub fn exponential_cdf<T>(x: T, lambda: T) -> StatsResult<f64> where T: ToPrimitive {
     let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError{
         message: "exponential_cdf: Failed to convert x to f64".to_string(),
@@ -196,6 +198,7 @@ pub fn exponential_cdf<T>(x: T, lambda: T) -> StatsResult<f64> where T: ToPrimit
 /// let p = exponential_cdf(x, 2.0).unwrap();
 /// assert!((p - 0.5).abs() < 1e-10);
 /// ```
+#[inline]
 pub fn exponential_inverse_cdf<T>(p: T, lambda: T) -> StatsResult<f64> where T: ToPrimitive {
     let p_64 = p.to_f64().ok_or_else(|| StatsError::ConversionError{
         message: "exponential_inverse_cdf: Failed to convert p to f64".to_string(),
@@ -240,6 +243,7 @@ pub fn exponential_inverse_cdf<T>(p: T, lambda: T) -> StatsResult<f64> where T: 
 /// let mean = exponential_mean(2.0).unwrap();
 /// assert!((mean - 0.5).abs() < 1e-10);
 /// ```
+#[inline]
 pub fn exponential_mean<T>(lambda: T) -> StatsResult<f64> where T: ToPrimitive {
     let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError{
         message: "exponential_mean: Failed to convert lambda to f64".to_string(),
@@ -274,6 +278,7 @@ pub fn exponential_mean<T>(lambda: T) -> StatsResult<f64> where T: ToPrimitive {
 /// let variance = exponential_variance(2.0).unwrap();
 /// assert!((variance - 0.25).abs() < 1e-10);
 /// ```
+#[inline]
 pub fn exponential_variance(lambda: f64) -> StatsResult<f64> {
     if lambda <= 0.0 {
         return Err(StatsError::InvalidInput {

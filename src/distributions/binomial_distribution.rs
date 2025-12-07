@@ -106,6 +106,7 @@ impl<T> BinomialConfig<T> where T: ToPrimitive {
 /// let prob = pmf(3, 10, 0.5).unwrap();
 /// assert!((prob - 0.1171875).abs() < 1e-10);
 /// ```
+#[inline]
 pub fn pmf<T>(k: u64, n: u64, p: T) -> StatsResult<f64> where T: ToPrimitive {
     let p_64 = p.to_f64().ok_or_else(|| StatsError::ConversionError{
         message: "binomial_distribution::pmf: Failed to convert p to f64".to_string(),
@@ -179,6 +180,7 @@ pub fn pmf<T>(k: u64, n: u64, p: T) -> StatsResult<f64> where T: ToPrimitive {
 /// let prob = cdf(3, 10, 0.5).unwrap();
 /// assert!((prob - 0.171875).abs() < 1e-10);
 /// ```
+#[inline]
 pub fn cdf(k: u64, n: u64, p: f64) -> StatsResult<f64> {
     if n == 0 {
         return Err(StatsError::InvalidInput {
@@ -201,6 +203,7 @@ pub fn cdf(k: u64, n: u64, p: f64) -> StatsResult<f64> {
 }
 
 /// Calculate the binomial coefficient (n choose k).
+#[inline]
 fn combination(n: u64, k: u64) -> StatsResult<f64> {
 
     if k > n {
@@ -252,11 +255,11 @@ mod tests {
     }
 
     #[test]
-    fn test_binomial_pmf_large_values() {
+    fn test_binomial_pmf_large_values_n() {
         // Test with values that exceed i32::MAX to verify overflow protection
         // Using values just above i32::MAX (2,147,483,647)
-        let n = 2_500_000_000u64; // 2.5 billion
-        let k = 1_250_000_000u64; // 1.25 billion (half of n)
+        let n = 2_200_000_000u64;
+        let k = 5u64;
         let p = 0.5;
         
         // This should not panic or truncate - should use powf() path
@@ -273,4 +276,28 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_binomial_pmf_large_values_k() {
+        // Test with values that exceed i32::MAX to verify overflow protection
+        // Using values just above i32::MAX (2,147,483,647)
+        let n = 2u64;
+        let k = 2_200_000_000_000u64;
+        let p = 0.5;
+        
+        // This should not panic or truncate - should use powf() path
+        let result = pmf(k, n, p);
+        
+        // Result might be very small or NaN due to numerical precision, but shouldn't panic
+        match result {
+            Ok(val) => {
+                // Value should be valid (might be very small due to large n)
+                assert!(!val.is_infinite(), "PMF should not be infinite for large values");
+            }
+            Err(_) => {
+                // Error is acceptable for very large values (numerical precision limits)
+            }
+        }
+    }
+
 }

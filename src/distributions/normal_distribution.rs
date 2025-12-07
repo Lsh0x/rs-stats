@@ -90,6 +90,7 @@ impl<T> NormalConfig<T> where T: ToPrimitive {
 /// let pdf = normal_pdf(5.0, 5.0, 2.0).unwrap();
 /// assert!((pdf - 0.19947114020071635).abs() < 1e-10);
 /// ```
+#[inline]
 pub fn normal_pdf<T>(x: T, mean: f64, std_dev: f64) -> StatsResult<f64> where T: ToPrimitive {
     if std_dev <= 0.0 {
         return Err(StatsError::InvalidInput {
@@ -133,6 +134,7 @@ pub fn normal_pdf<T>(x: T, mean: f64, std_dev: f64) -> StatsResult<f64> where T:
 /// let cdf = normal_cdf(7.0, 5.0, 2.0).unwrap();
 /// assert!((cdf - 0.8413447460685429).abs() < 1e-7);
 /// ```
+#[inline]
 pub fn normal_cdf<T>(x: T, mean: f64, std_dev: f64) -> StatsResult<f64> where T: ToPrimitive {
     if std_dev <= 0.0 {
         return Err(StatsError::InvalidInput {
@@ -176,6 +178,7 @@ pub fn normal_cdf<T>(x: T, mean: f64, std_dev: f64) -> StatsResult<f64> where T:
 /// let x_back = normal_inverse_cdf(p, 0.0, 1.0).unwrap();
 /// assert!((x - x_back).abs() < 1e-8);
 /// ```
+#[inline]
 pub fn normal_inverse_cdf<T>(p: T, mean: f64, std_dev: f64) -> StatsResult<f64> where T: ToPrimitive{
     let p_64 = p.to_f64().ok_or_else(|| StatsError::ConversionError {
         message: "normal_inverse_cdf: Failed to convert p to f64".to_string(),
