@@ -27,9 +27,9 @@
 //!
 //! F(x; λ) = 1 - e^(-λx) for x ≥ 0
 
+use crate::error::{StatsError, StatsResult};
 use num_traits::ToPrimitive;
 use serde::{Deserialize, Serialize};
-use crate::error::{StatsResult, StatsError};
 
 /// Configuration for the Exponential distribution.
 ///
@@ -44,12 +44,18 @@ use crate::error::{StatsResult, StatsError};
 /// assert!(config.lambda > 0.0);
 /// ```
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct ExponentialConfig<T> where T: ToPrimitive {
+pub struct ExponentialConfig<T>
+where
+    T: ToPrimitive,
+{
     /// The rate parameter.
     pub lambda: T,
 }
 
-impl<T> ExponentialConfig<T> where T: ToPrimitive {
+impl<T> ExponentialConfig<T>
+where
+    T: ToPrimitive,
+{
     /// Creates a new ExponentialConfig with validation
     ///
     /// # Arguments
@@ -58,7 +64,7 @@ impl<T> ExponentialConfig<T> where T: ToPrimitive {
     /// # Returns
     /// `Some(ExponentialConfig)` if parameter is valid, `None` otherwise
     pub fn new(lambda: T) -> StatsResult<Self> {
-        let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError{
+        let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError {
             message: "ExponentialConfig::new: Failed to convert lambda to f64".to_string(),
         })?;
 
@@ -99,8 +105,11 @@ impl<T> ExponentialConfig<T> where T: ToPrimitive {
 /// assert!((pdf - 0.27067).abs() < 1e-5);
 /// ```
 #[inline]
-pub fn exponential_pdf<T>(x: T, lambda: T) -> StatsResult<f64> where T: ToPrimitive {
-    let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError{
+pub fn exponential_pdf<T>(x: T, lambda: T) -> StatsResult<f64>
+where
+    T: ToPrimitive,
+{
+    let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError {
         message: "exponential_pdf: Failed to convert x to f64".to_string(),
     })?;
 
@@ -110,7 +119,7 @@ pub fn exponential_pdf<T>(x: T, lambda: T) -> StatsResult<f64> where T: ToPrimit
         });
     }
 
-    let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError{
+    let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError {
         message: "exponential_pdf: Failed to convert lambda to f64".to_string(),
     })?;
 
@@ -120,7 +129,11 @@ pub fn exponential_pdf<T>(x: T, lambda: T) -> StatsResult<f64> where T: ToPrimit
         });
     }
 
-    Ok(if x_64 == 0.0 { lambda_64 } else { lambda_64 * (-lambda_64 * x_64).exp() })
+    Ok(if x_64 == 0.0 {
+        lambda_64
+    } else {
+        lambda_64 * (-lambda_64 * x_64).exp()
+    })
 }
 
 /// Cumulative distribution function (CDF) for the Exponential distribution.
@@ -150,8 +163,11 @@ pub fn exponential_pdf<T>(x: T, lambda: T) -> StatsResult<f64> where T: ToPrimit
 /// assert!((cdf - 0.86466).abs() < 1e-5);
 /// ```
 #[inline]
-pub fn exponential_cdf<T>(x: T, lambda: T) -> StatsResult<f64> where T: ToPrimitive {
-    let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError{
+pub fn exponential_cdf<T>(x: T, lambda: T) -> StatsResult<f64>
+where
+    T: ToPrimitive,
+{
+    let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError {
         message: "exponential_cdf: Failed to convert x to f64".to_string(),
     })?;
 
@@ -159,9 +175,9 @@ pub fn exponential_cdf<T>(x: T, lambda: T) -> StatsResult<f64> where T: ToPrimit
         return Err(StatsError::InvalidInput {
             message: "exponential_cdf: x must be non-negative".to_string(),
         });
-    } 
-    
-    let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError{
+    }
+
+    let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError {
         message: "exponential_cdf: Failed to convert lambda to f64".to_string(),
     })?;
 
@@ -202,18 +218,21 @@ pub fn exponential_cdf<T>(x: T, lambda: T) -> StatsResult<f64> where T: ToPrimit
 /// assert!((p - 0.5).abs() < 1e-10);
 /// ```
 #[inline]
-pub fn exponential_inverse_cdf<T>(p: T, lambda: T) -> StatsResult<f64> where T: ToPrimitive {
-    let p_64 = p.to_f64().ok_or_else(|| StatsError::ConversionError{
+pub fn exponential_inverse_cdf<T>(p: T, lambda: T) -> StatsResult<f64>
+where
+    T: ToPrimitive,
+{
+    let p_64 = p.to_f64().ok_or_else(|| StatsError::ConversionError {
         message: "exponential_inverse_cdf: Failed to convert p to f64".to_string(),
     })?;
 
-    if p_64 < 0.0 || p_64 > 1.0 {
+    if !(0.0..=1.0).contains(&p_64) {
         return Err(StatsError::InvalidInput {
             message: "exponential_inverse_cdf: p must be between 0 and 1".to_string(),
         });
     }
-    
-    let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError{
+
+    let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError {
         message: "exponential_inverse_cdf: Failed to convert lambda to f64".to_string(),
     })?;
 
@@ -249,8 +268,11 @@ pub fn exponential_inverse_cdf<T>(p: T, lambda: T) -> StatsResult<f64> where T: 
 /// assert!((mean - 0.5).abs() < 1e-10);
 /// ```
 #[inline]
-pub fn exponential_mean<T>(lambda: T) -> StatsResult<f64> where T: ToPrimitive {
-    let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError{
+pub fn exponential_mean<T>(lambda: T) -> StatsResult<f64>
+where
+    T: ToPrimitive,
+{
+    let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError {
         message: "exponential_mean: Failed to convert lambda to f64".to_string(),
     })?;
     if lambda_64 <= 0.0 {
@@ -293,7 +315,7 @@ pub fn exponential_variance(lambda: f64) -> StatsResult<f64> {
         });
     }
 
-    Ok(1.0 / (lambda * lambda)) 
+    Ok(1.0 / (lambda * lambda))
 }
 
 #[cfg(test)]
@@ -418,42 +440,60 @@ mod tests {
     fn test_exponential_inverse_cdf_p_negative() {
         let result = exponential_inverse_cdf(-0.1, 2.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_exponential_inverse_cdf_p_greater_than_one() {
         let result = exponential_inverse_cdf(1.5, 2.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_exponential_cdf_invalid_lambda() {
         let result = exponential_cdf(1.0, -2.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_exponential_cdf_invalid_x() {
         let result = exponential_cdf(-1.0, 2.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_exponential_mean_invalid_lambda() {
         let result = exponential_mean(0.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_exponential_variance_invalid_lambda() {
         let result = exponential_variance(0.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
@@ -485,13 +525,19 @@ mod tests {
     fn test_exponential_inverse_cdf_lambda_zero() {
         let result = exponential_inverse_cdf(0.5, 0.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_exponential_inverse_cdf_lambda_negative() {
         let result = exponential_inverse_cdf(0.5, -1.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 }

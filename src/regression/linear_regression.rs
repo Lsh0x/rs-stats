@@ -207,9 +207,8 @@ where
             ));
         }
 
-        let x_cast: T = T::from(x).ok_or_else(|| {
-            StatsError::conversion_error("Failed to convert x value to type T")
-        })?;
+        let x_cast: T = T::from(x)
+            .ok_or_else(|| StatsError::conversion_error("Failed to convert x value to type T"))?;
 
         Ok(self.predict_t(x_cast))
     }
@@ -240,10 +239,7 @@ where
     where
         U: NumCast + Copy,
     {
-        x_values
-            .iter()
-            .map(|&x| self.predict(x))
-            .collect()
+        x_values.iter().map(|&x| self.predict(x)).collect()
     }
 
     /// Calculate confidence intervals for the regression line
@@ -614,10 +610,13 @@ mod tests {
         // Test saving to an invalid path (non-existent directory)
         let mut model = LinearRegression::<f64>::new();
         model.fit(&[1.0, 2.0], &[2.0, 4.0]).unwrap();
-        
+
         let invalid_path = std::path::Path::new("/nonexistent/directory/model.json");
         let result = model.save(invalid_path);
-        assert!(result.is_err(), "Saving to invalid path should return error");
+        assert!(
+            result.is_err(),
+            "Saving to invalid path should return error"
+        );
     }
 
     #[test]
@@ -627,7 +626,7 @@ mod tests {
         let x = vec![1.0, 2.0];
         let y = vec![2.0, 4.0];
         model.fit(&x, &y).unwrap();
-        
+
         // When n = 2, standard_error should be 0
         assert_eq!(model.standard_error, 0.0);
     }
@@ -639,7 +638,7 @@ mod tests {
         let x = vec![1.0, 2.0, 3.0];
         let y = vec![2.0, 4.0, 6.0];
         model.fit(&x, &y).unwrap();
-        
+
         // When n > 2, standard_error should be calculated
         assert!(model.standard_error >= 0.0);
     }
@@ -651,10 +650,13 @@ mod tests {
         let x = vec![1.0, 2.0];
         let y = vec![2.0, 4.0];
         model.fit(&x, &y).unwrap();
-        
+
         let result = model.confidence_interval(3.0, 0.95);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
@@ -664,10 +666,13 @@ mod tests {
         let x = vec![1.0, 2.0, 3.0, 4.0];
         let y = vec![2.0, 4.0, 6.0, 8.0];
         model.fit(&x, &y).unwrap();
-        
+
         let result = model.confidence_interval(3.0, 0.85);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidParameter { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidParameter { .. }
+        ));
     }
 
     #[test]
@@ -677,10 +682,14 @@ mod tests {
         let x = vec![1.0, 2.0, 3.0, 4.0];
         let y = vec![2.0, 4.0, 6.0, 8.0];
         model.fit(&x, &y).unwrap();
-        
+
         for level in [0.90, 0.95, 0.99] {
             let result = model.confidence_interval(3.0, level);
-            assert!(result.is_ok(), "Confidence level {} should be supported", level);
+            assert!(
+                result.is_ok(),
+                "Confidence level {} should be supported",
+                level
+            );
             let (lower, upper) = result.unwrap();
             assert!(lower <= upper, "Lower bound should be <= upper bound");
         }
@@ -693,9 +702,12 @@ mod tests {
         let x = vec![1.0, 2.0, 3.0];
         let y = vec![2.0, 4.0, 6.0];
         model.fit(&x, &y).unwrap();
-        
+
         let r = model.correlation_coefficient().unwrap();
-        assert!(r >= 0.0, "Correlation should be positive for positive slope");
+        assert!(
+            r >= 0.0,
+            "Correlation should be positive for positive slope"
+        );
     }
 
     #[test]
@@ -705,9 +717,12 @@ mod tests {
         let x = vec![1.0, 2.0, 3.0];
         let y = vec![6.0, 4.0, 2.0];
         model.fit(&x, &y).unwrap();
-        
+
         let r = model.correlation_coefficient().unwrap();
-        assert!(r <= 0.0, "Correlation should be negative for negative slope");
+        assert!(
+            r <= 0.0,
+            "Correlation should be negative for negative slope"
+        );
     }
 
     #[test]
@@ -733,7 +748,7 @@ mod tests {
         // Test predict_many with valid data
         let mut model = LinearRegression::<f64>::new();
         model.fit(&[1.0, 2.0, 3.0], &[2.0, 4.0, 6.0]).unwrap();
-        
+
         let predictions = model.predict_many(&[4.0, 5.0]).unwrap();
         assert_eq!(predictions.len(), 2);
         assert!((predictions[0] - 8.0).abs() < 1e-10);
@@ -745,10 +760,10 @@ mod tests {
         // Test loading invalid JSON
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("invalid.json");
-        
+
         // Write invalid JSON
         std::fs::write(&file_path, "invalid json content").unwrap();
-        
+
         let result = LinearRegression::<f64>::load(&file_path);
         assert!(result.is_err(), "Loading invalid JSON should return error");
     }
@@ -758,6 +773,9 @@ mod tests {
         // Test deserializing invalid JSON string
         let invalid_json = "not valid json";
         let result = LinearRegression::<f64>::from_json(invalid_json);
-        assert!(result.is_err(), "Deserializing invalid JSON should return error");
+        assert!(
+            result.is_err(),
+            "Deserializing invalid JSON should return error"
+        );
     }
 }

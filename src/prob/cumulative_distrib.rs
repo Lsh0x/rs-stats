@@ -19,10 +19,10 @@
 //! - Φ(μ) = 0.5
 //! - Φ(μ + a) = 1 - Φ(μ - a) (symmetry property)
 
-use num_traits::ToPrimitive;
+use crate::error::{StatsError, StatsResult};
 use crate::prob::erf;
 use crate::utils::constants::SQRT_2;
-use crate::error::{StatsResult, StatsError};
+use num_traits::ToPrimitive;
 
 /// Calculate the cumulative distribution function (CDF) for a normal distribution
 ///
@@ -49,7 +49,10 @@ use crate::error::{StatsResult, StatsError};
 /// assert!((cdf - 0.841344746).abs() < 1e-8);
 /// ```
 #[inline]
-pub fn cumulative_distrib<T>(x: T, avg: f64, stddev: f64) -> StatsResult<f64> where T: ToPrimitive {
+pub fn cumulative_distrib<T>(x: T, avg: f64, stddev: f64) -> StatsResult<f64>
+where
+    T: ToPrimitive,
+{
     let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError {
         message: "prob::cumulative_distrib: Failed to convert x to f64".to_string(),
     })?;
@@ -163,6 +166,9 @@ mod tests {
     fn test_cumulative_distrib_stddev_zero() {
         let result = cumulative_distrib(0.0, 0.0, 0.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 }

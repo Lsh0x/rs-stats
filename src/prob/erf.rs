@@ -18,8 +18,8 @@
 //! Uses Abramowitz and Stegun formula 7.1.26 for approximation
 //! with maximum error of 1.5 × 10⁻⁷
 
+use crate::error::{StatsError, StatsResult};
 use num_traits::ToPrimitive;
-use crate::error::{StatsResult, StatsError};
 
 /// Calculate the error function (erf) of a value
 ///
@@ -44,9 +44,11 @@ use crate::error::{StatsResult, StatsError};
 /// // Verify symmetry property
 /// assert!((erf(x).unwrap() + erf(-x).unwrap()).abs() < 1e-8);
 /// ```
-
-pub fn erf<T>(x: T) -> StatsResult<f64> where T: ToPrimitive {
-    let x = x.to_f64().ok_or_else(|| StatsError::ConversionError{
+pub fn erf<T>(x: T) -> StatsResult<f64>
+where
+    T: ToPrimitive,
+{
+    let x = x.to_f64().ok_or_else(|| StatsError::ConversionError {
         message: "prob::erf: Failed to convert x to f64".to_string(),
     })?;
     // Special case: return exactly 0.0 when x is 0.0

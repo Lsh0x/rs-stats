@@ -21,10 +21,10 @@
 //! Mean: (a + b)/2
 //! Variance: (b - a)²/12
 
+use crate::error::{StatsError, StatsResult};
 use num_traits::ToPrimitive;
-use std::cmp::PartialOrd;
-use crate::error::{StatsResult, StatsError};
 use serde::{Deserialize, Serialize};
+use std::cmp::PartialOrd;
 
 /// Configuration for the Uniform distribution.
 ///
@@ -40,14 +40,20 @@ use serde::{Deserialize, Serialize};
 /// assert!(config.a < config.b);
 /// ```
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct UniformConfig<T> where T: ToPrimitive + PartialOrd {
+pub struct UniformConfig<T>
+where
+    T: ToPrimitive + PartialOrd,
+{
     /// The lower bound of the distribution.
     pub a: T,
     /// The upper bound of the distribution.
     pub b: T,
 }
 
-impl<T> UniformConfig<T> where T: ToPrimitive + PartialOrd {
+impl<T> UniformConfig<T>
+where
+    T: ToPrimitive + PartialOrd,
+{
     /// Creates a new UniformConfig with validation
     ///
     /// # Arguments
@@ -57,9 +63,13 @@ impl<T> UniformConfig<T> where T: ToPrimitive + PartialOrd {
     /// # Returns
     /// `Some(UniformConfig)` if parameters are valid (a < b), `None` otherwise
     pub fn new(a: T, b: T) -> StatsResult<Self> {
-        if a < b { Ok(Self { a, b }) } else { Err(StatsError::InvalidInput {
-            message: "UniformConfig::new: a must be less than b".to_string(),
-        }) }
+        if a < b {
+            Ok(Self { a, b })
+        } else {
+            Err(StatsError::InvalidInput {
+                message: "UniformConfig::new: a must be less than b".to_string(),
+            })
+        }
     }
 }
 
@@ -96,24 +106,35 @@ impl<T> UniformConfig<T> where T: ToPrimitive + PartialOrd {
 /// assert!((pdf - 0.0).abs() < 1e-10);
 /// ```
 #[inline]
-pub fn uniform_pdf<T>(x: T, a: T, b: T) -> StatsResult<f64> where T: ToPrimitive + PartialOrd {
+pub fn uniform_pdf<T>(x: T, a: T, b: T) -> StatsResult<f64>
+where
+    T: ToPrimitive + PartialOrd,
+{
     let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError {
-        message: "distributions::uniform_distribution::uniform_pdf: Failed to convert arg1 to f64".to_string(),
+        message: "distributions::uniform_distribution::uniform_pdf: Failed to convert arg1 to f64"
+            .to_string(),
     })?;
     let a_64 = a.to_f64().ok_or_else(|| StatsError::ConversionError {
-        message: "distributions::uniform_distribution::uniform_pdf: Failed to convert arg2 to f64".to_string(),
+        message: "distributions::uniform_distribution::uniform_pdf: Failed to convert arg2 to f64"
+            .to_string(),
     })?;
     let b_64 = b.to_f64().ok_or_else(|| StatsError::ConversionError {
-        message: "distributions::uniform_distribution::uniform_pdf: Failed to convert arg3 to f64".to_string(),
+        message: "distributions::uniform_distribution::uniform_pdf: Failed to convert arg3 to f64"
+            .to_string(),
     })?;
 
-    if a_64 >= b_64 {   
+    if a_64 >= b_64 {
         return Err(StatsError::InvalidInput {
-        message: "distributions::uniform_distribution::uniform_pdf: a must be less than b".to_string(),
+            message: "distributions::uniform_distribution::uniform_pdf: a must be less than b"
+                .to_string(),
         });
     }
 
-    Ok(if x_64 < a_64 || x_64 > b_64 { 0.0 } else { 1.0 / (b_64 - a_64) })
+    Ok(if x_64 < a_64 || x_64 > b_64 {
+        0.0
+    } else {
+        1.0 / (b_64 - a_64)
+    })
 }
 
 /// Cumulative distribution function (CDF) for the Uniform distribution.
@@ -154,20 +175,27 @@ pub fn uniform_pdf<T>(x: T, a: T, b: T) -> StatsResult<f64> where T: ToPrimitive
 /// assert!((cdf - 1.0).abs() < 1e-10);
 /// ```
 #[inline]
-pub fn uniform_cdf<T>(x: T, a: T, b: T) -> StatsResult<f64> where T: ToPrimitive + PartialOrd {
+pub fn uniform_cdf<T>(x: T, a: T, b: T) -> StatsResult<f64>
+where
+    T: ToPrimitive + PartialOrd,
+{
     let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError {
-        message: "distributions::uniform_distribution::uniform_cdf: Failed to convert arg1 to f64".to_string(),
+        message: "distributions::uniform_distribution::uniform_cdf: Failed to convert arg1 to f64"
+            .to_string(),
     })?;
     let a_64 = a.to_f64().ok_or_else(|| StatsError::ConversionError {
-        message: "distributions::uniform_distribution::uniform_cdf: Failed to convert arg2 to f64".to_string(),
+        message: "distributions::uniform_distribution::uniform_cdf: Failed to convert arg2 to f64"
+            .to_string(),
     })?;
     let b_64 = b.to_f64().ok_or_else(|| StatsError::ConversionError {
-        message: "distributions::uniform_distribution::uniform_cdf: Failed to convert arg3 to f64".to_string(),
+        message: "distributions::uniform_distribution::uniform_cdf: Failed to convert arg3 to f64"
+            .to_string(),
     })?;
 
     if a_64 >= b_64 {
         return Err(StatsError::InvalidInput {
-            message: "distributions::uniform_distribution::uniform_cdf: a must be less than b".to_string(),
+            message: "distributions::uniform_distribution::uniform_cdf: a must be less than b"
+                .to_string(),
         });
     }
     Ok(if x_64 < a_64 {
@@ -214,7 +242,10 @@ pub fn uniform_cdf<T>(x: T, a: T, b: T) -> StatsResult<f64> where T: ToPrimitive
 /// assert!((uniform_cdf(x, a, b).unwrap() - p).abs() < 1e-10);
 /// ```
 #[inline]
-pub fn uniform_inverse_cdf<T>(p: T, a: T, b: T) -> StatsResult<f64> where T: ToPrimitive + PartialOrd {
+pub fn uniform_inverse_cdf<T>(p: T, a: T, b: T) -> StatsResult<f64>
+where
+    T: ToPrimitive + PartialOrd,
+{
     let p_64 = p.to_f64().ok_or_else(|| StatsError::ConversionError {
         message: "distributions::uniform_distribution::uniform_inverse_cdf: Failed to convert arg1 to f64".to_string(),
     })?;
@@ -227,11 +258,13 @@ pub fn uniform_inverse_cdf<T>(p: T, a: T, b: T) -> StatsResult<f64> where T: ToP
 
     if a_64 >= b_64 {
         return Err(StatsError::InvalidInput {
-            message: "distributions::uniform_distribution::uniform_inverse_cdf: a must be less than b".to_string(),
+            message:
+                "distributions::uniform_distribution::uniform_inverse_cdf: a must be less than b"
+                    .to_string(),
         });
     }
 
-    if p_64 < 0.0 || p_64 > 1.0 {
+    if !(0.0..=1.0).contains(&p_64) {
         return Err(StatsError::InvalidInput {
             message: "distributions::uniform_distribution::uniform_inverse_cdf: p must be between 0 and 1".to_string(),
         });
@@ -265,17 +298,23 @@ pub fn uniform_inverse_cdf<T>(p: T, a: T, b: T) -> StatsResult<f64> where T: ToP
 /// assert!((mean - 0.0).abs() < 1e-10);
 /// ```
 #[inline]
-pub fn uniform_mean<T>(a: T, b: T) -> StatsResult<f64> where T: ToPrimitive + PartialOrd {
+pub fn uniform_mean<T>(a: T, b: T) -> StatsResult<f64>
+where
+    T: ToPrimitive + PartialOrd,
+{
     let a_64 = a.to_f64().ok_or_else(|| StatsError::ConversionError {
-        message: "distributions::uniform_distribution::uniform_mean: Failed to convert arg1 to f64".to_string(),
+        message: "distributions::uniform_distribution::uniform_mean: Failed to convert arg1 to f64"
+            .to_string(),
     })?;
     let b_64 = b.to_f64().ok_or_else(|| StatsError::ConversionError {
-        message: "distributions::uniform_distribution::uniform_mean: Failed to convert arg2 to f64".to_string(),
+        message: "distributions::uniform_distribution::uniform_mean: Failed to convert arg2 to f64"
+            .to_string(),
     })?;
 
     if a_64 >= b_64 {
         return Err(StatsError::InvalidInput {
-            message: "distributions::uniform_distribution::uniform_mean: a must be less than b".to_string(),
+            message: "distributions::uniform_distribution::uniform_mean: a must be less than b"
+                .to_string(),
         });
     }
 
@@ -376,14 +415,20 @@ mod tests {
     fn test_uniform_config_new_a_equal_b() {
         let result = UniformConfig::new(1.0, 1.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_uniform_config_new_a_greater_than_b() {
         let result = UniformConfig::new(2.0, 1.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
@@ -404,14 +449,20 @@ mod tests {
     fn test_uniform_inverse_cdf_p_negative() {
         let result = uniform_inverse_cdf(-0.1, 0.0, 1.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_uniform_inverse_cdf_p_greater_than_one() {
         let result = uniform_inverse_cdf(1.5, 0.0, 1.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
@@ -432,35 +483,50 @@ mod tests {
     fn test_uniform_inverse_cdf_a_greater_than_b() {
         let result = uniform_inverse_cdf(0.5, 2.0, 1.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_uniform_mean_a_greater_than_b() {
         let result = uniform_mean(2.0, 1.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_uniform_mean_a_equal_b() {
         let result = uniform_mean(1.0, 1.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_uniform_cdf_a_greater_than_b() {
         let result = uniform_cdf(0.5, 2.0, 1.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_uniform_cdf_a_equal_b() {
         let result = uniform_cdf(0.5, 1.0, 1.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]

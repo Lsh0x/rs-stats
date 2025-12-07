@@ -25,8 +25,8 @@
 //! - p is the probability of success
 //! - C(n,k) is the binomial coefficient (n choose k)
 
+use crate::error::{StatsError, StatsResult};
 use num_traits::ToPrimitive;
-use crate::error::{StatsResult, StatsError};
 use serde::{Deserialize, Serialize};
 
 /// Configuration for the Binomial distribution.
@@ -44,14 +44,20 @@ use serde::{Deserialize, Serialize};
 /// assert!(config.p >= 0.0 && config.p <= 1.0);
 /// ```
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct BinomialConfig<T> where T: ToPrimitive {
+pub struct BinomialConfig<T>
+where
+    T: ToPrimitive,
+{
     /// The number of trials.
     pub n: u64,
     /// The probability of success in a single trial.
     pub p: T,
 }
 
-impl<T> BinomialConfig<T> where T: ToPrimitive {
+impl<T> BinomialConfig<T>
+where
+    T: ToPrimitive,
+{
     /// Creates a new BinomialConfig with validation
     ///
     /// # Arguments
@@ -61,11 +67,11 @@ impl<T> BinomialConfig<T> where T: ToPrimitive {
     /// # Returns
     /// `Some(BinomialConfig)` if parameters are valid, `None` otherwise
     pub fn new(n: u64, p: T) -> StatsResult<Self> {
-        let p_64 = p.to_f64().ok_or_else(|| StatsError::ConversionError{
+        let p_64 = p.to_f64().ok_or_else(|| StatsError::ConversionError {
             message: "BinomialConfig::new: Failed to convert p to f64".to_string(),
         })?;
 
-        if n <= 0 {
+        if n == 0 {
             return Err(StatsError::InvalidInput {
                 message: "BinomialConfig::new: n must be positive".to_string(),
             });
@@ -108,8 +114,11 @@ impl<T> BinomialConfig<T> where T: ToPrimitive {
 /// assert!((prob - 0.1171875).abs() < 1e-10);
 /// ```
 #[inline]
-pub fn pmf<T>(k: u64, n: u64, p: T) -> StatsResult<f64> where T: ToPrimitive {
-    let p_64 = p.to_f64().ok_or_else(|| StatsError::ConversionError{
+pub fn pmf<T>(k: u64, n: u64, p: T) -> StatsResult<f64>
+where
+    T: ToPrimitive,
+{
+    let p_64 = p.to_f64().ok_or_else(|| StatsError::ConversionError {
         message: "binomial_distribution::pmf: Failed to convert p to f64".to_string(),
     })?;
     if n == 0 {
@@ -123,13 +132,13 @@ pub fn pmf<T>(k: u64, n: u64, p: T) -> StatsResult<f64> where T: ToPrimitive {
         });
     }
     let combinations = combination(n, k)?;
-    
+
     // Use log-space calculation to avoid:
     // 1. Casting u64 to i32 (information loss)
     // 2. Numerical underflow/overflow with large exponents
     // 3. Better numerical stability
     // Formula: p^k * (1-p)^(n-k) = exp(k * ln(p) + (n-k) * ln(1-p))
-    
+
     // Handle edge cases explicitly for correctness
     if p_64 == 0.0 {
         // If p = 0, then p^k = 0 for k > 0, and 1 for k = 0
@@ -139,18 +148,18 @@ pub fn pmf<T>(k: u64, n: u64, p: T) -> StatsResult<f64> where T: ToPrimitive {
         // If p = 1, then (1-p)^(n-k) = 0 for k < n, and 1 for k = n
         return Ok(if k == n { combinations } else { 0.0 });
     }
-    
+
     // Convert to f64 (no information loss for reasonable values)
     let k_f64 = k as f64;
     let n_minus_k_f64 = (n - k) as f64;
-    
+
     // Calculate in log space: k * ln(p) + (n-k) * ln(1-p)
     // Both p and (1-p) are guaranteed to be in (0, 1) here
     let log_prob = k_f64 * p_64.ln() + n_minus_k_f64 * (1.0 - p_64).ln();
-    
+
     // Convert back from log space
     let prob = log_prob.exp();
-    
+
     Ok(combinations * prob)
 }
 
@@ -199,18 +208,16 @@ pub fn cdf(k: u64, n: u64, p: f64) -> StatsResult<f64> {
             message: "binomial_distribution::cdf: k must be less than or equal to n".to_string(),
         });
     }
-    (0..=k).try_fold(0.0, |acc, i| {
-        pmf(i, n, p).map(|prob| acc + prob)
-    })
+    (0..=k).try_fold(0.0, |acc, i| pmf(i, n, p).map(|prob| acc + prob))
 }
 
 /// Calculate the binomial coefficient (n choose k).
 #[inline]
 fn combination(n: u64, k: u64) -> StatsResult<f64> {
-
     if k > n {
         return Err(StatsError::InvalidInput {
-            message: "binomial_distribution::combination: k must be less than or equal to n".to_string(),
+            message: "binomial_distribution::combination: k must be less than or equal to n"
+                .to_string(),
         });
     }
 
@@ -219,7 +226,7 @@ fn combination(n: u64, k: u64) -> StatsResult<f64> {
         return combination(n, n - k);
     }
 
-    Ok((1..=k).fold(1.0 as f64, |acc, i| acc * (n - i + 1) as f64 / i as f64))
+    Ok((1..=k).fold(1.0_f64, |acc, i| acc * (n - i + 1) as f64 / i as f64))
 }
 
 #[cfg(test)]
@@ -263,15 +270,18 @@ mod tests {
         let n = 2_200_000_000u64;
         let k = 5u64;
         let p = 0.5;
-        
+
         // This should not panic or truncate - should use powf() path
         let result = pmf(k, n, p);
-        
+
         // Result might be very small or NaN due to numerical precision, but shouldn't panic
         match result {
             Ok(val) => {
                 // Value should be valid (might be very small due to large n)
-                assert!(!val.is_infinite(), "PMF should not be infinite for large values");
+                assert!(
+                    !val.is_infinite(),
+                    "PMF should not be infinite for large values"
+                );
             }
             Err(_) => {
                 // Error is acceptable for very large values (numerical precision limits)
@@ -286,15 +296,18 @@ mod tests {
         let n = 2u64;
         let k = 2_200_000_000_000u64;
         let p = 0.5;
-        
+
         // This should not panic or truncate - should use powf() path
         let result = pmf(k, n, p);
-        
+
         // Result might be very small or NaN due to numerical precision, but shouldn't panic
         match result {
             Ok(val) => {
                 // Value should be valid (might be very small due to large n)
-                assert!(!val.is_infinite(), "PMF should not be infinite for large values");
+                assert!(
+                    !val.is_infinite(),
+                    "PMF should not be infinite for large values"
+                );
             }
             Err(_) => {
                 // Error is acceptable for very large values (numerical precision limits)
@@ -314,21 +327,30 @@ mod tests {
     fn test_binomial_config_new_n_zero() {
         let result = BinomialConfig::new(0, 0.5);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_binomial_config_new_p_out_of_range_negative() {
         let result = BinomialConfig::new(10, -0.1);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_binomial_config_new_p_out_of_range_above_one() {
         let result = BinomialConfig::new(10, 1.1);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
@@ -375,21 +397,30 @@ mod tests {
     fn test_binomial_pmf_n_zero() {
         let result = pmf(0, 0, 0.5);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_binomial_pmf_p_out_of_range() {
         let result = pmf(5, 10, 1.5);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_binomial_cdf_k_greater_than_n() {
         let result = cdf(15, 10, 0.5);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
@@ -398,13 +429,13 @@ mod tests {
         // This tests the symmetry optimization path
         let n = 10u64;
         let k = 8u64; // k > n/2, so should use symmetry
-        
+
         // Direct call should use symmetry path
         let result1 = combination(n, k).unwrap();
         // Should be same as combination(n, n-k)
         let result2 = combination(n, n - k).unwrap();
         assert_eq!(result1, result2);
-        
+
         // Verify it's correct: C(10, 8) = C(10, 2) = 45
         assert_eq!(result1, 45.0);
     }
@@ -413,7 +444,10 @@ mod tests {
     fn test_binomial_combination_k_greater_than_n() {
         let result = combination(10, 15);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
@@ -444,21 +478,30 @@ mod tests {
         // When k > n, combination() should return an error
         let result = pmf(15, 10, 0.5);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_binomial_cdf_n_zero() {
         let result = cdf(5, 0, 0.5);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_binomial_cdf_p_out_of_range() {
         let result = cdf(5, 10, 1.5);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
@@ -482,5 +525,4 @@ mod tests {
         // C(10, 6) = C(10, 4) = 210
         assert_eq!(result1, 210.0);
     }
-
 }

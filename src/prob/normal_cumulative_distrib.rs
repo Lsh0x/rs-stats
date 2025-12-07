@@ -1,6 +1,6 @@
+use crate::error::StatsResult;
 use crate::prob::erf;
 use crate::utils::constants::SQRT_2;
-use crate::error::{StatsResult};
 
 /// CDF return the CDF for the zscore given
 /// <https://en.wikipedia.org/wiki/Cumulative_distribution_function#Definition>

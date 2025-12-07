@@ -145,12 +145,15 @@ mod tests {
         // This tests the internal optimization in combination()
         let n = 10u64;
         let k = 8u64; // k > n - k (8 > 2)
-        
+
         // This should use the symmetry path: combination(10, 8) = combination(10, 2)
         let result1 = combination(n, k).unwrap();
         let result2 = combination(n, n - k).unwrap();
-        
-        assert_eq!(result1, result2, "C(n, k) should equal C(n, n-k) when k > n-k");
+
+        assert_eq!(
+            result1, result2,
+            "C(n, k) should equal C(n, n-k) when k > n-k"
+        );
         assert_eq!(result1, 45u64, "C(10, 8) should equal C(10, 2) = 45");
     }
 }

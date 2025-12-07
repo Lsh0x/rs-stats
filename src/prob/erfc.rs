@@ -18,10 +18,9 @@
 //! For a standard normal distribution N(0,1):
 //! P(X > x) = 0.5 * erfc(x/√2)
 
-use num_traits::ToPrimitive;
+use crate::error::{StatsError, StatsResult};
 use crate::prob::erf;
-use crate::error::{StatsResult, StatsError};
-
+use num_traits::ToPrimitive;
 
 /// Calculate the complementary error function (erfc) of a value
 ///
@@ -47,7 +46,10 @@ use crate::error::{StatsResult, StatsError};
 /// assert!((p - 0.15865526383236372).abs() < 1e-8); // P(X > 1) for N(0,1)
 /// ```
 #[inline]
-pub fn erfc<T>(x: T) -> StatsResult<f64> where T: ToPrimitive {
+pub fn erfc<T>(x: T) -> StatsResult<f64>
+where
+    T: ToPrimitive,
+{
     let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError {
         message: "prob::erfc: Failed to convert x to f64".to_string(),
     })?;

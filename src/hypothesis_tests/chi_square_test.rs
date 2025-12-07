@@ -18,8 +18,8 @@
 //! The resulting statistic follows a chi-square distribution with degrees of freedom based on the particular test.
 
 use crate::error::{StatsError, StatsResult};
-use crate::utils::constants::SQRT_2;
 use crate::prob::erf;
+use crate::utils::constants::SQRT_2;
 use num_traits::ToPrimitive;
 use std::fmt::Debug;
 
@@ -275,7 +275,6 @@ where
     Ok((chi_square, degrees_of_freedom, 1.0 - p_value))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -435,20 +434,26 @@ mod tests {
         // This happens when observed and expected have length 1
         let observed = vec![10];
         let expected = vec![10.0];
-        
+
         let (statistic, df, p_value) = chi_square_goodness_of_fit(&observed, &expected).unwrap();
-        
+
         assert_eq!(df, 0, "Degrees of freedom should be 0 for single category");
-        assert_eq!(statistic, 0.0, "Chi-square statistic should be 0 when observed equals expected");
+        assert_eq!(
+            statistic, 0.0,
+            "Chi-square statistic should be 0 when observed equals expected"
+        );
         // When df == 0, p-value should be 1.0 (as per the code)
-        assert_eq!(p_value, 0.0, "p-value should be 0.0 when df == 0 (1.0 - 1.0)");
+        assert_eq!(
+            p_value, 0.0,
+            "p-value should be 0.0 when df == 0 (1.0 - 1.0)"
+        );
     }
 
     #[test]
     fn test_chi_square_goodness_of_fit_empty_expected() {
         let observed = vec![10, 15, 20];
         let expected: Vec<f64> = vec![];
-        
+
         let result = chi_square_goodness_of_fit(&observed, &expected);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), StatsError::EmptyData { .. }));

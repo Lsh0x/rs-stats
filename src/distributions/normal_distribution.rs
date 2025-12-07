@@ -1,10 +1,9 @@
 use num_traits::ToPrimitive;
 
-use serde::{Deserialize, Serialize};
-use crate::error::{StatsResult, StatsError};
+use crate::error::{StatsError, StatsResult};
 use crate::prob::erf;
 use crate::utils::constants::{INV_SQRT_2PI, SQRT_2};
-
+use serde::{Deserialize, Serialize};
 
 /// Configuration for the Normal distribution.
 ///
@@ -20,14 +19,20 @@ use crate::utils::constants::{INV_SQRT_2PI, SQRT_2};
 /// assert!(config.std_dev > 0.0);
 /// ```
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct NormalConfig<T> where T: ToPrimitive {
+pub struct NormalConfig<T>
+where
+    T: ToPrimitive,
+{
     /// The mean (μ) of the distribution.
     pub mean: T,
     /// The standard deviation (σ) of the distribution.
     pub std_dev: T,
 }
 
-impl<T> NormalConfig<T> where T: ToPrimitive {
+impl<T> NormalConfig<T>
+where
+    T: ToPrimitive,
+{
     /// Creates a new NormalConfig with validation
     ///
     /// # Arguments
@@ -48,13 +53,15 @@ impl<T> NormalConfig<T> where T: ToPrimitive {
     /// assert!(invalid_config.is_err());
     /// ```
     pub fn new(mean: T, std_dev: T) -> StatsResult<Self> {
-        let std_dev_64 = std_dev.to_f64().ok_or_else(|| StatsError::ConversionError{
-            message: "NormalConfig::new: Failed to convert std_dev to f64".to_string(),
-        })?;
-        let mean_64 = mean.to_f64().ok_or_else(|| StatsError::ConversionError{
+        let std_dev_64 = std_dev
+            .to_f64()
+            .ok_or_else(|| StatsError::ConversionError {
+                message: "NormalConfig::new: Failed to convert std_dev to f64".to_string(),
+            })?;
+        let mean_64 = mean.to_f64().ok_or_else(|| StatsError::ConversionError {
             message: "NormalConfig::new: Failed to convert mean to f64".to_string(),
         })?;
-    
+
         if std_dev_64 > 0.0 && !mean_64.is_nan() && !std_dev_64.is_nan() {
             Ok(Self { mean, std_dev })
         } else {
@@ -93,13 +100,16 @@ impl<T> NormalConfig<T> where T: ToPrimitive {
 /// assert!((pdf - 0.19947114020071635).abs() < 1e-10);
 /// ```
 #[inline]
-pub fn normal_pdf<T>(x: T, mean: f64, std_dev: f64) -> StatsResult<f64> where T: ToPrimitive {
+pub fn normal_pdf<T>(x: T, mean: f64, std_dev: f64) -> StatsResult<f64>
+where
+    T: ToPrimitive,
+{
     if std_dev <= 0.0 {
         return Err(StatsError::InvalidInput {
             message: "normal_pdf: Standard deviation must be positive".to_string(),
         });
     }
-    
+
     let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError {
         message: "normal_pdf: Failed to convert x to f64".to_string(),
     })?;
@@ -139,7 +149,10 @@ pub fn normal_pdf<T>(x: T, mean: f64, std_dev: f64) -> StatsResult<f64> where T:
 /// assert!((cdf - 0.8413447460685429).abs() < 1e-7);
 /// ```
 #[inline]
-pub fn normal_cdf<T>(x: T, mean: f64, std_dev: f64) -> StatsResult<f64> where T: ToPrimitive {
+pub fn normal_cdf<T>(x: T, mean: f64, std_dev: f64) -> StatsResult<f64>
+where
+    T: ToPrimitive,
+{
     if std_dev <= 0.0 {
         return Err(StatsError::InvalidInput {
             message: "normal_cdf: Standard deviation must be positive".to_string(),
@@ -183,12 +196,15 @@ pub fn normal_cdf<T>(x: T, mean: f64, std_dev: f64) -> StatsResult<f64> where T:
 /// assert!((x - x_back).abs() < 1e-8);
 /// ```
 #[inline]
-pub fn normal_inverse_cdf<T>(p: T, mean: f64, std_dev: f64) -> StatsResult<f64> where T: ToPrimitive{
+pub fn normal_inverse_cdf<T>(p: T, mean: f64, std_dev: f64) -> StatsResult<f64>
+where
+    T: ToPrimitive,
+{
     let p_64 = p.to_f64().ok_or_else(|| StatsError::ConversionError {
         message: "normal_inverse_cdf: Failed to convert p to f64".to_string(),
     })?;
 
-    if p_64 < 0.0 || p_64 > 1.0 {
+    if !(0.0..=1.0).contains(&p_64) {
         return Err(StatsError::InvalidInput {
             message: "normal_inverse_cdf: Probability must be between 0 and 1".to_string(),
         });
@@ -278,7 +294,7 @@ pub fn normal_inverse_cdf<T>(p: T, mean: f64, std_dev: f64) -> StatsResult<f64> 
     };
 
     // If p > 0.5, we need to flip the sign of z
-    let final_z = if p_64 > 0.5 { z * -1.0 } else { z };
+    let final_z = if p_64 > 0.5 { -z } else { z };
 
     let result = mean + std_dev * final_z;
     // Convert from standard normal to the specified distribution
@@ -415,8 +431,14 @@ mod tests {
     #[test]
     fn test_normal_pdf_invalid_sigma() {
         let result = normal_pdf(0.0, 0.0, -1.0);
-        assert!(result.is_err(), "Should return error for negative standard deviation");
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(
+            result.is_err(),
+            "Should return error for negative standard deviation"
+        );
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
@@ -439,8 +461,14 @@ mod tests {
     #[test]
     fn test_normal_cdf_invalid_sigma() {
         let result = normal_cdf(0.0, 0.0, -1.0);
-        assert!(result.is_err(), "Should return error for negative standard deviation");
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(
+            result.is_err(),
+            "Should return error for negative standard deviation"
+        );
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
@@ -458,42 +486,60 @@ mod tests {
     fn test_normal_config_new_nan_mean() {
         let result = NormalConfig::new(f64::NAN, 1.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_normal_config_new_nan_std_dev() {
         let result = NormalConfig::new(0.0, f64::NAN);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_normal_config_new_std_dev_zero() {
         let result = NormalConfig::new(0.0, 0.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_normal_config_new_std_dev_negative() {
         let result = NormalConfig::new(0.0, -1.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_normal_inverse_cdf_p_negative() {
         let result = normal_inverse_cdf(-0.1, 0.0, 1.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_normal_inverse_cdf_p_greater_than_one() {
         let result = normal_inverse_cdf(1.5, 0.0, 1.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
@@ -512,14 +558,20 @@ mod tests {
     fn test_normal_pdf_std_dev_zero() {
         let result = normal_pdf(0.0, 0.0, 0.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_normal_cdf_std_dev_zero() {
         let result = normal_cdf(0.0, 0.0, 0.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
@@ -543,5 +595,4 @@ mod tests {
         let config = config.unwrap();
         assert_eq!(config.mean, 0.0);
     }
-
 }

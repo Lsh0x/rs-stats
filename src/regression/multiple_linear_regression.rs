@@ -332,10 +332,7 @@ where
     where
         U: NumCast + Copy,
     {
-        x_values
-            .iter()
-            .map(|x| self.predict(x))
-            .collect()
+        x_values.iter().map(|x| self.predict(x)).collect()
     }
 
     /// Save the model to a file
@@ -606,7 +603,11 @@ mod tests {
         model.fit(&x, &y).unwrap();
 
         // Test prediction: 1 + 2*5 + 3*4 = 1 + 10 + 12 = 23
-        assert!(approx_equal(model.predict(&[5u32, 4u32]).unwrap(), 23.0, Some(1e-6)));
+        assert!(approx_equal(
+            model.predict(&[5u32, 4u32]).unwrap(),
+            23.0,
+            Some(1e-6)
+        ));
     }
 
     #[test]
@@ -750,7 +751,7 @@ mod tests {
         // Test that predict() works even when model is not fitted
         let model = MultipleLinearRegression::<f64>::new();
         // Don't fit the model
-        
+
         // Predict should return an error when model is not fitted
         let features = vec![1.0, 2.0];
         let result = model.predict(&features);
@@ -771,13 +772,16 @@ mod tests {
         ];
         let y = vec![3.0, 3.0, 6.0, 6.0];
         model.fit(&x, &y).unwrap();
-        
+
         // Try to predict with wrong number of features
         let wrong_features = vec![1.0]; // Should be 2 features
         let result = model.predict(&wrong_features);
         // predict returns error when dimension mismatch
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::DimensionMismatch { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::DimensionMismatch { .. }
+        ));
     }
 
     #[test]
@@ -785,12 +789,12 @@ mod tests {
         // Test with linearly dependent features (singular matrix)
         // This should trigger a mathematical error
         let x = vec![
-            vec![1.0, 2.0, 3.0],  // Feature 3 = Feature 1 + Feature 2 (linearly dependent)
-            vec![2.0, 4.0, 6.0],  // Feature 3 = 2 * (Feature 1 + Feature 2)
-            vec![3.0, 6.0, 9.0],  // Feature 3 = 3 * (Feature 1 + Feature 2)
+            vec![1.0, 2.0, 3.0], // Feature 3 = Feature 1 + Feature 2 (linearly dependent)
+            vec![2.0, 4.0, 6.0], // Feature 3 = 2 * (Feature 1 + Feature 2)
+            vec![3.0, 6.0, 9.0], // Feature 3 = 3 * (Feature 1 + Feature 2)
         ];
         let y = vec![1.0, 2.0, 3.0];
-        
+
         let mut model = MultipleLinearRegression::<f64>::new();
         let result = model.fit(&x, &y);
         // This might succeed or fail depending on numerical precision
@@ -814,10 +818,13 @@ mod tests {
         let x = vec![vec![1.0], vec![2.0]];
         let y = vec![2.0, 4.0];
         model.fit(&x, &y).unwrap();
-        
+
         let invalid_path = std::path::Path::new("/nonexistent/directory/model.json");
         let result = model.save(invalid_path);
-        assert!(result.is_err(), "Saving to invalid path should return error");
+        assert!(
+            result.is_err(),
+            "Saving to invalid path should return error"
+        );
     }
 
     #[test]
@@ -825,7 +832,10 @@ mod tests {
         // Test loading a non-existent file
         let nonexistent_path = std::path::Path::new("/nonexistent/file.json");
         let result = MultipleLinearRegression::<f64>::load(nonexistent_path);
-        assert!(result.is_err(), "Loading non-existent file should return error");
+        assert!(
+            result.is_err(),
+            "Loading non-existent file should return error"
+        );
     }
 
     #[test]
@@ -833,7 +843,10 @@ mod tests {
         // Test deserializing invalid JSON string
         let invalid_json = "not valid json";
         let result = MultipleLinearRegression::<f64>::from_json(invalid_json);
-        assert!(result.is_err(), "Deserializing invalid JSON should return error");
+        assert!(
+            result.is_err(),
+            "Deserializing invalid JSON should return error"
+        );
     }
 
     #[test]
@@ -872,19 +885,18 @@ mod tests {
     fn test_predict_many_dimension_mismatch() {
         // Test predict_many with wrong number of features
         let mut model = MultipleLinearRegression::<f64>::new();
-        let x = vec![
-            vec![1.0, 2.0],
-            vec![2.0, 1.0],
-            vec![3.0, 3.0],
-        ];
+        let x = vec![vec![1.0, 2.0], vec![2.0, 1.0], vec![3.0, 3.0]];
         let y = vec![3.0, 3.0, 6.0];
         model.fit(&x, &y).unwrap();
-        
+
         // Try to predict with wrong number of features
         let wrong_features = vec![vec![1.0]]; // Should be 2 features
         let result = model.predict_many(&wrong_features);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::DimensionMismatch { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::DimensionMismatch { .. }
+        ));
     }
 
     #[test]
@@ -899,8 +911,10 @@ mod tests {
         ];
         let y = vec![3.0, 3.0, 6.0, 6.0];
         model.fit(&x, &y).unwrap();
-        
-        let predictions = model.predict_many(&[vec![3.0, 4.0], vec![5.0, 6.0]]).unwrap();
+
+        let predictions = model
+            .predict_many(&[vec![3.0, 4.0], vec![5.0, 6.0]])
+            .unwrap();
         assert_eq!(predictions.len(), 2);
     }
 }

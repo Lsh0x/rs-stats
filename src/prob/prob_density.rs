@@ -16,9 +16,9 @@
 //! - `probability_density`: Calculates PDF for a given x, mean, and standard deviation
 //! - `normal_probability_density`: Calculates PDF for a given z-score (pre-normalized value)
 
-use num_traits::ToPrimitive;
-use crate::error::{StatsResult, StatsError};
+use crate::error::{StatsError, StatsResult};
 use crate::utils::constants::INV_SQRT_2PI;
+use num_traits::ToPrimitive;
 
 /// Calculate the probability density function (PDF) for a normal distribution
 ///
@@ -43,7 +43,10 @@ use crate::utils::constants::INV_SQRT_2PI;
 /// assert!((pdf - 0.24197072451914337).abs() < 1e-10);
 /// ```
 #[inline]
-pub fn probability_density<T>(x: T, avg: f64, stddev: f64) -> StatsResult<f64> where T: ToPrimitive {
+pub fn probability_density<T>(x: T, avg: f64, stddev: f64) -> StatsResult<f64>
+where
+    T: ToPrimitive,
+{
     let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError {
         message: "prob::probability_density: Failed to convert x to f64".to_string(),
     })?;
@@ -57,9 +60,8 @@ pub fn probability_density<T>(x: T, avg: f64, stddev: f64) -> StatsResult<f64> w
     let z = (x_64 - avg) / stddev;
     // Use multiplication instead of powi(2) for better performance
     let exponent = -0.5 * z * z;
-    
-    Ok(exponent.exp() * INV_SQRT_2PI / stddev)
 
+    Ok(exponent.exp() * INV_SQRT_2PI / stddev)
 }
 
 /// normal_probability_density return the PDF with z already normalized
@@ -156,7 +158,8 @@ mod tests {
     #[test]
     fn test_normal_probability_density_symmetry() {
         let z = 0.7;
-        let actual = normal_probability_density(z).unwrap() - normal_probability_density(-z).unwrap();
+        let actual =
+            normal_probability_density(z).unwrap() - normal_probability_density(-z).unwrap();
         assert!(
             actual.abs() < 1e-10,
             "normal_probability_density(z) should equal normal_probability_density(-z), but got {}",
@@ -175,6 +178,9 @@ mod tests {
     fn test_probability_density_stddev_zero() {
         let result = probability_density(0.0, 0.0, 0.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 }

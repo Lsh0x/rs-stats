@@ -2,7 +2,7 @@ use num_traits::NumCast;
 /// Provides numerical utility functions for statistical calculations.
 use std::fmt::Debug;
 
-use crate::error::{StatsResult, StatsError};
+use crate::error::{StatsError, StatsResult};
 
 /// Computes the natural logarithm of x, handling edge cases safely.
 ///
@@ -26,7 +26,6 @@ use crate::error::{StatsResult, StatsError};
 /// let result = safe_log(0.0);
 /// assert!(result.is_err());
 /// ```
-
 pub fn safe_log(x: f64) -> StatsResult<f64> {
     if x <= 0.0 {
         Err(StatsError::invalid_input(
@@ -197,14 +196,20 @@ mod tests {
     fn test_safe_log_zero() {
         let result = safe_log(0.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_safe_log_negative() {
         let result = safe_log(-1.0);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]

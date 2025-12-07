@@ -19,8 +19,8 @@
 //! - Negative z-scores indicate values below the mean
 //! - z-scores are unitless and allow comparison across different distributions
 
+use crate::error::{StatsError, StatsResult};
 use num_traits::ToPrimitive;
-use crate::error::{StatsResult, StatsError};
 
 /// Calculate the z-score (standard score) of a value
 ///
@@ -51,8 +51,10 @@ use crate::error::{StatsResult, StatsError};
 /// assert!(z.is_infinite());
 /// ```
 #[inline]
-pub fn z_score<T>(x: T, avg: f64, stddev: f64) -> StatsResult<f64> where T: ToPrimitive {
-
+pub fn z_score<T>(x: T, avg: f64, stddev: f64) -> StatsResult<f64>
+where
+    T: ToPrimitive,
+{
     if stddev == 0.0 {
         return Ok(f64::INFINITY);
     }
