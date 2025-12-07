@@ -2,7 +2,7 @@ use num_traits::ToPrimitive;
 
 use serde::{Deserialize, Serialize};
 use crate::error::{StatsResult, StatsError};
-use crate::prob::erf::erf;
+use crate::prob::erf;
 use crate::utils::constants::{INV_SQRT_2PI, SQRT_2};
 
 

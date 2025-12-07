@@ -18,7 +18,7 @@
 //! - Used in confidence intervals and hypothesis testing
 
 use crate::error::StatsResult;
-use crate::prob::std_dev::std_dev;
+use crate::prob::std_dev;
 use num_traits::ToPrimitive;
 
 /// Calculate the standard error of a dataset

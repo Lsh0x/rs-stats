@@ -19,7 +19,7 @@
 //! P(X > x) = 0.5 * erfc(x/√2)
 
 use num_traits::ToPrimitive;
-use crate::prob::erf::erf;
+use crate::prob::erf;
 use crate::error::{StatsResult, StatsError};
 
 

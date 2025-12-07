@@ -20,7 +20,7 @@
 //! - Φ(μ + a) = 1 - Φ(μ - a) (symmetry property)
 
 use num_traits::ToPrimitive;
-use crate::prob::erf::erf;
+use crate::prob::erf;
 use crate::utils::constants::SQRT_2;
 use crate::error::{StatsResult, StatsError};
 

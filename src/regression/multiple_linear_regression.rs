@@ -462,7 +462,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::numeric::approx_equal;
+    use crate::utils::approx_equal;
     use tempfile::tempdir;
 
     #[test]

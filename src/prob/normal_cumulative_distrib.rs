@@ -1,4 +1,4 @@
-use crate::prob::erf::erf;
+use crate::prob::erf;
 use crate::utils::constants::SQRT_2;
 use crate::error::{StatsResult};
 

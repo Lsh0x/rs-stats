@@ -19,7 +19,7 @@
 
 use crate::error::{StatsError, StatsResult};
 use crate::utils::constants::SQRT_2;
-use crate::prob::erf::erf;
+use crate::prob::erf;
 use num_traits::ToPrimitive;
 use std::fmt::Debug;
 

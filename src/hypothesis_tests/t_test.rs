@@ -18,7 +18,7 @@
 
 use crate::error::{StatsError, StatsResult};
 use crate::utils::constants::{SQRT_2, LN_2PI};
-use crate::prob::erf::erf;
+use crate::prob::erf;
 use num_traits::ToPrimitive;
 use std::f64;
 use std::fmt::Debug;

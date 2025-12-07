@@ -14,7 +14,7 @@
 //! - Any custom type that implements ToPrimitive
 
 use crate::error::StatsResult;
-use crate::prob::variance::variance;
+use crate::prob::variance;
 use num_traits::ToPrimitive;
 use std::fmt::Debug;
 
