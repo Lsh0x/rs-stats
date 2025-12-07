@@ -1,8 +1,9 @@
-use crate::prob::erf::erf;
-use rand::Rng;
-use rand_distr::{Distribution, Normal as RandNormal};
+use num_traits::ToPrimitive;
+
+use crate::error::{StatsError, StatsResult};
+use crate::prob::erf;
+use crate::utils::constants::{INV_SQRT_2PI, SQRT_2};
 use serde::{Deserialize, Serialize};
-use std::f64::consts::PI;
 
 /// Configuration for the Normal distribution.
 ///
@@ -18,14 +19,20 @@ use std::f64::consts::PI;
 /// assert!(config.std_dev > 0.0);
 /// ```
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct NormalConfig {
+pub struct NormalConfig<T>
+where
+    T: ToPrimitive,
+{
     /// The mean (μ) of the distribution.
-    pub mean: f64,
+    pub mean: T,
     /// The standard deviation (σ) of the distribution.
-    pub std_dev: f64,
+    pub std_dev: T,
 }
 
-impl NormalConfig {
+impl<T> NormalConfig<T>
+where
+    T: ToPrimitive,
+{
     /// Creates a new NormalConfig with validation
     ///
     /// # Arguments
@@ -40,16 +47,27 @@ impl NormalConfig {
     /// use rs_stats::distributions::normal_distribution::NormalConfig;
     ///
     /// let standard_normal = NormalConfig::new(0.0, 1.0);
-    /// assert!(standard_normal.is_some());
+    /// assert!(standard_normal.is_ok());
     ///
     /// let invalid_config = NormalConfig::new(0.0, -1.0);
-    /// assert!(invalid_config.is_none());
+    /// assert!(invalid_config.is_err());
     /// ```
-    pub fn new(mean: f64, std_dev: f64) -> Option<Self> {
-        if std_dev > 0.0 && !mean.is_nan() && !std_dev.is_nan() {
-            Some(Self { mean, std_dev })
+    pub fn new(mean: T, std_dev: T) -> StatsResult<Self> {
+        let std_dev_64 = std_dev
+            .to_f64()
+            .ok_or_else(|| StatsError::ConversionError {
+                message: "NormalConfig::new: Failed to convert std_dev to f64".to_string(),
+            })?;
+        let mean_64 = mean.to_f64().ok_or_else(|| StatsError::ConversionError {
+            message: "NormalConfig::new: Failed to convert mean to f64".to_string(),
+        })?;
+
+        if std_dev_64 > 0.0 && !mean_64.is_nan() && !std_dev_64.is_nan() {
+            Ok(Self { mean, std_dev })
         } else {
-            None
+            Err(StatsError::InvalidInput {
+                message: "NormalConfig::new: std_dev must be positive".to_string(),
+            })
         }
     }
 }
@@ -64,26 +82,43 @@ impl NormalConfig {
 /// # Returns
 /// The probability density at point x
 ///
-/// # Panics
-/// Panics if std_dev is not positive.
+/// # Errors
+/// Returns an error if:
+/// - std_dev is not positive
+/// - Type conversion to f64 fails
 ///
 /// # Examples
 /// ```
 /// use rs_stats::distributions::normal_distribution::normal_pdf;
 ///
 /// // Standard normal distribution at x = 0
-/// let pdf = normal_pdf(0.0, 0.0, 1.0);
+/// let pdf = normal_pdf(0.0, 0.0, 1.0).unwrap();
 /// assert!((pdf - 0.3989422804014327).abs() < 1e-10);
 ///
 /// // Normal distribution with mean = 5, std_dev = 2 at x = 5
-/// let pdf = normal_pdf(5.0, 5.0, 2.0);
+/// let pdf = normal_pdf(5.0, 5.0, 2.0).unwrap();
 /// assert!((pdf - 0.19947114020071635).abs() < 1e-10);
 /// ```
-pub fn normal_pdf(x: f64, mean: f64, std_dev: f64) -> f64 {
-    assert!(std_dev > 0.0, "Standard deviation must be positive");
+#[inline]
+pub fn normal_pdf<T>(x: T, mean: f64, std_dev: f64) -> StatsResult<f64>
+where
+    T: ToPrimitive,
+{
+    if std_dev <= 0.0 {
+        return Err(StatsError::InvalidInput {
+            message: "normal_pdf: Standard deviation must be positive".to_string(),
+        });
+    }
 
-    let exponent = -0.5 * ((x - mean) / std_dev).powi(2);
-    (1.0 / (std_dev * (2.0 * PI).sqrt())) * exponent.exp()
+    let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError {
+        message: "normal_pdf: Failed to convert x to f64".to_string(),
+    })?;
+
+    // Use multiplication instead of powi(2) for better performance
+    let z = (x_64 - mean) / std_dev;
+    let exponent = -0.5 * z * z;
+    // Use precomputed constant instead of computing sqrt(2π) every call
+    Ok(exponent.exp() * INV_SQRT_2PI / std_dev)
 }
 
 /// Calculates the cumulative distribution function (CDF) for the normal distribution.
@@ -96,35 +131,48 @@ pub fn normal_pdf(x: f64, mean: f64, std_dev: f64) -> f64 {
 /// # Returns
 /// The probability that a random variable is less than or equal to x
 ///
-/// # Panics
-/// Panics if std_dev is not positive.
+/// # Errors
+/// Returns an error if:
+/// - std_dev is not positive
+/// - Type conversion to f64 fails
 ///
 /// # Examples
 /// ```
 /// use rs_stats::distributions::normal_distribution::normal_cdf;
 ///
 /// // Standard normal distribution at x = 0
-/// let cdf = normal_cdf(0.0, 0.0, 1.0);
+/// let cdf = normal_cdf(0.0, 0.0, 1.0).unwrap();
 /// assert!((cdf - 0.5).abs() < 1e-7);
 ///
 /// // Normal distribution with mean = 5, std_dev = 2 at x = 7
-/// let cdf = normal_cdf(7.0, 5.0, 2.0);
+/// let cdf = normal_cdf(7.0, 5.0, 2.0).unwrap();
 /// assert!((cdf - 0.8413447460685429).abs() < 1e-7);
 /// ```
-pub fn normal_cdf(x: f64, mean: f64, std_dev: f64) -> f64 {
-    assert!(std_dev > 0.0, "Standard deviation must be positive");
-
-    // Special case to handle exact value at the mean
-    if x == mean {
-        return 0.5;
+#[inline]
+pub fn normal_cdf<T>(x: T, mean: f64, std_dev: f64) -> StatsResult<f64>
+where
+    T: ToPrimitive,
+{
+    if std_dev <= 0.0 {
+        return Err(StatsError::InvalidInput {
+            message: "normal_cdf: Standard deviation must be positive".to_string(),
+        });
     }
 
-    // Calculate the standardized value z
-    let z = (x - mean) / std_dev;
+    let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError {
+        message: "normal_cdf: Failed to convert x to f64".to_string(),
+    })?;
 
-    // Use a more numerically stable form of the calculation
-    // The sqrt(2) factor is included in the argument to erf
-    0.5 * (1.0 + erf(z / std::f64::consts::SQRT_2))
+    // Special case to handle exact value at the mean
+    if x_64 == mean {
+        return Ok(0.5);
+    }
+
+    // Inline z-score calculation and combine with SQRT_2 division
+    // z_score = (x - mean) / std_dev, then divide by SQRT_2
+    // Combined: (x - mean) / (std_dev * SQRT_2)
+    let z = (x_64 - mean) / (std_dev * SQRT_2);
+    Ok(0.5 * (1.0 + erf(z)?))
 }
 
 /// Calculates the inverse cumulative distribution function (Quantile function) for the normal distribution.
@@ -132,7 +180,7 @@ pub fn normal_cdf(x: f64, mean: f64, std_dev: f64) -> f64 {
 /// # Arguments
 /// * `p` - Probability value between 0 and 1
 /// * `mean` - The mean (μ) of the distribution
-/// * `sigma` - The standard deviation (σ) of the distribution
+/// * `std_dev` - The standard deviation (σ) of the distribution
 ///
 /// # Returns
 /// The value x such that P(X ≤ x) = p
@@ -143,39 +191,45 @@ pub fn normal_cdf(x: f64, mean: f64, std_dev: f64) -> f64 {
 ///
 /// // Check that inverse_cdf is the inverse of cdf
 /// let x = 0.5;
-/// let p = normal_cdf(x, 0.0, 1.0);
-/// let x_back = normal_inverse_cdf(p, 0.0, 1.0);
+/// let p = normal_cdf(x, 0.0, 1.0).unwrap();
+/// let x_back = normal_inverse_cdf(p, 0.0, 1.0).unwrap();
 /// assert!((x - x_back).abs() < 1e-8);
 /// ```
-pub fn normal_inverse_cdf(p: f64, mean: f64, sigma: f64) -> f64 {
-    assert!(
-        (0.0..=1.0).contains(&p),
-        "Probability must be between 0 and 1"
-    );
+#[inline]
+pub fn normal_inverse_cdf<T>(p: T, mean: f64, std_dev: f64) -> StatsResult<f64>
+where
+    T: ToPrimitive,
+{
+    let p_64 = p.to_f64().ok_or_else(|| StatsError::ConversionError {
+        message: "normal_inverse_cdf: Failed to convert p to f64".to_string(),
+    })?;
+
+    if !(0.0..=1.0).contains(&p_64) {
+        return Err(StatsError::InvalidInput {
+            message: "normal_inverse_cdf: Probability must be between 0 and 1".to_string(),
+        });
+    }
 
     // Handle edge cases
-    if p == 0.0 {
-        return f64::NEG_INFINITY;
+    if p_64 == 0.0 {
+        return Ok(f64::NEG_INFINITY);
     }
-    if p == 1.0 {
-        return f64::INFINITY;
+    if p_64 == 1.0 {
+        return Ok(f64::INFINITY);
     }
 
     // Use a simple and reliable implementation based on the Rational Approximation
     // by Peter J. Acklam
 
     // Convert to standard normal calculation
-    let q = if p <= 0.5 { p } else { 1.0 - p };
-
-    // Keep track of whether we need to flip the sign at the end
-    let flip_sign = p > 0.5;
+    let q = if p_64 <= 0.5 { p_64 } else { 1.0 - p_64 };
 
     // Avoid numerical issues at boundaries
     if q <= 0.0 {
-        return if p <= 0.5 {
-            f64::NEG_INFINITY
+        return if p_64 <= 0.5 {
+            Ok(f64::NEG_INFINITY)
         } else {
-            f64::INFINITY
+            Ok(f64::INFINITY)
         };
     }
 
@@ -240,34 +294,11 @@ pub fn normal_inverse_cdf(p: f64, mean: f64, sigma: f64) -> f64 {
     };
 
     // If p > 0.5, we need to flip the sign of z
-    let final_z = if flip_sign { -z } else { z };
+    let final_z = if p_64 > 0.5 { -z } else { z };
 
+    let result = mean + std_dev * final_z;
     // Convert from standard normal to the specified distribution
-    mean + sigma * final_z
-}
-
-/// Generates a random sample from the normal distribution.
-///
-/// # Arguments
-/// * `mean` - The mean (μ) of the distribution
-/// * `sigma` - The standard deviation (σ) of the distribution
-/// * `rng` - A random number generator
-///
-/// # Returns
-/// A random value from the normal distribution
-///
-/// # Examples
-/// ```
-/// use rs_stats::distributions::normal_distribution::normal_sample;
-/// use rand::thread_rng;
-///
-/// let mut rng = thread_rng();
-/// let sample = normal_sample(10.0, 2.0, &mut rng);
-/// // sample is a random value from Normal(10, 2)
-/// ```
-pub fn normal_sample<R: Rng>(mean: f64, sigma: f64, rng: &mut R) -> f64 {
-    let normal = RandNormal::new(mean, sigma).unwrap();
-    normal.sample(rng)
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -283,11 +314,11 @@ mod tests {
         let sigma = 1.0;
 
         // Test at mean (peak of the density)
-        let result = normal_pdf(mean, mean, sigma);
+        let result = normal_pdf(mean, mean, sigma).unwrap();
         assert!((result - 0.3989422804014327).abs() < 1e-10);
 
         // Test at one standard deviation away
-        let result = normal_pdf(mean + sigma, mean, sigma);
+        let result = normal_pdf(mean + sigma, mean, sigma).unwrap();
         assert!((result - 0.24197072451914337).abs() < 1e-10);
     }
 
@@ -297,11 +328,11 @@ mod tests {
         let sigma = 2.0;
 
         // Test at mean
-        let result = normal_pdf(mean, mean, sigma);
+        let result = normal_pdf(mean, mean, sigma).unwrap();
         assert!((result - 0.19947114020071635).abs() < 1e-10);
 
         // Test at one standard deviation away
-        let result = normal_pdf(mean + sigma, mean, sigma);
+        let result = normal_pdf(mean + sigma, mean, sigma).unwrap();
         assert!((result - 0.12098536225957168).abs() < 1e-10);
     }
 
@@ -311,8 +342,8 @@ mod tests {
         let sigma = 1.0;
         let x = 1.5;
 
-        let pdf_plus = normal_pdf(mean + x, mean, sigma);
-        let pdf_minus = normal_pdf(mean - x, mean, sigma);
+        let pdf_plus = normal_pdf(mean + x, mean, sigma).unwrap();
+        let pdf_minus = normal_pdf(mean - x, mean, sigma).unwrap();
 
         assert!((pdf_plus - pdf_minus).abs() < 1e-10);
     }
@@ -323,15 +354,15 @@ mod tests {
         let sigma = 1.0;
 
         // Test at mean
-        let result = normal_cdf(mean, mean, sigma);
+        let result = normal_cdf(mean, mean, sigma).unwrap();
         assert!((result - 0.5).abs() < 1e-10);
 
         // Test at one standard deviation above mean
-        let result = normal_cdf(mean + sigma, mean, sigma);
+        let result = normal_cdf(mean + sigma, mean, sigma).unwrap();
         assert!((result - 0.8413447460685429).abs() < EPSILON);
 
         // Test at one standard deviation below mean
-        let result = normal_cdf(mean - sigma, mean, sigma);
+        let result = normal_cdf(mean - sigma, mean, sigma).unwrap();
         assert!((result - 0.15865525393145707).abs() < EPSILON);
     }
 
@@ -341,11 +372,11 @@ mod tests {
         let sigma = 15.0;
 
         // Test at mean
-        let result = normal_cdf(mean, mean, sigma);
+        let result = normal_cdf(mean, mean, sigma).unwrap();
         assert!((result - 0.5).abs() < 1e-10);
 
         // Test at one standard deviation above mean
-        let result = normal_cdf(mean + sigma, mean, sigma);
+        let result = normal_cdf(mean + sigma, mean, sigma).unwrap();
         assert!((result - 0.8413447460685429).abs() < EPSILON);
     }
 
@@ -355,15 +386,15 @@ mod tests {
         let sigma = 1.0;
 
         // Test at median
-        let result = normal_inverse_cdf(0.5, mean, sigma);
+        let result = normal_inverse_cdf(0.5, mean, sigma).unwrap();
         assert!((result - mean).abs() < EPSILON);
 
         // Test at one standard deviation above mean
-        let result = normal_inverse_cdf(0.8413447460685429, mean, sigma);
+        let result = normal_inverse_cdf(0.8413447460685429, mean, sigma).unwrap();
         assert!((result - sigma).abs() < EPSILON);
 
         // Test at one standard deviation below mean
-        let result = normal_inverse_cdf(0.15865525393145707, mean, sigma);
+        let result = normal_inverse_cdf(0.15865525393145707, mean, sigma).unwrap();
         assert!((result - (-sigma)).abs() < EPSILON);
     }
 
@@ -373,67 +404,195 @@ mod tests {
         let sigma = 5.0;
 
         // Test at median
-        let result = normal_inverse_cdf(0.5, mean, sigma);
+        let result = normal_inverse_cdf(0.5, mean, sigma).unwrap();
         assert!((result - mean).abs() < EPSILON);
 
         // Test at one standard deviation above mean
-        let result = normal_inverse_cdf(0.8413447460685429, mean, sigma);
+        let result = normal_inverse_cdf(0.8413447460685429, mean, sigma).unwrap();
         assert!((result - (mean + sigma)).abs() < EPSILON);
     }
 
     #[test]
     fn test_normal_pdf_standard_normal() {
         // PDF for standard normal at mean should be maximum (approx 0.3989)
-        let pdf = (normal_pdf(0.0, 0.0, 1.0) * 1e7).round() / 1e7;
+        let pdf = (normal_pdf(0.0, 0.0, 1.0).unwrap() * 1e7).round() / 1e7;
         assert!((pdf - 0.3989423).abs() < EPSILON);
 
         // Test symmetry around mean
-        let pdf_plus1 = normal_pdf(1.0, 0.0, 1.0);
-        let pdf_minus1 = normal_pdf(-1.0, 0.0, 1.0);
+        let pdf_plus1 = normal_pdf(1.0, 0.0, 1.0).unwrap();
+        let pdf_minus1 = normal_pdf(-1.0, 0.0, 1.0).unwrap();
         assert!((pdf_plus1 - pdf_minus1).abs() < EPSILON);
 
         // Test at specific points
-        assert!((normal_pdf(1.0, 0.0, 1.0) - 0.2419707).abs() < EPSILON);
-        assert!((normal_pdf(2.0, 0.0, 1.0) - 0.0539909).abs() < EPSILON);
+        assert!((normal_pdf(1.0, 0.0, 1.0).unwrap() - 0.2419707).abs() < EPSILON);
+        assert!((normal_pdf(2.0, 0.0, 1.0).unwrap() - 0.0539909).abs() < EPSILON);
     }
 
     #[test]
-    #[should_panic(expected = "Standard deviation must be positive")]
     fn test_normal_pdf_invalid_sigma() {
-        normal_pdf(0.0, 0.0, -1.0);
+        let result = normal_pdf(0.0, 0.0, -1.0);
+        assert!(
+            result.is_err(),
+            "Should return error for negative standard deviation"
+        );
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_normal_cdf_standard_normal() {
         // CDF at mean should be 0.5
-        let cdf = (normal_cdf(0.0, 0.0, 1.0) * 1e1).round() / 1e1;
+        let cdf = (normal_cdf(0.0, 0.0, 1.0).unwrap() * 1e1).round() / 1e1;
         assert!((cdf - 0.5).abs() < EPSILON);
 
         // Test at specific points
-        let cdf = (normal_cdf(1.0, 0.0, 1.0) * 1e7).round() / 1e7;
+        let cdf = (normal_cdf(1.0, 0.0, 1.0).unwrap() * 1e7).round() / 1e7;
         assert!((cdf - 0.8413447).abs() < EPSILON);
 
-        let cdf = (normal_cdf(-1.0, 0.0, 1.0) * 1e7).round() / 1e7;
+        let cdf = (normal_cdf(-1.0, 0.0, 1.0).unwrap() * 1e7).round() / 1e7;
         assert!((cdf - 0.1586553).abs() < EPSILON);
 
-        let cdf = (normal_cdf(2.0, 0.0, 1.0) * 1e7).round() / 1e7;
+        let cdf = (normal_cdf(2.0, 0.0, 1.0).unwrap() * 1e7).round() / 1e7;
         assert!((cdf - 0.9772499).abs() < EPSILON);
     }
 
     #[test]
-    #[should_panic(expected = "Standard deviation must be positive")]
     fn test_normal_cdf_invalid_sigma() {
-        normal_cdf(0.0, 0.0, -1.0);
+        let result = normal_cdf(0.0, 0.0, -1.0);
+        assert!(
+            result.is_err(),
+            "Should return error for negative standard deviation"
+        );
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
     fn test_normal_inverse_cdf_standard_normal() {
         // Inverse CDF of 0.5 should be the mean (0)
-        let x = (normal_inverse_cdf(0.5, 0.0, 1.0) * 1e7).round() / 1e7;
+        let x = (normal_inverse_cdf(0.5, 0.0, 1.0).unwrap() * 1e7).round() / 1e7;
         assert!(x.abs() < EPSILON);
 
         // Test at specific probabilities
-        assert!((normal_inverse_cdf(0.8413447, 0.0, 1.0) - 1.0).abs() < 0.01);
-        assert!((normal_inverse_cdf(0.1586553, 0.0, 1.0) + 1.0).abs() < 0.01);
+        assert!((normal_inverse_cdf(0.8413447, 0.0, 1.0).unwrap() - 1.0).abs() < 0.01);
+        assert!((normal_inverse_cdf(0.1586553, 0.0, 1.0).unwrap() + 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_normal_config_new_nan_mean() {
+        let result = NormalConfig::new(f64::NAN, 1.0);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
+    }
+
+    #[test]
+    fn test_normal_config_new_nan_std_dev() {
+        let result = NormalConfig::new(0.0, f64::NAN);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
+    }
+
+    #[test]
+    fn test_normal_config_new_std_dev_zero() {
+        let result = NormalConfig::new(0.0, 0.0);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
+    }
+
+    #[test]
+    fn test_normal_config_new_std_dev_negative() {
+        let result = NormalConfig::new(0.0, -1.0);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
+    }
+
+    #[test]
+    fn test_normal_inverse_cdf_p_negative() {
+        let result = normal_inverse_cdf(-0.1, 0.0, 1.0);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
+    }
+
+    #[test]
+    fn test_normal_inverse_cdf_p_greater_than_one() {
+        let result = normal_inverse_cdf(1.5, 0.0, 1.0);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
+    }
+
+    #[test]
+    fn test_normal_inverse_cdf_p_zero() {
+        let result = normal_inverse_cdf(0.0, 0.0, 1.0).unwrap();
+        assert_eq!(result, f64::NEG_INFINITY);
+    }
+
+    #[test]
+    fn test_normal_inverse_cdf_p_one() {
+        let result = normal_inverse_cdf(1.0, 0.0, 1.0).unwrap();
+        assert_eq!(result, f64::INFINITY);
+    }
+
+    #[test]
+    fn test_normal_pdf_std_dev_zero() {
+        let result = normal_pdf(0.0, 0.0, 0.0);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
+    }
+
+    #[test]
+    fn test_normal_cdf_std_dev_zero() {
+        let result = normal_cdf(0.0, 0.0, 0.0);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
+    }
+
+    #[test]
+    fn test_normal_inverse_cdf_std_dev_zero() {
+        // std_dev = 0 should still work (just returns mean)
+        let result = normal_inverse_cdf(0.5, 5.0, 0.0).unwrap();
+        assert_eq!(result, 5.0);
+    }
+
+    #[test]
+    fn test_normal_inverse_cdf_std_dev_negative() {
+        // std_dev < 0 should still work (just scales the result)
+        let result = normal_inverse_cdf(0.5, 0.0, -1.0).unwrap();
+        assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn test_normal_config_new_valid() {
+        let config = NormalConfig::new(0.0, 1.0);
+        assert!(config.is_ok());
+        let config = config.unwrap();
+        assert_eq!(config.mean, 0.0);
     }
 }

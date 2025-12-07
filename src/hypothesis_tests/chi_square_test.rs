@@ -18,6 +18,8 @@
 //! The resulting statistic follows a chi-square distribution with degrees of freedom based on the particular test.
 
 use crate::error::{StatsError, StatsResult};
+use crate::prob::erf;
+use crate::utils::constants::SQRT_2;
 use num_traits::ToPrimitive;
 use std::fmt::Debug;
 
@@ -118,7 +120,7 @@ where
         z /= (2.0 / (9.0 * degrees_of_freedom as f64)).sqrt();
 
         // Standard normal CDF approximation
-        0.5 * (1.0 + erf(z / std::f64::consts::SQRT_2))
+        0.5 * (1.0 + erf(z / SQRT_2)?)
     } else {
         1.0 // If df = 0, return p-value of 1.0
     };
@@ -264,33 +266,13 @@ where
         z /= (2.0 / (9.0 * degrees_of_freedom as f64)).sqrt();
 
         // Standard normal CDF approximation
-        0.5 * (1.0 + erf(z / std::f64::consts::SQRT_2))
+        0.5 * (1.0 + erf(z / SQRT_2)?)
     } else {
         1.0 // If df = 0, return p-value of 1.0
     };
 
     // Return the chi-square statistic, degrees of freedom, and p-value
     Ok((chi_square, degrees_of_freedom, 1.0 - p_value))
-}
-
-// Error function approximation
-fn erf(x: f64) -> f64 {
-    // Constants for the approximation
-    let a1 = 0.254829592;
-    let a2 = -0.284496736;
-    let a3 = 1.421413741;
-    let a4 = -1.453152027;
-    let a5 = 1.061405429;
-    let p = 0.3275911;
-
-    let sign = if x < 0.0 { -1.0 } else { 1.0 };
-    let x = x.abs();
-
-    // Abramowitz and Stegun formula 7.1.26
-    let t = 1.0 / (1.0 + p * x);
-    let y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * (-x * x).exp();
-
-    sign * y
 }
 
 #[cfg(test)]
@@ -444,5 +426,36 @@ mod tests {
             result.unwrap_err(),
             StatsError::DimensionMismatch { .. }
         ));
+    }
+
+    #[test]
+    fn test_chi_square_goodness_of_fit_df_zero() {
+        // Test with df == 0 (single category)
+        // This happens when observed and expected have length 1
+        let observed = vec![10];
+        let expected = vec![10.0];
+
+        let (statistic, df, p_value) = chi_square_goodness_of_fit(&observed, &expected).unwrap();
+
+        assert_eq!(df, 0, "Degrees of freedom should be 0 for single category");
+        assert_eq!(
+            statistic, 0.0,
+            "Chi-square statistic should be 0 when observed equals expected"
+        );
+        // When df == 0, p-value should be 1.0 (as per the code)
+        assert_eq!(
+            p_value, 0.0,
+            "p-value should be 0.0 when df == 0 (1.0 - 1.0)"
+        );
+    }
+
+    #[test]
+    fn test_chi_square_goodness_of_fit_empty_expected() {
+        let observed = vec![10, 15, 20];
+        let expected: Vec<f64> = vec![];
+
+        let result = chi_square_goodness_of_fit(&observed, &expected);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::EmptyData { .. }));
     }
 }

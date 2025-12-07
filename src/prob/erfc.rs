@@ -18,7 +18,9 @@
 //! For a standard normal distribution N(0,1):
 //! P(X > x) = 0.5 * erfc(x/√2)
 
-use crate::prob::erf::erf;
+use crate::error::{StatsError, StatsResult};
+use crate::prob::erf;
+use num_traits::ToPrimitive;
 
 /// Calculate the complementary error function (erfc) of a value
 ///
@@ -36,16 +38,22 @@ use crate::prob::erf::erf;
 /// use rs_stats::prob::erfc;
 ///
 /// // Calculate erfc(1.0)
-/// let result = erfc(1.0);
+/// let result = erfc(1.0).unwrap();
 /// assert!((result - 0.15729931025241006).abs() < 1e-8);
 ///
 /// // Verify relationship to normal distribution
-/// let p = 0.5 * erfc(1.0 / 2.0f64.sqrt());
+/// let p = 0.5 * erfc(1.0 / 2.0f64.sqrt()).unwrap();
 /// assert!((p - 0.15865526383236372).abs() < 1e-8); // P(X > 1) for N(0,1)
 /// ```
 #[inline]
-pub fn erfc(x: f64) -> f64 {
-    1.0 - erf(x)
+pub fn erfc<T>(x: T) -> StatsResult<f64>
+where
+    T: ToPrimitive,
+{
+    let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError {
+        message: "prob::erfc: Failed to convert x to f64".to_string(),
+    })?;
+    Ok(1.0 - erf(x_64)?)
 }
 
 #[cfg(test)]
@@ -57,7 +65,7 @@ mod tests {
     #[test]
     fn test_erfc_zero() {
         // erfc(0) should be 1.0 because erf(0) is 0
-        let result = erfc(0.0);
+        let result = erfc(0.0).unwrap();
         let expected = 1.0;
         assert!((result - expected).abs() < EPSILON, "erfc(0) should be 1.0");
     }
@@ -66,7 +74,7 @@ mod tests {
     fn test_erfc_positive_value() {
         // Testing erfc(1.0)
         // Known value: erfc(1.0) is approximately 0.157299207
-        let result = erfc(1.0);
+        let result = erfc(1.0).unwrap();
         let expected = 0.157299207;
         assert!(
             (result - expected).abs() < EPSILON,
@@ -78,7 +86,7 @@ mod tests {
     fn test_erfc_negative_value() {
         // Testing erfc(-1.0)
         // Known value: erfc(-1.0) is approximately 1.842700792
-        let result = erfc(-1.0);
+        let result = erfc(-1.0).unwrap();
         let expected = 1.842700792;
         assert!(
             (result - expected).abs() < EPSILON,
@@ -90,7 +98,7 @@ mod tests {
     fn test_erfc_large_positive_value() {
         // Testing erfc(3.0)
         // Known value: erfc(3.0) is approximately 0.0000220905
-        let result = erfc(3.0);
+        let result = erfc(3.0).unwrap();
         let expected = 0.0000220905;
         assert!(
             (result - expected).abs() < EPSILON,
@@ -103,7 +111,7 @@ mod tests {
     fn test_erfc_large_negative_value() {
         // Testing erfc(-3.0)
         // Known value: erfc(-3.0) is approximately 1.99997791
-        let result = erfc(-3.0);
+        let result = erfc(-3.0).unwrap();
         let expected = 1.99997791;
         assert!(
             (result - expected).abs() < EPSILON,

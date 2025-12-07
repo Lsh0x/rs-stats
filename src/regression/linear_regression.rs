@@ -181,17 +181,36 @@ where
     /// * `x` - The x value to predict for
     ///
     /// # Returns
-    /// * The predicted y value
-    pub fn predict<U>(&self, x: U) -> T
+    /// * `StatsResult<T>` - The predicted y value
+    ///
+    /// # Errors
+    /// Returns `StatsError::NotFitted` if the model has not been fitted (n == 0).
+    /// Returns `StatsError::ConversionError` if type conversion fails.
+    ///
+    /// # Examples
+    /// ```
+    /// use rs_stats::regression::linear_regression::LinearRegression;
+    ///
+    /// let mut model = LinearRegression::<f64>::new();
+    /// model.fit(&[1.0, 2.0, 3.0], &[2.0, 4.0, 6.0]).unwrap();
+    ///
+    /// let prediction = model.predict(4.0).unwrap();
+    /// assert!((prediction - 8.0).abs() < 1e-10);
+    /// ```
+    pub fn predict<U>(&self, x: U) -> StatsResult<T>
     where
         U: NumCast + Copy,
     {
-        let x_cast: T = match T::from(x) {
-            Some(val) => val,
-            None => return T::nan(),
-        };
+        if self.n == 0 {
+            return Err(StatsError::not_fitted(
+                "Model has not been fitted. Call fit() before predicting.",
+            ));
+        }
 
-        self.predict_t(x_cast)
+        let x_cast: T = T::from(x)
+            .ok_or_else(|| StatsError::conversion_error("Failed to convert x value to type T"))?;
+
+        Ok(self.predict_t(x_cast))
     }
 
     /// Calculate predictions for multiple x values
@@ -200,8 +219,23 @@ where
     /// * `x_values` - Slice of x values to predict for
     ///
     /// # Returns
-    /// * Vector of predicted y values
-    pub fn predict_many<U>(&self, x_values: &[U]) -> Vec<T>
+    /// * `StatsResult<Vec<T>>` - Vector of predicted y values
+    ///
+    /// # Errors
+    /// Returns `StatsError::NotFitted` if the model has not been fitted.
+    /// Returns `StatsError::ConversionError` if type conversion fails for any value.
+    ///
+    /// # Examples
+    /// ```
+    /// use rs_stats::regression::linear_regression::LinearRegression;
+    ///
+    /// let mut model = LinearRegression::<f64>::new();
+    /// model.fit(&[1.0, 2.0, 3.0], &[2.0, 4.0, 6.0]).unwrap();
+    ///
+    /// let predictions = model.predict_many(&[4.0, 5.0]).unwrap();
+    /// assert_eq!(predictions.len(), 2);
+    /// ```
+    pub fn predict_many<U>(&self, x_values: &[U]) -> StatsResult<Vec<T>>
     where
         U: NumCast + Copy,
     {
@@ -261,9 +295,34 @@ where
     }
 
     /// Get the correlation coefficient (r)
-    pub fn correlation_coefficient(&self) -> T {
+    ///
+    /// The correlation coefficient ranges from -1 to 1, indicating the strength
+    /// and direction of the linear relationship between x and y.
+    ///
+    /// # Returns
+    /// * `StatsResult<T>` - The correlation coefficient
+    ///
+    /// # Errors
+    /// Returns `StatsError::NotFitted` if the model has not been fitted (n == 0).
+    ///
+    /// # Examples
+    /// ```
+    /// use rs_stats::regression::linear_regression::LinearRegression;
+    ///
+    /// let mut model = LinearRegression::<f64>::new();
+    /// model.fit(&[1.0, 2.0, 3.0], &[2.0, 4.0, 6.0]).unwrap();
+    ///
+    /// let r = model.correlation_coefficient().unwrap();
+    /// assert!((r - 1.0).abs() < 1e-10); // Perfect positive correlation
+    /// ```
+    pub fn correlation_coefficient(&self) -> StatsResult<T> {
+        if self.n == 0 {
+            return Err(StatsError::not_fitted(
+                "Model has not been fitted. Call fit() before getting correlation coefficient.",
+            ));
+        }
         let r = self.r_squared.sqrt();
-        if self.slope >= T::zero() { r } else { -r }
+        Ok(if self.slope >= T::zero() { r } else { -r })
     }
 
     /// Save the model to a file
@@ -341,7 +400,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::numeric::approx_equal;
+    use crate::utils::approx_equal;
     use tempfile::tempdir;
 
     #[test]
@@ -408,8 +467,8 @@ mod tests {
         let mut model = LinearRegression::<f64>::new();
         model.fit(&x, &y).unwrap();
 
-        assert!(approx_equal(model.predict(6u32), 12.0, Some(1e-6)));
-        assert!(approx_equal(model.predict(0i32), 0.0, Some(1e-6)));
+        assert!(approx_equal(model.predict(6u32).unwrap(), 12.0, Some(1e-6)));
+        assert!(approx_equal(model.predict(0i32).unwrap(), 0.0, Some(1e-6)));
     }
 
     #[test]
@@ -513,5 +572,210 @@ mod tests {
         assert!(approx_equal(loaded.intercept, model.intercept, Some(1e-6)));
         assert!(approx_equal(loaded.r_squared, model.r_squared, Some(1e-6)));
         assert_eq!(loaded.n, model.n);
+    }
+
+    #[test]
+    fn test_load_nonexistent_file() {
+        // Test loading from a file that doesn't exist
+        let result = LinearRegression::<f64>::load("/nonexistent/path/model.json");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_binary_nonexistent_file() {
+        // Test loading from a binary file that doesn't exist
+        let result = LinearRegression::<f64>::load_binary("/nonexistent/path/model.bin");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_json_invalid_json() {
+        // Test deserializing from invalid JSON
+        let invalid_json = "{invalid json}";
+        let result = LinearRegression::<f64>::from_json(invalid_json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_predict_when_not_fitted() {
+        // Test that predict returns an error when model is not fitted
+        let model = LinearRegression::<f64>::new();
+        let result = model.predict(5.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::NotFitted { .. }));
+    }
+
+    #[test]
+    fn test_save_invalid_path() {
+        // Test saving to an invalid path (non-existent directory)
+        let mut model = LinearRegression::<f64>::new();
+        model.fit(&[1.0, 2.0], &[2.0, 4.0]).unwrap();
+
+        let invalid_path = std::path::Path::new("/nonexistent/directory/model.json");
+        let result = model.save(invalid_path);
+        assert!(
+            result.is_err(),
+            "Saving to invalid path should return error"
+        );
+    }
+
+    #[test]
+    fn test_fit_standard_error_n_less_than_or_equal_two() {
+        // Test the branch where n <= 2 (standard_error = 0)
+        let mut model = LinearRegression::<f64>::new();
+        let x = vec![1.0, 2.0];
+        let y = vec![2.0, 4.0];
+        model.fit(&x, &y).unwrap();
+
+        // When n = 2, standard_error should be 0
+        assert_eq!(model.standard_error, 0.0);
+    }
+
+    #[test]
+    fn test_fit_standard_error_n_greater_than_two() {
+        // Test the branch where n > 2 (standard_error calculated)
+        let mut model = LinearRegression::<f64>::new();
+        let x = vec![1.0, 2.0, 3.0];
+        let y = vec![2.0, 4.0, 6.0];
+        model.fit(&x, &y).unwrap();
+
+        // When n > 2, standard_error should be calculated
+        assert!(model.standard_error >= 0.0);
+    }
+
+    #[test]
+    fn test_confidence_interval_n_less_than_three() {
+        // Test confidence_interval with n < 3
+        let mut model = LinearRegression::<f64>::new();
+        let x = vec![1.0, 2.0];
+        let y = vec![2.0, 4.0];
+        model.fit(&x, &y).unwrap();
+
+        let result = model.confidence_interval(3.0, 0.95);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
+    }
+
+    #[test]
+    fn test_confidence_interval_unsupported_level() {
+        // Test confidence_interval with unsupported confidence level
+        let mut model = LinearRegression::<f64>::new();
+        let x = vec![1.0, 2.0, 3.0, 4.0];
+        let y = vec![2.0, 4.0, 6.0, 8.0];
+        model.fit(&x, &y).unwrap();
+
+        let result = model.confidence_interval(3.0, 0.85);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidParameter { .. }
+        ));
+    }
+
+    #[test]
+    fn test_confidence_interval_supported_levels() {
+        // Test all supported confidence levels
+        let mut model = LinearRegression::<f64>::new();
+        let x = vec![1.0, 2.0, 3.0, 4.0];
+        let y = vec![2.0, 4.0, 6.0, 8.0];
+        model.fit(&x, &y).unwrap();
+
+        for level in [0.90, 0.95, 0.99] {
+            let result = model.confidence_interval(3.0, level);
+            assert!(
+                result.is_ok(),
+                "Confidence level {} should be supported",
+                level
+            );
+            let (lower, upper) = result.unwrap();
+            assert!(lower <= upper, "Lower bound should be <= upper bound");
+        }
+    }
+
+    #[test]
+    fn test_correlation_coefficient_positive_slope() {
+        // Test correlation_coefficient with positive slope
+        let mut model = LinearRegression::<f64>::new();
+        let x = vec![1.0, 2.0, 3.0];
+        let y = vec![2.0, 4.0, 6.0];
+        model.fit(&x, &y).unwrap();
+
+        let r = model.correlation_coefficient().unwrap();
+        assert!(
+            r >= 0.0,
+            "Correlation should be positive for positive slope"
+        );
+    }
+
+    #[test]
+    fn test_correlation_coefficient_negative_slope() {
+        // Test correlation_coefficient with negative slope
+        let mut model = LinearRegression::<f64>::new();
+        let x = vec![1.0, 2.0, 3.0];
+        let y = vec![6.0, 4.0, 2.0];
+        model.fit(&x, &y).unwrap();
+
+        let r = model.correlation_coefficient().unwrap();
+        assert!(
+            r <= 0.0,
+            "Correlation should be negative for negative slope"
+        );
+    }
+
+    #[test]
+    fn test_correlation_coefficient_not_fitted() {
+        // Test correlation_coefficient when model is not fitted
+        let model = LinearRegression::<f64>::new();
+        let result = model.correlation_coefficient();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::NotFitted { .. }));
+    }
+
+    #[test]
+    fn test_predict_many_not_fitted() {
+        // Test predict_many when model is not fitted
+        let model = LinearRegression::<f64>::new();
+        let result = model.predict_many(&[1.0, 2.0, 3.0]);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::NotFitted { .. }));
+    }
+
+    #[test]
+    fn test_predict_many_success() {
+        // Test predict_many with valid data
+        let mut model = LinearRegression::<f64>::new();
+        model.fit(&[1.0, 2.0, 3.0], &[2.0, 4.0, 6.0]).unwrap();
+
+        let predictions = model.predict_many(&[4.0, 5.0]).unwrap();
+        assert_eq!(predictions.len(), 2);
+        assert!((predictions[0] - 8.0).abs() < 1e-10);
+        assert!((predictions[1] - 10.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_load_invalid_json() {
+        // Test loading invalid JSON
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("invalid.json");
+
+        // Write invalid JSON
+        std::fs::write(&file_path, "invalid json content").unwrap();
+
+        let result = LinearRegression::<f64>::load(&file_path);
+        assert!(result.is_err(), "Loading invalid JSON should return error");
+    }
+
+    #[test]
+    fn test_from_json_invalid() {
+        // Test deserializing invalid JSON string
+        let invalid_json = "not valid json";
+        let result = LinearRegression::<f64>::from_json(invalid_json);
+        assert!(
+            result.is_err(),
+            "Deserializing invalid JSON should return error"
+        );
     }
 }

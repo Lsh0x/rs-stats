@@ -92,22 +92,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```rust
 use rs_stats::distributions::normal_distribution::{normal_pdf, normal_cdf, normal_inverse_cdf};
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Standard normal distribution (mean=0, std_dev=1)
     let x = 1.96;
     
     // Probability density at x
-    let density = normal_pdf(x, 0.0, 1.0);
+    let density = normal_pdf(x, 0.0, 1.0)?;
     println!("PDF at {}: {}", x, density);
     
     // Cumulative probability P(X ≤ x)
-    let cumulative = normal_cdf(x, 0.0, 1.0);
+    let cumulative = normal_cdf(x, 0.0, 1.0)?;
     println!("CDF at {}: {}", x, cumulative);
     
     // Inverse CDF (quantile function)
     let p = 0.975;
-    let quantile = normal_inverse_cdf(p, 0.0, 1.0);
+    let quantile = normal_inverse_cdf(p, 0.0, 1.0)?;
     println!("{}th percentile: {}", p * 100.0, quantile);
+    
+    Ok(())
 }
 ```
 

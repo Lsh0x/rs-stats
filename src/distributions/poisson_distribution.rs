@@ -25,6 +25,8 @@
 //! - k is the number of occurrences
 //! - e is Euler's number (~2.71828)
 
+use crate::error::{StatsError, StatsResult};
+use num_traits::ToPrimitive;
 use serde::{Deserialize, Serialize};
 
 /// Configuration for the Poisson distribution.
@@ -40,24 +42,36 @@ use serde::{Deserialize, Serialize};
 /// assert!(config.lambda > 0.0);
 /// ```
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct PoissonConfig {
+pub struct PoissonConfig<T>
+where
+    T: ToPrimitive,
+{
     /// The average rate (λ) of events.
-    pub lambda: f64,
+    pub lambda: T,
 }
 
-impl PoissonConfig {
+impl<T> PoissonConfig<T>
+where
+    T: ToPrimitive,
+{
     /// Creates a new PoissonConfig with validation
     ///
     /// # Arguments
     /// * `lambda` - The average rate (λ) of events
     ///
     /// # Returns
-    /// `Some(PoissonConfig)` if lambda is positive, `None` otherwise
-    pub fn new(lambda: f64) -> Option<Self> {
-        if lambda > 0.0 {
-            Some(Self { lambda })
+    /// `Ok(PoissonConfig)` if lambda is positive, `Err` otherwise
+    pub fn new(lambda: T) -> StatsResult<Self> {
+        let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError {
+            message: "PoissonConfig::new: Failed to convert lambda to f64".to_string(),
+        })?;
+
+        if lambda_64 > 0.0 {
+            Ok(Self { lambda })
         } else {
-            None
+            Err(StatsError::InvalidInput {
+                message: "PoissonConfig::new: lambda must be positive".to_string(),
+            })
         }
     }
 }
@@ -73,22 +87,57 @@ impl PoissonConfig {
 /// # Returns
 /// The probability of exactly `k` events occurring.
 ///
-/// # Panics
-/// Panics if lambda is not positive
+/// # Errors
+/// Returns an error if:
+/// - lambda is not positive
+/// - Type conversion to f64 fails
+/// - k is too large to compute factorial
 ///
 /// # Examples
 /// ```
 /// use rs_stats::distributions::poisson_distribution::pmf;
 ///
 /// // Calculate probability of 2 events with λ=1.5
-/// let prob = pmf(2, 1.5);
+/// let prob = pmf(2, 1.5).unwrap();
 /// assert!((prob - 0.2510214301669835).abs() < 1e-10);
 /// ```
-pub fn pmf(k: u64, lambda: f64) -> f64 {
-    assert!(lambda > 0.0, "lambda must be positive");
-    let e = std::f64::consts::E;
-    let fact = (1..=k as usize).fold(1.0, |acc, x| acc * x as f64);
-    ((e.powf(-lambda)) * (lambda.powf(k as f64))) / fact
+#[inline]
+pub fn pmf<T>(k: u64, lambda: T) -> StatsResult<f64>
+where
+    T: ToPrimitive,
+{
+    let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError {
+        message: "poisson_distribution::pmf: Failed to convert lambda to f64".to_string(),
+    })?;
+    if lambda_64 <= 0.0 {
+        return Err(StatsError::InvalidInput {
+            message: "poisson_distribution::pmf: lambda must be positive".to_string(),
+        });
+    }
+    // Check if k fits in usize (for factorial calculation)
+    if k > usize::MAX as u64 {
+        return Err(StatsError::InvalidInput {
+            message: "poisson_distribution::pmf: k is too large to compute factorial".to_string(),
+        });
+    }
+
+    // Use log-space calculation to avoid:
+    // 1. Casting u64 to i32 (information loss)
+    // 2. Numerical underflow/overflow with large exponents
+    // 3. Better numerical stability
+    // Formula: λ^k * e^(-λ) / k! = exp(k * ln(λ) - λ - ln(k!))
+    let k_f64 = k as f64;
+
+    // Calculate in log space: k * ln(λ) - λ - ln(k!)
+    // Note: ln(k!) = sum(ln(i)) for i=1..=k, but we already computed k! above
+    let log_lambda_power = k_f64 * lambda_64.ln();
+    let log_fact: f64 = (1..=k as usize).map(|i| (i as f64).ln()).sum();
+    let log_prob = log_lambda_power - lambda_64 - log_fact;
+
+    // Convert back from log space
+    let prob = log_prob.exp();
+
+    Ok(prob)
 }
 
 /// Cumulative distribution function (CDF) for the Poisson distribution.
@@ -102,20 +151,34 @@ pub fn pmf(k: u64, lambda: f64) -> f64 {
 /// # Returns
 /// The cumulative probability of `k` or fewer events occurring.
 ///
-/// # Panics
-/// Panics if lambda is not positive
+/// # Errors
+/// Returns an error if:
+/// - lambda is not positive
+/// - Type conversion to f64 fails
+/// - k is too large to compute factorial
 ///
 /// # Examples
 /// ```
 /// use rs_stats::distributions::poisson_distribution::cdf;
 ///
 /// // Calculate probability of 2 or fewer events with λ=1.5
-/// let prob = cdf(2, 1.5);
+/// let prob = cdf(2, 1.5).unwrap();
 /// assert!((prob - 0.8088468305380586).abs() < 1e-10);
 /// ```
-pub fn cdf(k: u64, lambda: f64) -> f64 {
-    assert!(lambda > 0.0, "lambda must be positive");
-    (0..=k).fold(0.0, |acc, i| acc + pmf(i, lambda))
+#[inline]
+pub fn cdf<T>(k: u64, lambda: T) -> StatsResult<f64>
+where
+    T: ToPrimitive,
+{
+    let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError {
+        message: "poisson_distribution::cdf: Failed to convert lambda to f64".to_string(),
+    })?;
+    if lambda_64 <= 0.0 {
+        return Err(StatsError::InvalidInput {
+            message: "poisson_distribution::cdf: lambda must be positive".to_string(),
+        });
+    }
+    (0..=k).try_fold(0.0, |acc, i| pmf(i, lambda_64).map(|prob| acc + prob))
 }
 
 #[cfg(test)]
@@ -126,7 +189,7 @@ mod tests {
     fn test_poisson_pmf() {
         let lambda = 2.0;
         let k = 0;
-        let result = pmf(k, lambda);
+        let result = pmf(k, lambda).unwrap();
         assert!(
             !result.is_nan(),
             "PMF returned NaN for k={}, lambda={}",
@@ -141,10 +204,111 @@ mod tests {
         let k = 5;
         let result = cdf(k, lambda);
         assert!(
-            !result.is_nan(),
+            !result.unwrap().is_nan(),
             "CDF returned NaN for k={}, lambda={}",
             k,
             lambda
         );
+    }
+
+    #[test]
+    fn test_poisson_pmf_k_zero() {
+        // When k = 0, PMF should be e^(-λ)
+        let lambda: f64 = 2.0;
+        let k = 0;
+        let result = pmf(k, lambda).unwrap();
+        let expected = (-lambda).exp();
+        assert!(
+            (result - expected).abs() < 1e-10,
+            "PMF for k=0 should be e^(-λ)"
+        );
+    }
+
+    #[test]
+    fn test_poisson_pmf_k_greater_than_zero() {
+        // When k > 0, PMF should use the full formula
+        let lambda: f64 = 2.0;
+        let k = 3;
+        let result = pmf(k, lambda).unwrap();
+        // Expected: λ^k * e^(-λ) / k! = 2^3 * e^(-2) / 6 = 8 * e^(-2) / 6
+        let expected =
+            (lambda.powi(k as i32) * (-lambda).exp()) / (1..=k as usize).product::<usize>() as f64;
+        assert!(
+            (result - expected).abs() < 1e-10,
+            "PMF for k>0 should match formula"
+        );
+    }
+
+    #[test]
+    fn test_poisson_pmf_lambda_zero() {
+        let result = pmf(0, 0.0);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
+    }
+
+    #[test]
+    fn test_poisson_pmf_lambda_negative() {
+        let result = pmf(0, -1.0);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
+    }
+
+    #[test]
+    fn test_poisson_cdf_k_zero() {
+        // CDF at k=0 should equal PMF at k=0
+        let lambda = 2.0;
+        let k = 0;
+        let cdf_result = cdf(k, lambda).unwrap();
+        let pmf_result = pmf(k, lambda).unwrap();
+        assert!(
+            (cdf_result - pmf_result).abs() < 1e-10,
+            "CDF at k=0 should equal PMF at k=0"
+        );
+    }
+
+    #[test]
+    fn test_poisson_pmf_k_too_large() {
+        // Test k > usize::MAX branch
+        // Use a value that's definitely larger than usize::MAX
+        let k = if usize::MAX as u64 == u64::MAX {
+            // On platforms where usize is u64, we can't test this branch
+            // So we skip this test
+            return;
+        } else {
+            usize::MAX as u64 + 1
+        };
+        let lambda = 2.0;
+        let result = pmf(k, lambda);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
+    }
+
+    #[test]
+    fn test_poisson_cdf_lambda_zero() {
+        let result = cdf(5, 0.0);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
+    }
+
+    #[test]
+    fn test_poisson_cdf_lambda_negative() {
+        let result = cdf(5, -1.0);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 }

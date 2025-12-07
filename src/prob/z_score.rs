@@ -19,6 +19,9 @@
 //! - Negative z-scores indicate values below the mean
 //! - z-scores are unitless and allow comparison across different distributions
 
+use crate::error::{StatsError, StatsResult};
+use num_traits::ToPrimitive;
+
 /// Calculate the z-score (standard score) of a value
 ///
 /// The z-score indicates how many standard deviations a value is from the mean.
@@ -36,23 +39,31 @@
 /// use rs_stats::prob::z_score;
 ///
 /// // Calculate z-score for a value above the mean
-/// let z = z_score(85.0, 70.0, 10.0);
+/// let z = z_score(85.0, 70.0, 10.0).unwrap();
 /// assert!((z - 1.5).abs() < 1e-10);
 ///
 /// // Calculate z-score for a value below the mean
-/// let z = z_score(55.0, 70.0, 10.0);
+/// let z = z_score(55.0, 70.0, 10.0).unwrap();
 /// assert!((z - (-1.5)).abs() < 1e-10);
 ///
 /// // Handle zero standard deviation case
-/// let z = z_score(70.0, 70.0, 0.0);
+/// let z = z_score(70.0, 70.0, 0.0).unwrap();
 /// assert!(z.is_infinite());
 /// ```
 #[inline]
-pub fn z_score(x: f64, avg: f64, stddev: f64) -> f64 {
+pub fn z_score<T>(x: T, avg: f64, stddev: f64) -> StatsResult<f64>
+where
+    T: ToPrimitive,
+{
     if stddev == 0.0 {
-        return f64::INFINITY;
+        return Ok(f64::INFINITY);
     }
-    (x - avg) / stddev
+
+    let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError {
+        message: "prob::z_score: Failed to convert x to f64".to_string(),
+    })?;
+
+    Ok((x_64 - avg) / stddev)
 }
 
 #[cfg(test)]
@@ -66,7 +77,7 @@ mod tests {
         let x = 5.0;
         let avg = 3.0;
         let stddev = 2.0;
-        let result = z_score(x, avg, stddev);
+        let result = z_score(x, avg, stddev).unwrap();
         let expected = (5.0 - 3.0) / 2.0; // (x - avg) / stddev
         assert!(
             (result - expected).abs() < EPSILON,
@@ -79,7 +90,7 @@ mod tests {
         let x = 4.5;
         let avg = 3.0;
         let stddev = 1.5;
-        let result = z_score(x, avg, stddev);
+        let result = z_score(x, avg, stddev).unwrap();
         let expected = (4.5 - 3.0) / 1.5; // (x - avg) / stddev
         assert!(
             (result - expected).abs() < EPSILON,
@@ -92,7 +103,7 @@ mod tests {
         let x = 1.0;
         let avg = 3.0;
         let stddev = 2.0;
-        let result = z_score(x, avg, stddev);
+        let result = z_score(x, avg, stddev).unwrap();
         let expected = (1.0 - 3.0) / 2.0; // (x - avg) / stddev
         assert!(
             (result - expected).abs() < EPSILON,
@@ -105,7 +116,7 @@ mod tests {
         let x = 3.0;
         let avg = 3.0;
         let stddev = 0.0;
-        let result = z_score(x, avg, stddev);
+        let result = z_score(x, avg, stddev).unwrap();
         assert!(
             result.is_infinite(),
             "Z-score should be infinite when stddev is 0"
@@ -117,7 +128,7 @@ mod tests {
         let x = 3.0;
         let avg = 0.0;
         let stddev = 2.0;
-        let result = z_score(x, avg, stddev);
+        let result = z_score(x, avg, stddev).unwrap();
         let expected = (3.0 - 0.0) / 2.0;
         assert!(
             (result - expected).abs() < EPSILON,

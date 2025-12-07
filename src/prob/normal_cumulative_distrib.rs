@@ -1,12 +1,12 @@
-use std::f64::consts::SQRT_2;
-
-use crate::prob::erf::erf;
+use crate::error::StatsResult;
+use crate::prob::erf;
+use crate::utils::constants::SQRT_2;
 
 /// CDF return the CDF for the zscore given
-/// https://en.wikipedia.org/wiki/Cumulative_distribution_function\#Definition
+/// <https://en.wikipedia.org/wiki/Cumulative_distribution_function#Definition>
 #[inline]
-pub fn normal_cumulative_distrib(z: f64) -> f64 {
-    (1.0 + erf(z / SQRT_2)) / 2.0
+pub fn normal_cumulative_distrib(z: f64) -> StatsResult<f64> {
+    Ok((1.0 + erf(z / SQRT_2)?) / 2.0)
 }
 
 #[cfg(test)]
@@ -18,7 +18,7 @@ mod tests {
     #[test]
     fn test_cdf_z_zero() {
         let z = 0.0;
-        let result = normal_cumulative_distrib(z);
+        let result = normal_cumulative_distrib(z).unwrap();
         let expected = 0.5; // CDF(0) = 0.5 for a standard normal distribution
         assert!(
             (result - expected).abs() < EPSILON,
@@ -29,7 +29,7 @@ mod tests {
     #[test]
     fn test_cdf_positive_z() {
         let z = 1.0;
-        let result = normal_cumulative_distrib(z);
+        let result = normal_cumulative_distrib(z).unwrap();
         let expected = 0.841344746; // CDF(1.0) in a standard normal distribution
         assert!(
             (result - expected).abs() < EPSILON,
@@ -40,7 +40,7 @@ mod tests {
     #[test]
     fn test_cdf_negative_z() {
         let z = -1.0;
-        let result = normal_cumulative_distrib(z);
+        let result = normal_cumulative_distrib(z).unwrap();
         let expected = 0.158655254; // CDF(-1.0) in a standard normal distribution
         assert!(
             (result - expected).abs() < EPSILON,
@@ -51,7 +51,7 @@ mod tests {
     #[test]
     fn test_cdf_large_positive_z() {
         let z = 3.0;
-        let result = normal_cumulative_distrib(z);
+        let result = normal_cumulative_distrib(z).unwrap();
         let expected = 0.998650102; // CDF(3.0) in a standard normal distribution
         assert!(
             (result - expected).abs() < EPSILON,
@@ -62,11 +62,15 @@ mod tests {
     #[test]
     fn test_cdf_large_negative_z() {
         let z = -3.0;
-        let result = normal_cumulative_distrib(z);
+        let result = normal_cumulative_distrib(z).unwrap();
         let expected = 0.001349898; // CDF(-3.0) in a standard normal distribution
         assert!(
             (result - expected).abs() < EPSILON,
             "CDF for z = -3.0 should match expected"
         );
     }
+
+    // Note: Error propagation from erf is tested indirectly through the erf tests
+    // The ? operator will propagate errors, but since erf accepts f64 directly,
+    // conversion errors won't occur in normal_cumulative_distrib
 }
