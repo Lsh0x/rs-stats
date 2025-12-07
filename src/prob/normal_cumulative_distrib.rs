@@ -69,4 +69,8 @@ mod tests {
             "CDF for z = -3.0 should match expected"
         );
     }
+
+    // Note: Error propagation from erf is tested indirectly through the erf tests
+    // The ? operator will propagate errors, but since erf accepts f64 directly,
+    // conversion errors won't occur in normal_cumulative_distrib
 }

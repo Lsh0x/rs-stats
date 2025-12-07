@@ -1413,4 +1413,44 @@ mod tests {
         assert_eq!(tree.get_node_count(), 1);
         assert_eq!(tree.get_leaf_count(), 1);
     }
+
+    #[test]
+    fn test_predict_not_fitted() {
+        // Test predict when tree is not fitted
+        let tree = DecisionTree::<i32, f64>::new(TreeType::Regression, SplitCriterion::Mse, 3, 2, 1);
+        let features = vec![vec![1.0, 2.0]];
+        let result = tree.predict(&features);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::NotFitted { .. }));
+    }
+
+    #[test]
+    fn test_fit_target_empty() {
+        let mut tree = DecisionTree::<i32, f64>::new(TreeType::Regression, SplitCriterion::Mse, 3, 2, 1);
+        let features = vec![vec![1.0, 2.0]];
+        let target: Vec<i32> = vec![];
+        let result = tree.fit(&features, &target);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::EmptyData { .. }));
+    }
+
+    #[test]
+    fn test_fit_length_mismatch() {
+        let mut tree = DecisionTree::<i32, f64>::new(TreeType::Regression, SplitCriterion::Mse, 3, 2, 1);
+        let features = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
+        let target = vec![1]; // Different length
+        let result = tree.fit(&features, &target);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::DimensionMismatch { .. }));
+    }
+
+    #[test]
+    fn test_fit_inconsistent_feature_lengths() {
+        let mut tree = DecisionTree::<i32, f64>::new(TreeType::Regression, SplitCriterion::Mse, 3, 2, 1);
+        let features = vec![vec![1.0, 2.0], vec![3.0]]; // Different lengths
+        let target = vec![1, 2];
+        let result = tree.fit(&features, &target);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
 }

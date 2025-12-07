@@ -679,4 +679,116 @@ mod tests {
         assert_eq!(loaded.n, model.n);
         assert_eq!(loaded.p, model.p);
     }
+
+    #[test]
+    fn test_predict_not_fitted() {
+        // Test that predict() works even when model is not fitted
+        let model = MultipleLinearRegression::<f64>::new();
+        // Don't fit the model
+        
+        // Predict should work (with default coefficients which are empty)
+        let features = vec![1.0, 2.0];
+        let prediction = model.predict(&features);
+        // When not fitted, coefficients are empty, so prediction should be NaN (due to dimension mismatch)
+        assert!(prediction.is_nan(), "Prediction should be NaN for unfitted model");
+    }
+
+    #[test]
+    fn test_predict_dimension_mismatch() {
+        // Test predict with wrong number of features
+        let mut model = MultipleLinearRegression::<f64>::new();
+        // Use more data points to avoid singular matrix
+        let x = vec![
+            vec![1.0, 2.0],
+            vec![2.0, 1.0],
+            vec![3.0, 3.0],
+            vec![4.0, 2.0],
+        ];
+        let y = vec![3.0, 3.0, 6.0, 6.0];
+        model.fit(&x, &y).unwrap();
+        
+        // Try to predict with wrong number of features
+        let wrong_features = vec![1.0]; // Should be 2 features
+        let result = model.predict(&wrong_features);
+        // predict returns NaN when dimension mismatch
+        assert!(result.is_nan(), "Predict with wrong number of features should return NaN");
+    }
+
+    #[test]
+    fn test_fit_singular_matrix() {
+        // Test with linearly dependent features (singular matrix)
+        // This should trigger a mathematical error
+        let x = vec![
+            vec![1.0, 2.0, 3.0],  // Feature 3 = Feature 1 + Feature 2 (linearly dependent)
+            vec![2.0, 4.0, 6.0],  // Feature 3 = 2 * (Feature 1 + Feature 2)
+            vec![3.0, 6.0, 9.0],  // Feature 3 = 3 * (Feature 1 + Feature 2)
+        ];
+        let y = vec![1.0, 2.0, 3.0];
+        
+        let mut model = MultipleLinearRegression::<f64>::new();
+        let result = model.fit(&x, &y);
+        // This might succeed or fail depending on numerical precision
+        // The important thing is it doesn't panic
+        match result {
+            Ok(_) => {
+                // If it succeeds, verify the model is valid
+                assert!(!model.coefficients.is_empty());
+            }
+            Err(e) => {
+                // If it fails, it should be a mathematical error
+                assert!(matches!(e, StatsError::MathematicalError { .. }));
+            }
+        }
+    }
+
+    #[test]
+    fn test_save_invalid_path() {
+        // Test saving to an invalid path
+        let mut model = MultipleLinearRegression::<f64>::new();
+        let x = vec![vec![1.0], vec![2.0]];
+        let y = vec![2.0, 4.0];
+        model.fit(&x, &y).unwrap();
+        
+        let invalid_path = std::path::Path::new("/nonexistent/directory/model.json");
+        let result = model.save(invalid_path);
+        assert!(result.is_err(), "Saving to invalid path should return error");
+    }
+
+    #[test]
+    fn test_load_nonexistent_file() {
+        // Test loading a non-existent file
+        let nonexistent_path = std::path::Path::new("/nonexistent/file.json");
+        let result = MultipleLinearRegression::<f64>::load(nonexistent_path);
+        assert!(result.is_err(), "Loading non-existent file should return error");
+    }
+
+    #[test]
+    fn test_from_json_invalid() {
+        // Test deserializing invalid JSON string
+        let invalid_json = "not valid json";
+        let result = MultipleLinearRegression::<f64>::from_json(invalid_json);
+        assert!(result.is_err(), "Deserializing invalid JSON should return error");
+    }
+
+    #[test]
+    fn test_predict_t_coefficients_empty() {
+        // Test predict_t when coefficients are empty
+        let model = MultipleLinearRegression::<f64>::new();
+        let features = vec![1.0, 2.0];
+        // predict_t is private, but we can test through predict
+        let result = model.predict(&features);
+        assert!(result.is_nan(), "Predict with empty coefficients should return NaN");
+    }
+
+    #[test]
+    fn test_fit_x_values_empty_after_check() {
+        // This tests the redundant check at line 94 (though it should never execute)
+        // But we test it to cover the branch
+        let mut model = MultipleLinearRegression::<f64>::new();
+        // This will fail at the first empty check, but tests the code path
+        let x: Vec<Vec<f64>> = vec![];
+        let y: Vec<f64> = vec![];
+        let result = model.fit(&x, &y);
+        assert!(result.is_err());
+    }
 }

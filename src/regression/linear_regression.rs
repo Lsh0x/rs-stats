@@ -514,4 +514,157 @@ mod tests {
         assert!(approx_equal(loaded.r_squared, model.r_squared, Some(1e-6)));
         assert_eq!(loaded.n, model.n);
     }
+
+    #[test]
+    fn test_load_nonexistent_file() {
+        // Test loading from a file that doesn't exist
+        let result = LinearRegression::<f64>::load("/nonexistent/path/model.json");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_binary_nonexistent_file() {
+        // Test loading from a binary file that doesn't exist
+        let result = LinearRegression::<f64>::load_binary("/nonexistent/path/model.bin");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_json_invalid_json() {
+        // Test deserializing from invalid JSON
+        let invalid_json = "{invalid json}";
+        let result = LinearRegression::<f64>::from_json(invalid_json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_predict_when_not_fitted() {
+        // Test that predict works even when model is not fitted (returns 0.0)
+        let model = LinearRegression::<f64>::new();
+        let prediction = model.predict(5.0);
+        // When not fitted, slope and intercept are 0, so prediction is 0
+        assert_eq!(prediction, 0.0);
+    }
+
+    #[test]
+    fn test_save_invalid_path() {
+        // Test saving to an invalid path (non-existent directory)
+        let mut model = LinearRegression::<f64>::new();
+        model.fit(&[1.0, 2.0], &[2.0, 4.0]).unwrap();
+        
+        let invalid_path = std::path::Path::new("/nonexistent/directory/model.json");
+        let result = model.save(invalid_path);
+        assert!(result.is_err(), "Saving to invalid path should return error");
+    }
+
+    #[test]
+    fn test_fit_standard_error_n_less_than_or_equal_two() {
+        // Test the branch where n <= 2 (standard_error = 0)
+        let mut model = LinearRegression::<f64>::new();
+        let x = vec![1.0, 2.0];
+        let y = vec![2.0, 4.0];
+        model.fit(&x, &y).unwrap();
+        
+        // When n = 2, standard_error should be 0
+        assert_eq!(model.standard_error, 0.0);
+    }
+
+    #[test]
+    fn test_fit_standard_error_n_greater_than_two() {
+        // Test the branch where n > 2 (standard_error calculated)
+        let mut model = LinearRegression::<f64>::new();
+        let x = vec![1.0, 2.0, 3.0];
+        let y = vec![2.0, 4.0, 6.0];
+        model.fit(&x, &y).unwrap();
+        
+        // When n > 2, standard_error should be calculated
+        assert!(model.standard_error >= 0.0);
+    }
+
+    #[test]
+    fn test_confidence_interval_n_less_than_three() {
+        // Test confidence_interval with n < 3
+        let mut model = LinearRegression::<f64>::new();
+        let x = vec![1.0, 2.0];
+        let y = vec![2.0, 4.0];
+        model.fit(&x, &y).unwrap();
+        
+        let result = model.confidence_interval(3.0, 0.95);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_confidence_interval_unsupported_level() {
+        // Test confidence_interval with unsupported confidence level
+        let mut model = LinearRegression::<f64>::new();
+        let x = vec![1.0, 2.0, 3.0, 4.0];
+        let y = vec![2.0, 4.0, 6.0, 8.0];
+        model.fit(&x, &y).unwrap();
+        
+        let result = model.confidence_interval(3.0, 0.85);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidParameter { .. }));
+    }
+
+    #[test]
+    fn test_confidence_interval_supported_levels() {
+        // Test all supported confidence levels
+        let mut model = LinearRegression::<f64>::new();
+        let x = vec![1.0, 2.0, 3.0, 4.0];
+        let y = vec![2.0, 4.0, 6.0, 8.0];
+        model.fit(&x, &y).unwrap();
+        
+        for level in [0.90, 0.95, 0.99] {
+            let result = model.confidence_interval(3.0, level);
+            assert!(result.is_ok(), "Confidence level {} should be supported", level);
+            let (lower, upper) = result.unwrap();
+            assert!(lower <= upper, "Lower bound should be <= upper bound");
+        }
+    }
+
+    #[test]
+    fn test_correlation_coefficient_positive_slope() {
+        // Test correlation_coefficient with positive slope
+        let mut model = LinearRegression::<f64>::new();
+        let x = vec![1.0, 2.0, 3.0];
+        let y = vec![2.0, 4.0, 6.0];
+        model.fit(&x, &y).unwrap();
+        
+        let r = model.correlation_coefficient();
+        assert!(r >= 0.0, "Correlation should be positive for positive slope");
+    }
+
+    #[test]
+    fn test_correlation_coefficient_negative_slope() {
+        // Test correlation_coefficient with negative slope
+        let mut model = LinearRegression::<f64>::new();
+        let x = vec![1.0, 2.0, 3.0];
+        let y = vec![6.0, 4.0, 2.0];
+        model.fit(&x, &y).unwrap();
+        
+        let r = model.correlation_coefficient();
+        assert!(r <= 0.0, "Correlation should be negative for negative slope");
+    }
+
+    #[test]
+    fn test_load_invalid_json() {
+        // Test loading invalid JSON
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("invalid.json");
+        
+        // Write invalid JSON
+        std::fs::write(&file_path, "invalid json content").unwrap();
+        
+        let result = LinearRegression::<f64>::load(&file_path);
+        assert!(result.is_err(), "Loading invalid JSON should return error");
+    }
+
+    #[test]
+    fn test_from_json_invalid() {
+        // Test deserializing invalid JSON string
+        let invalid_json = "not valid json";
+        let result = LinearRegression::<f64>::from_json(invalid_json);
+        assert!(result.is_err(), "Deserializing invalid JSON should return error");
+    }
 }

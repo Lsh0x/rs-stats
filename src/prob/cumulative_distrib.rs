@@ -158,4 +158,11 @@ mod tests {
             "CDF for x = -5.0 should be very close to 0"
         );
     }
+
+    #[test]
+    fn test_cumulative_distrib_stddev_zero() {
+        let result = cumulative_distrib(0.0, 0.0, 0.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
 }

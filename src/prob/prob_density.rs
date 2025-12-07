@@ -170,4 +170,11 @@ mod tests {
         assert!(normal_probability_density(10.0).unwrap() < 1e-20); // PDF -> 0 as z -> +/-inf
         assert!(normal_probability_density(-10.0).unwrap() < 1e-20);
     }
+
+    #[test]
+    fn test_probability_density_stddev_zero() {
+        let result = probability_density(0.0, 0.0, 0.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
 }

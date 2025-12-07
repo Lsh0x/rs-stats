@@ -302,4 +302,185 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_binomial_config_new_valid() {
+        let config = BinomialConfig::new(10, 0.5);
+        assert!(config.is_ok());
+        let config = config.unwrap();
+        assert_eq!(config.n, 10);
+    }
+
+    #[test]
+    fn test_binomial_config_new_n_zero() {
+        let result = BinomialConfig::new(0, 0.5);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_binomial_config_new_p_out_of_range_negative() {
+        let result = BinomialConfig::new(10, -0.1);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_binomial_config_new_p_out_of_range_above_one() {
+        let result = BinomialConfig::new(10, 1.1);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_binomial_config_new_p_zero() {
+        let config = BinomialConfig::new(10, 0.0);
+        assert!(config.is_ok());
+    }
+
+    #[test]
+    fn test_binomial_config_new_p_one() {
+        let config = BinomialConfig::new(10, 1.0);
+        assert!(config.is_ok());
+    }
+
+    #[test]
+    fn test_binomial_pmf_p_zero_k_zero() {
+        // When p=0.0 and k=0, PMF should return combinations (which is 1 for k=0)
+        let result = pmf(0, 10, 0.0).unwrap();
+        assert_eq!(result, 1.0);
+    }
+
+    #[test]
+    fn test_binomial_pmf_p_zero_k_greater_than_zero() {
+        // When p=0.0 and k>0, PMF should return 0.0
+        let result = pmf(5, 10, 0.0).unwrap();
+        assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn test_binomial_pmf_p_one_k_equals_n() {
+        // When p=1.0 and k=n, PMF should return combinations (which is 1 for k=n)
+        let result = pmf(10, 10, 1.0).unwrap();
+        assert_eq!(result, 1.0);
+    }
+
+    #[test]
+    fn test_binomial_pmf_p_one_k_less_than_n() {
+        // When p=1.0 and k<n, PMF should return 0.0
+        let result = pmf(5, 10, 1.0).unwrap();
+        assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn test_binomial_pmf_n_zero() {
+        let result = pmf(0, 0, 0.5);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_binomial_pmf_p_out_of_range() {
+        let result = pmf(5, 10, 1.5);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_binomial_cdf_k_greater_than_n() {
+        let result = cdf(15, 10, 0.5);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_binomial_combination_symmetry() {
+        // Test that combination(n, k) == combination(n, n-k) when k > n/2
+        // This tests the symmetry optimization path
+        let n = 10u64;
+        let k = 8u64; // k > n/2, so should use symmetry
+        
+        // Direct call should use symmetry path
+        let result1 = combination(n, k).unwrap();
+        // Should be same as combination(n, n-k)
+        let result2 = combination(n, n - k).unwrap();
+        assert_eq!(result1, result2);
+        
+        // Verify it's correct: C(10, 8) = C(10, 2) = 45
+        assert_eq!(result1, 45.0);
+    }
+
+    #[test]
+    fn test_binomial_combination_k_greater_than_n() {
+        let result = combination(10, 15);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_binomial_combination_k_equals_n() {
+        // C(n, n) = 1
+        let result = combination(10, 10).unwrap();
+        assert_eq!(result, 1.0);
+    }
+
+    #[test]
+    fn test_binomial_combination_k_zero() {
+        // C(n, 0) = 1
+        let result = combination(10, 0).unwrap();
+        assert_eq!(result, 1.0);
+    }
+
+    #[test]
+    fn test_binomial_config_new_n_one() {
+        // Test edge case: n = 1 (minimum valid value)
+        let config = BinomialConfig::new(1, 0.5);
+        assert!(config.is_ok());
+        let config = config.unwrap();
+        assert_eq!(config.n, 1);
+    }
+
+    #[test]
+    fn test_binomial_pmf_k_greater_than_n() {
+        // When k > n, combination() should return an error
+        let result = pmf(15, 10, 0.5);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_binomial_cdf_n_zero() {
+        let result = cdf(5, 0, 0.5);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_binomial_cdf_p_out_of_range() {
+        let result = cdf(5, 10, 1.5);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_binomial_combination_k_exactly_n_over_2() {
+        // Test boundary case: k = n/2 (should not use symmetry)
+        let n = 10u64;
+        let k = 5u64; // k = n/2, should not use symmetry
+        let result = combination(n, k).unwrap();
+        // C(10, 5) = 252
+        assert_eq!(result, 252.0);
+    }
+
+    #[test]
+    fn test_binomial_combination_k_just_over_n_over_2() {
+        // Test k = n/2 + 1 (should use symmetry)
+        let n = 10u64;
+        let k = 6u64; // k > n/2, should use symmetry
+        let result1 = combination(n, k).unwrap();
+        let result2 = combination(n, n - k).unwrap();
+        assert_eq!(result1, result2);
+        // C(10, 6) = C(10, 4) = 210
+        assert_eq!(result1, 210.0);
+    }
+
 }

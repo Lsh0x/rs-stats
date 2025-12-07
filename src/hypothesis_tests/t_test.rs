@@ -625,4 +625,108 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_two_sample_t_test_equal_variances_true() {
+        // Test with equal_variances = true (Student's t-test)
+        let group1 = vec![5.2, 6.4, 6.9, 7.3, 7.5];
+        let group2 = vec![4.1, 5.0, 5.5, 6.2, 6.3];
+        
+        let result = two_sample_t_test(&group1, &group2, true).unwrap();
+        
+        // Verify that the result is valid
+        assert!(!result.t_statistic.is_nan(), "t-statistic should not be NaN");
+        assert!(!result.p_value.is_nan(), "p-value should not be NaN");
+        assert!(result.p_value >= 0.0 && result.p_value <= 1.0, "p-value should be in [0, 1]");
+        
+        // With equal_variances = true, degrees of freedom should be n1 + n2 - 2
+        let expected_df = (group1.len() + group2.len() - 2) as f64;
+        assert!((result.degrees_of_freedom - expected_df).abs() < 1e-10, 
+                "Degrees of freedom should be n1 + n2 - 2 for equal variances");
+    }
+
+    #[test]
+    fn test_two_sample_t_test_equal_variances_false() {
+        // Test with equal_variances = false (Welch's t-test)
+        let group1 = vec![5.2, 6.4, 6.9, 7.3, 7.5];
+        let group2 = vec![4.1, 5.0, 5.5, 6.2, 6.3];
+        
+        let result = two_sample_t_test(&group1, &group2, false).unwrap();
+        
+        // Verify that the result is valid
+        assert!(!result.t_statistic.is_nan(), "t-statistic should not be NaN");
+        assert!(!result.p_value.is_nan(), "p-value should not be NaN");
+        assert!(result.p_value >= 0.0 && result.p_value <= 1.0, "p-value should be in [0, 1]");
+        
+        // With equal_variances = false, degrees of freedom should use Welch-Satterthwaite equation
+        // This will be different from n1 + n2 - 2
+        let expected_df_min = (group1.len() + group2.len() - 2) as f64;
+        // Welch-Satterthwaite df is typically less than or equal to n1 + n2 - 2
+        assert!(result.degrees_of_freedom <= expected_df_min + 1e-10, 
+                "Welch's df should be <= n1 + n2 - 2");
+    }
+
+    #[test]
+    fn test_two_sample_t_test_equal_vs_unequal_variances() {
+        // Test that equal_variances = true and false produce different results
+        let group1 = vec![5.2, 6.4, 6.9, 7.3, 7.5, 7.8, 8.1, 8.4, 9.2, 9.5];
+        let group2 = vec![4.1, 5.0, 5.5, 6.2, 6.3, 6.5, 6.8, 7.1, 7.4, 7.5];
+        
+        let result_equal = two_sample_t_test(&group1, &group2, true).unwrap();
+        let result_unequal = two_sample_t_test(&group1, &group2, false).unwrap();
+        
+        // Both should produce valid results
+        assert!(!result_equal.p_value.is_nan());
+        assert!(!result_unequal.p_value.is_nan());
+        
+        // Degrees of freedom should be different
+        // Equal variances: df = n1 + n2 - 2
+        // Unequal variances: df uses Welch-Satterthwaite (typically smaller)
+        assert_ne!(result_equal.degrees_of_freedom, result_unequal.degrees_of_freedom,
+                   "Degrees of freedom should differ between equal and unequal variance tests");
+    }
+
+    #[test]
+    fn test_one_sample_t_test_single_data_point() {
+        // Test data.len() < 2 branch
+        let data = vec![5.0];
+        let result = one_sample_t_test(&data, 5.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_two_sample_t_test_single_data_point() {
+        // Test data1.len() < 2 branch
+        let data1 = vec![5.0];
+        let data2 = vec![4.0, 5.0];
+        let result = two_sample_t_test(&data1, &data2, false);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+        
+        // Test data2.len() < 2 branch
+        let data1 = vec![4.0, 5.0];
+        let data2 = vec![5.0];
+        let result = two_sample_t_test(&data1, &data2, false);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_paired_t_test_length_mismatch() {
+        let data1 = vec![1.0, 2.0, 3.0];
+        let data2 = vec![2.0, 3.0]; // Different length
+        let result = paired_t_test(&data1, &data2);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::DimensionMismatch { .. }));
+    }
+
+    #[test]
+    fn test_paired_t_test_single_data_point() {
+        let data1 = vec![1.0];
+        let data2 = vec![2.0];
+        let result = paired_t_test(&data1, &data2);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
 }

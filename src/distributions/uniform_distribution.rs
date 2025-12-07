@@ -365,4 +365,122 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_uniform_config_new_a_less_than_b() {
+        let config = UniformConfig::new(0.0, 1.0);
+        assert!(config.is_ok());
+    }
+
+    #[test]
+    fn test_uniform_config_new_a_equal_b() {
+        let result = UniformConfig::new(1.0, 1.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_uniform_config_new_a_greater_than_b() {
+        let result = UniformConfig::new(2.0, 1.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_uniform_pdf_at_boundary_a() {
+        // PDF at x == a should be 1/(b-a)
+        let result = uniform_pdf(0.0, 0.0, 1.0).unwrap();
+        assert!((result - 1.0).abs() < EPSILON);
+    }
+
+    #[test]
+    fn test_uniform_pdf_at_boundary_b() {
+        // PDF at x == b should be 1/(b-a)
+        let result = uniform_pdf(1.0, 0.0, 1.0).unwrap();
+        assert!((result - 1.0).abs() < EPSILON);
+    }
+
+    #[test]
+    fn test_uniform_inverse_cdf_p_negative() {
+        let result = uniform_inverse_cdf(-0.1, 0.0, 1.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_uniform_inverse_cdf_p_greater_than_one() {
+        let result = uniform_inverse_cdf(1.5, 0.0, 1.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_uniform_inverse_cdf_p_zero() {
+        let result = uniform_inverse_cdf(0.0, 2.0, 5.0).unwrap();
+        // Should return a (lower bound)
+        assert!((result - 2.0).abs() < EPSILON);
+    }
+
+    #[test]
+    fn test_uniform_inverse_cdf_p_one() {
+        let result = uniform_inverse_cdf(1.0, 2.0, 5.0).unwrap();
+        // Should return b (upper bound)
+        assert!((result - 5.0).abs() < EPSILON);
+    }
+
+    #[test]
+    fn test_uniform_inverse_cdf_a_greater_than_b() {
+        let result = uniform_inverse_cdf(0.5, 2.0, 1.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_uniform_mean_a_greater_than_b() {
+        let result = uniform_mean(2.0, 1.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_uniform_mean_a_equal_b() {
+        let result = uniform_mean(1.0, 1.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_uniform_cdf_a_greater_than_b() {
+        let result = uniform_cdf(0.5, 2.0, 1.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_uniform_cdf_a_equal_b() {
+        let result = uniform_cdf(0.5, 1.0, 1.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_uniform_cdf_x_exactly_at_a() {
+        // CDF at x == a should be 0
+        let result = uniform_cdf(0.0, 0.0, 1.0).unwrap();
+        assert!((result - 0.0).abs() < EPSILON);
+    }
+
+    #[test]
+    fn test_uniform_cdf_x_exactly_at_b() {
+        // CDF at x == b should be 1
+        let result = uniform_cdf(1.0, 0.0, 1.0).unwrap();
+        assert!((result - 1.0).abs() < EPSILON);
+    }
+
+    #[test]
+    fn test_uniform_pdf_x_between_a_and_b() {
+        // Test x strictly between a and b
+        let result = uniform_pdf(0.5, 0.0, 1.0).unwrap();
+        assert!((result - 1.0).abs() < EPSILON);
+    }
 }

@@ -413,4 +413,85 @@ mod tests {
         let config = ExponentialConfig::new(-1.0);
         assert!(config.is_err());
     }
+
+    #[test]
+    fn test_exponential_inverse_cdf_p_negative() {
+        let result = exponential_inverse_cdf(-0.1, 2.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_exponential_inverse_cdf_p_greater_than_one() {
+        let result = exponential_inverse_cdf(1.5, 2.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_exponential_cdf_invalid_lambda() {
+        let result = exponential_cdf(1.0, -2.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_exponential_cdf_invalid_x() {
+        let result = exponential_cdf(-1.0, 2.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_exponential_mean_invalid_lambda() {
+        let result = exponential_mean(0.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_exponential_variance_invalid_lambda() {
+        let result = exponential_variance(0.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_exponential_pdf_x_positive() {
+        // Test the branch where x > 0 (not x == 0)
+        let result = exponential_pdf(0.5, 2.0).unwrap();
+        let lambda: f64 = 2.0;
+        let x: f64 = 0.5;
+        let expected = lambda * (-lambda * x).exp();
+        assert!((result - expected).abs() < EPSILON);
+    }
+
+    #[test]
+    fn test_exponential_inverse_cdf_p_zero() {
+        // When p = 0, inverse CDF should be 0 (or very close to 0)
+        let result = exponential_inverse_cdf(0.0, 2.0).unwrap();
+        assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn test_exponential_inverse_cdf_p_one() {
+        // When p = 1, inverse CDF should approach infinity
+        // But due to numerical limits, we check it's very large
+        let result = exponential_inverse_cdf(1.0, 2.0).unwrap();
+        assert!(result.is_infinite() || result > 1e10);
+    }
+
+    #[test]
+    fn test_exponential_inverse_cdf_lambda_zero() {
+        let result = exponential_inverse_cdf(0.5, 0.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_exponential_inverse_cdf_lambda_negative() {
+        let result = exponential_inverse_cdf(0.5, -1.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
 }

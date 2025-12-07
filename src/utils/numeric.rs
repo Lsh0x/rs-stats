@@ -122,4 +122,50 @@ mod tests {
         assert!(approx_equal(0.0, 1e-11, None));
         assert!(!approx_equal(0.0, 1e-9, None));
     }
+
+    // Note: Testing conversion failures in approx_equal is difficult because
+    // NumCast::to_f64() for standard numeric types always succeeds.
+    // The conversion failure path is mainly for custom types that don't implement NumCast properly.
+    // However, we can test the edge cases that are testable.
+
+    #[test]
+    fn test_approx_equal_infinity_combinations() {
+        // Test all infinity combinations
+        assert!(approx_equal(f64::INFINITY, f64::INFINITY, None));
+        assert!(approx_equal(f64::NEG_INFINITY, f64::NEG_INFINITY, None));
+        assert!(!approx_equal(f64::INFINITY, f64::NEG_INFINITY, None));
+        assert!(!approx_equal(f64::NEG_INFINITY, f64::INFINITY, None));
+        assert!(!approx_equal(f64::INFINITY, 0.0, None));
+        assert!(!approx_equal(f64::NEG_INFINITY, 0.0, None));
+    }
+
+    #[test]
+    fn test_approx_equal_nan_combinations() {
+        // Test NaN combinations
+        assert!(!approx_equal(f64::NAN, f64::NAN, None));
+        assert!(!approx_equal(f64::NAN, 0.0, None));
+        assert!(!approx_equal(0.0, f64::NAN, None));
+        assert!(!approx_equal(f64::NAN, f64::INFINITY, None));
+        assert!(!approx_equal(f64::INFINITY, f64::NAN, None));
+    }
+
+    #[test]
+    fn test_approx_equal_relative_difference() {
+        // Test relative difference calculation (for values not near zero)
+        // Relative diff = |1000.0 - 1000.1| / max(|1000.0|, |1000.1|) = 0.1 / 1000.1 ≈ 0.0001 < 1e-3
+        assert!(approx_equal(1000.0, 1000.1, Some(1e-3)));
+        // Relative diff = |1000.0 - 1001.0| / max(|1000.0|, |1001.0|) = 1.0 / 1001.0 ≈ 0.001 = 1e-3
+        // Since relative_diff <= eps (1e-3), they should be equal
+        assert!(approx_equal(1000.0, 1001.0, Some(1e-3)));
+        // But with stricter epsilon, they should not be equal
+        assert!(!approx_equal(1000.0, 1001.0, Some(1e-4)));
+    }
+
+    #[test]
+    fn test_approx_equal_absolute_difference_near_zero() {
+        // Test absolute difference calculation (for values near zero)
+        assert!(approx_equal(1e-11, 0.0, None));
+        assert!(approx_equal(0.0, 1e-11, None));
+        assert!(!approx_equal(1e-9, 0.0, None));
+    }
 }

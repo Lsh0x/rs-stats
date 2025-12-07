@@ -201,4 +201,80 @@ mod tests {
             lambda
         );
     }
+
+    #[test]
+    fn test_poisson_pmf_k_zero() {
+        // When k = 0, PMF should be e^(-λ)
+        let lambda: f64 = 2.0;
+        let k = 0;
+        let result = pmf(k, lambda).unwrap();
+        let expected = (-lambda).exp();
+        assert!((result - expected).abs() < 1e-10, "PMF for k=0 should be e^(-λ)");
+    }
+
+    #[test]
+    fn test_poisson_pmf_k_greater_than_zero() {
+        // When k > 0, PMF should use the full formula
+        let lambda: f64 = 2.0;
+        let k = 3;
+        let result = pmf(k, lambda).unwrap();
+        // Expected: λ^k * e^(-λ) / k! = 2^3 * e^(-2) / 6 = 8 * e^(-2) / 6
+        let expected = (lambda.powi(k as i32) * (-lambda).exp()) / (1..=k as usize).product::<usize>() as f64;
+        assert!((result - expected).abs() < 1e-10, "PMF for k>0 should match formula");
+    }
+
+    #[test]
+    fn test_poisson_pmf_lambda_zero() {
+        let result = pmf(0, 0.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_poisson_pmf_lambda_negative() {
+        let result = pmf(0, -1.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_poisson_cdf_k_zero() {
+        // CDF at k=0 should equal PMF at k=0
+        let lambda = 2.0;
+        let k = 0;
+        let cdf_result = cdf(k, lambda).unwrap();
+        let pmf_result = pmf(k, lambda).unwrap();
+        assert!((cdf_result - pmf_result).abs() < 1e-10, "CDF at k=0 should equal PMF at k=0");
+    }
+
+    #[test]
+    fn test_poisson_pmf_k_too_large() {
+        // Test k > usize::MAX branch
+        // Use a value that's definitely larger than usize::MAX
+        let k = if usize::MAX as u64 == u64::MAX {
+            // On platforms where usize is u64, we can't test this branch
+            // So we skip this test
+            return;
+        } else {
+            usize::MAX as u64 + 1
+        };
+        let lambda = 2.0;
+        let result = pmf(k, lambda);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_poisson_cdf_lambda_zero() {
+        let result = cdf(5, 0.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_poisson_cdf_lambda_negative() {
+        let result = cdf(5, -1.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
 }

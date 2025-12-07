@@ -453,4 +453,95 @@ mod tests {
         assert!((normal_inverse_cdf(0.8413447, 0.0, 1.0).unwrap() - 1.0).abs() < 0.01);
         assert!((normal_inverse_cdf(0.1586553, 0.0, 1.0).unwrap() + 1.0).abs() < 0.01);
     }
+
+    #[test]
+    fn test_normal_config_new_nan_mean() {
+        let result = NormalConfig::new(f64::NAN, 1.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_normal_config_new_nan_std_dev() {
+        let result = NormalConfig::new(0.0, f64::NAN);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_normal_config_new_std_dev_zero() {
+        let result = NormalConfig::new(0.0, 0.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_normal_config_new_std_dev_negative() {
+        let result = NormalConfig::new(0.0, -1.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_normal_inverse_cdf_p_negative() {
+        let result = normal_inverse_cdf(-0.1, 0.0, 1.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_normal_inverse_cdf_p_greater_than_one() {
+        let result = normal_inverse_cdf(1.5, 0.0, 1.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_normal_inverse_cdf_p_zero() {
+        let result = normal_inverse_cdf(0.0, 0.0, 1.0).unwrap();
+        assert_eq!(result, f64::NEG_INFINITY);
+    }
+
+    #[test]
+    fn test_normal_inverse_cdf_p_one() {
+        let result = normal_inverse_cdf(1.0, 0.0, 1.0).unwrap();
+        assert_eq!(result, f64::INFINITY);
+    }
+
+    #[test]
+    fn test_normal_pdf_std_dev_zero() {
+        let result = normal_pdf(0.0, 0.0, 0.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_normal_cdf_std_dev_zero() {
+        let result = normal_cdf(0.0, 0.0, 0.0);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::InvalidInput { .. }));
+    }
+
+    #[test]
+    fn test_normal_inverse_cdf_std_dev_zero() {
+        // std_dev = 0 should still work (just returns mean)
+        let result = normal_inverse_cdf(0.5, 5.0, 0.0).unwrap();
+        assert_eq!(result, 5.0);
+    }
+
+    #[test]
+    fn test_normal_inverse_cdf_std_dev_negative() {
+        // std_dev < 0 should still work (just scales the result)
+        let result = normal_inverse_cdf(0.5, 0.0, -1.0).unwrap();
+        assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn test_normal_config_new_valid() {
+        let config = NormalConfig::new(0.0, 1.0);
+        assert!(config.is_ok());
+        let config = config.unwrap();
+        assert_eq!(config.mean, 0.0);
+    }
+
 }

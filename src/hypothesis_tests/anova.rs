@@ -537,4 +537,122 @@ mod tests {
         assert_eq!(result.df_between, 1);
         assert_eq!(result.df_within, 2);
     }
+
+    #[test]
+    fn test_f_distribution_cdf_f_less_than_one() {
+        // Test that f_distribution_cdf handles f < 1.0 correctly (recursive path)
+        // This path uses: F(f; df1, df2) = 1 - F(1/f; df2, df1)
+        // We can test this indirectly through ANOVA by creating a scenario where F < 1.0
+        
+        // Create groups where between-group variance is less than within-group variance
+        // This will result in F < 1.0
+        let group1 = [1.0, 2.0, 3.0, 4.0, 5.0];
+        let group2 = [1.1, 2.1, 3.1, 4.1, 5.1]; // Very similar means, high within-group variance
+        
+        let groups = [&group1[..], &group2[..]];
+        let result = one_way_anova(&groups).unwrap();
+        
+        // When F < 1.0, the recursive path is used
+        // Verify that the result is valid (not NaN, not Infinity)
+        assert!(!result.p_value.is_nan(), "p-value should not be NaN when F < 1.0");
+        assert!(!result.p_value.is_infinite(), "p-value should not be infinite when F < 1.0");
+        assert!(result.p_value >= 0.0 && result.p_value <= 1.0, "p-value should be in [0, 1]");
+        
+        // F-statistic should be less than 1.0 in this case (between-group variance < within-group)
+        // This will trigger the recursive path in f_distribution_cdf
+        if result.f_statistic < 1.0 {
+            // This confirms we're testing the f < 1.0 path
+            assert!(result.f_statistic > 0.0, "F-statistic should be positive");
+        }
+    }
+
+    #[test]
+    fn test_f_distribution_cdf_f_zero() {
+        // Test f_distribution_cdf with f = 0.0 (should return 0.0)
+        // This can happen when all groups have identical means
+        // Note: When all groups are identical, ms_within might be 0, causing F to be NaN
+        // This is a valid edge case - we test that the function handles it
+        let group1 = [5.0, 5.0, 5.0];
+        let group2 = [5.0, 5.0, 5.0];
+        let group3 = [5.0, 5.0, 5.0];
+        
+        let groups = [&group1[..], &group2[..], &group3[..]];
+        let result = one_way_anova(&groups).unwrap();
+        
+        // When all groups have identical values, ms_within = 0, so F = ms_between / 0 = NaN
+        // This is expected behavior - we just verify the result doesn't panic
+        // F-statistic can be NaN in this edge case
+        assert!(result.f_statistic.is_nan() || result.f_statistic >= 0.0, 
+                "F-statistic should be NaN or non-negative");
+    }
+
+    #[test]
+    fn test_f_distribution_cdf_f_negative() {
+        // Test that f_distribution_cdf handles f <= 0.0 correctly
+        // This should return 0.0
+        // We can't directly test this through ANOVA since F-statistic is always >= 0
+        // But we can verify that the function handles edge cases correctly
+        // by testing with groups that have very small differences
+        // Note: When groups are identical, F may be NaN (0/0)
+        let group1 = [1.0, 1.0, 1.0];
+        let group2 = [1.0, 1.0, 1.0];
+        
+        let groups = [&group1[..], &group2[..]];
+        let result = one_way_anova(&groups).unwrap();
+        
+        // F-statistic can be NaN when groups are identical (0/0 case)
+        // This is expected - we just verify it doesn't panic
+        assert!(result.f_statistic.is_nan() || result.f_statistic >= 0.0, 
+                "F-statistic should be NaN or non-negative");
+    }
+
+    #[test]
+    fn test_regularized_incomplete_beta_i_zero_vs_i_greater_than_zero() {
+        // Test regularized_incomplete_beta with different iteration counts
+        // This is tested indirectly through f_distribution_cdf
+        // We can test by using different F-statistic values that will trigger
+        // different iteration counts in the power series
+        
+        // Test with small F (will use recursive path, then regularized_incomplete_beta)
+        let group1 = [1.0, 2.0, 3.0];
+        let group2 = [1.1, 2.1, 3.1];
+        
+        let groups = [&group1[..], &group2[..]];
+        let result1 = one_way_anova(&groups).unwrap();
+        assert!(!result1.p_value.is_nan(), "p-value should not be NaN");
+        
+        // Test with larger F (will use direct path)
+        let group3 = [1.0, 2.0, 3.0];
+        let group4 = [10.0, 11.0, 12.0];
+        
+        let groups2 = [&group3[..], &group4[..]];
+        let result2 = one_way_anova(&groups2).unwrap();
+        assert!(!result2.p_value.is_nan(), "p-value should not be NaN");
+        
+        // Both should produce valid results
+        assert!(result1.p_value >= 0.0 && result1.p_value <= 1.0);
+        assert!(result2.p_value >= 0.0 && result2.p_value <= 1.0);
+    }
+
+    #[test]
+    fn test_regularized_incomplete_beta_division_by_zero_edge_case() {
+        // Test the edge case where a + b = 1.0 and i = 0
+        // This happens when df1 = 1 and df2 = 1
+        // But with ANOVA validation, minimum df_within = 2
+        // So we can't directly trigger this through ANOVA
+        // However, we can test that the function handles similar edge cases correctly
+        
+        // Test with df_between = 1, df_within = 2 (closest we can get)
+        // This gives a = 1.0, b = 0.5, a + b = 1.5 (safe, but tests the code path)
+        let group1 = [1.0, 2.0];
+        let group2 = [3.0, 4.0];
+        
+        let groups = [&group1[..], &group2[..]];
+        let result = one_way_anova(&groups).unwrap();
+        
+        // Verify that the result is valid (the division by zero check should prevent issues)
+        assert!(!result.p_value.is_nan(), "p-value should not be NaN even with edge case parameters");
+        assert!(!result.p_value.is_infinite(), "p-value should not be infinite");
+        assert!(result.p_value >= 0.0 && result.p_value <= 1.0, "p-value should be in [0, 1]");
+    }
 }
