@@ -1023,7 +1023,7 @@ mod tests {
         ];
 
         // Train model
-        tree.fit(&features, &target);
+        tree.fit(&features, &target).unwrap();
 
         // Test predictions
         let test_features = vec![
@@ -1085,7 +1085,7 @@ mod tests {
         let target = vec![1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4];
 
         // Train the model
-        tree.fit(&features, &target);
+        tree.fit(&features, &target).unwrap();
 
         // Test predictions
         let test_features = vec![
@@ -1143,7 +1143,7 @@ mod tests {
         ];
 
         // Train model with simplified data
-        tree.fit(&features, &target);
+        tree.fit(&features, &target).unwrap();
 
         // Check the structure of the tree
         println!("System failure tree summary:\n{}", tree.summary());
@@ -1220,7 +1220,7 @@ mod tests {
         let target = vec![0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2];
 
         // Train model
-        tree.fit(&features, &target);
+        tree.fit(&features, &target).unwrap();
 
         // Test predictions
         let test_features = vec![
@@ -1342,7 +1342,7 @@ mod tests {
         ];
 
         // Train model
-        tree.fit(&features, &target);
+        tree.fit(&features, &target).unwrap();
 
         // Test predictions
         let test_features = vec![
@@ -1401,7 +1401,7 @@ mod tests {
         let target = vec![1, 1, 1, 1];
 
         // Train the model
-        tree.fit(&features, &target);
+        tree.fit(&features, &target).unwrap();
 
         // Test prediction
         let prediction = tree.predict(&vec![vec![2, 3, 4]]).unwrap();

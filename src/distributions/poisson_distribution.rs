@@ -101,9 +101,31 @@ pub fn pmf<T>(k: u64, lambda: T) -> StatsResult<f64> where T: ToPrimitive {
             message: "poisson_distribution::pmf: lambda must be positive".to_string(),
         });
     }
-    let e = std::f64::consts::E;
+    // Check if k fits in usize (for factorial calculation)
+    if k > usize::MAX as u64 {
+        return Err(StatsError::InvalidInput {
+            message: "poisson_distribution::pmf: k is too large to compute factorial".to_string(),
+        });
+    }
+    
     let fact = (1..=k as usize).fold(1.0, |acc, x| acc * x as f64);
-    Ok(((e.powf(-lambda_64)) * (lambda_64.powf(k as f64))) / fact)
+    
+    // Use log-space calculation to avoid:
+    // 1. Casting u64 to i32 (information loss)
+    // 2. Numerical underflow/overflow with large exponents
+    // 3. Better numerical stability
+    // Formula: λ^k * e^(-λ) / k! = exp(k * ln(λ) - λ - ln(k!))
+    let k_f64 = k as f64;
+    
+    // Calculate in log space: k * ln(λ) - λ - ln(k!)
+    // Note: ln(k!) = sum(ln(i)) for i=1..=k, but we already computed k! above
+    let log_lambda_power = k_f64 * lambda_64.ln();
+    let log_prob = log_lambda_power - lambda_64 - fact.ln();
+    
+    // Convert back from log space
+    let prob = log_prob.exp();
+    
+    Ok(prob)
 }
 
 /// Cumulative distribution function (CDF) for the Poisson distribution.

@@ -263,7 +263,9 @@ fn ln_gamma(x: f64) -> f64 {
     }
 
     let t = z + p.len() as f64 - 0.5;
-    (2.0 * std::f64::consts::PI).ln() / 2.0 + (t + 0.5) * t.ln() - t + result.ln()
+    // Use precomputed constant instead of computing ln(2π) every call
+    use crate::utils::constants::LN_2PI;
+    LN_2PI / 2.0 + (t + 0.5) * t.ln() - t + result.ln()
 }
 
 #[cfg(test)]

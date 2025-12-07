@@ -21,7 +21,7 @@
 
 use num_traits::ToPrimitive;
 use crate::prob::erf::erf;
-use std::f64::consts::SQRT_2;
+use crate::utils::constants::SQRT_2;
 use crate::error::{StatsResult, StatsError};
 
 /// Calculate the cumulative distribution function (CDF) for a normal distribution
@@ -60,8 +60,9 @@ pub fn cumulative_distrib<T>(x: T, avg: f64, stddev: f64) -> StatsResult<f64> wh
         });
     }
 
-    let z = (x_64 - avg) / stddev;
-    Ok((1.0 + erf(z / SQRT_2)?) / 2.0)
+    // Inline z-score calculation and combine with SQRT_2 division
+    let z = (x_64 - avg) / (stddev * SQRT_2);
+    Ok((1.0 + erf(z)?) / 2.0)
 }
 
 #[cfg(test)]

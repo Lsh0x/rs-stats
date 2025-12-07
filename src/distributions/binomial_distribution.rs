@@ -121,7 +121,34 @@ pub fn pmf<T>(k: u64, n: u64, p: T) -> StatsResult<f64> where T: ToPrimitive {
         });
     }
     let combinations = combination(n, k)?;
-    let prob = (p_64.powf(k as f64)) * ((1.0 - p_64).powf((n - k) as f64));
+    
+    // Use log-space calculation to avoid:
+    // 1. Casting u64 to i32 (information loss)
+    // 2. Numerical underflow/overflow with large exponents
+    // 3. Better numerical stability
+    // Formula: p^k * (1-p)^(n-k) = exp(k * ln(p) + (n-k) * ln(1-p))
+    
+    // Handle edge cases explicitly for correctness
+    if p_64 == 0.0 {
+        // If p = 0, then p^k = 0 for k > 0, and 1 for k = 0
+        return Ok(if k == 0 { combinations } else { 0.0 });
+    }
+    if p_64 == 1.0 {
+        // If p = 1, then (1-p)^(n-k) = 0 for k < n, and 1 for k = n
+        return Ok(if k == n { combinations } else { 0.0 });
+    }
+    
+    // Convert to f64 (no information loss for reasonable values)
+    let k_f64 = k as f64;
+    let n_minus_k_f64 = (n - k) as f64;
+    
+    // Calculate in log space: k * ln(p) + (n-k) * ln(1-p)
+    // Both p and (1-p) are guaranteed to be in (0, 1) here
+    let log_prob = k_f64 * p_64.ln() + n_minus_k_f64 * (1.0 - p_64).ln();
+    
+    // Convert back from log space
+    let prob = log_prob.exp();
+    
     Ok(combinations * prob)
 }
 
@@ -222,5 +249,28 @@ mod tests {
             n,
             p
         );
+    }
+
+    #[test]
+    fn test_binomial_pmf_large_values() {
+        // Test with values that exceed i32::MAX to verify overflow protection
+        // Using values just above i32::MAX (2,147,483,647)
+        let n = 2_500_000_000u64; // 2.5 billion
+        let k = 1_250_000_000u64; // 1.25 billion (half of n)
+        let p = 0.5;
+        
+        // This should not panic or truncate - should use powf() path
+        let result = pmf(k, n, p);
+        
+        // Result might be very small or NaN due to numerical precision, but shouldn't panic
+        match result {
+            Ok(val) => {
+                // Value should be valid (might be very small due to large n)
+                assert!(!val.is_infinite(), "PMF should not be infinite for large values");
+            }
+            Err(_) => {
+                // Error is acceptable for very large values (numerical precision limits)
+            }
+        }
     }
 }

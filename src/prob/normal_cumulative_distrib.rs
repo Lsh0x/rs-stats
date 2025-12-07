@@ -1,6 +1,5 @@
-use std::f64::consts::SQRT_2;
-
 use crate::prob::erf::erf;
+use crate::utils::constants::SQRT_2;
 use crate::error::{StatsResult};
 
 /// CDF return the CDF for the zscore given

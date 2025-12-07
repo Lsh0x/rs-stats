@@ -18,6 +18,7 @@
 //! The resulting statistic follows a chi-square distribution with degrees of freedom based on the particular test.
 
 use crate::error::{StatsError, StatsResult};
+use crate::utils::constants::SQRT_2;
 use num_traits::ToPrimitive;
 use std::fmt::Debug;
 
@@ -118,7 +119,7 @@ where
         z /= (2.0 / (9.0 * degrees_of_freedom as f64)).sqrt();
 
         // Standard normal CDF approximation
-        0.5 * (1.0 + erf(z / std::f64::consts::SQRT_2))
+        0.5 * (1.0 + erf(z / SQRT_2))
     } else {
         1.0 // If df = 0, return p-value of 1.0
     };
@@ -264,7 +265,7 @@ where
         z /= (2.0 / (9.0 * degrees_of_freedom as f64)).sqrt();
 
         // Standard normal CDF approximation
-        0.5 * (1.0 + erf(z / std::f64::consts::SQRT_2))
+        0.5 * (1.0 + erf(z / SQRT_2))
     } else {
         1.0 // If df = 0, return p-value of 1.0
     };

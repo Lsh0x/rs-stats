@@ -1,10 +1,9 @@
 use num_traits::ToPrimitive;
 
 use serde::{Deserialize, Serialize};
-use std::f64::consts::PI;
 use crate::error::{StatsResult, StatsError};
 use crate::prob::erf::erf;
-use crate::prob::z_score::z_score;
+use crate::utils::constants::{INV_SQRT_2PI, SQRT_2};
 
 
 /// Configuration for the Normal distribution.
@@ -102,8 +101,11 @@ pub fn normal_pdf<T>(x: T, mean: f64, std_dev: f64) -> StatsResult<f64> where T:
         message: "normal_pdf: Failed to convert x to f64".to_string(),
     })?;
 
-    let exponent = -0.5 * ((x_64 - mean) / std_dev).powi(2);
-    Ok((1.0 / (std_dev * (2.0 * PI).sqrt())) * exponent.exp())
+    // Use multiplication instead of powi(2) for better performance
+    let z = (x_64 - mean) / std_dev;
+    let exponent = -0.5 * z * z;
+    // Use precomputed constant instead of computing sqrt(2π) every call
+    Ok(exponent.exp() * INV_SQRT_2PI / std_dev)
 }
 
 /// Calculates the cumulative distribution function (CDF) for the normal distribution.
@@ -147,9 +149,11 @@ pub fn normal_cdf<T>(x: T, mean: f64, std_dev: f64) -> StatsResult<f64> where T:
         return Ok(0.5);
     }
 
-    let z = z_score(x_64, mean, std_dev)?;
-
-    Ok(0.5 * (1.0 + erf(z / std::f64::consts::SQRT_2)?))
+    // Inline z-score calculation and combine with SQRT_2 division
+    // z_score = (x - mean) / std_dev, then divide by SQRT_2
+    // Combined: (x - mean) / (std_dev * SQRT_2)
+    let z = (x_64 - mean) / (std_dev * SQRT_2);
+    Ok(0.5 * (1.0 + erf(z)?))
 }
 
 /// Calculates the inverse cumulative distribution function (Quantile function) for the normal distribution.

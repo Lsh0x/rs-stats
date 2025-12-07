@@ -17,12 +17,10 @@
 //! uncertainty from estimating the standard deviation.
 
 use crate::error::{StatsError, StatsResult};
+use crate::utils::constants::{SQRT_2, LN_2PI};
 use num_traits::ToPrimitive;
 use std::f64;
 use std::fmt::Debug;
-
-/// Natural logarithm of 2π (2*pi)
-const LN_2PI: f64 = 1.8378770664093456;
 
 /// Result of a t-test analysis
 #[derive(Debug, Clone)]
@@ -414,7 +412,7 @@ fn calculate_p_value(t_stat: f64, df: f64) -> f64 {
 /// Standard normal cumulative distribution function
 fn standard_normal_cdf(x: f64) -> f64 {
     // Use error function relationship with normal CDF
-    0.5 * (1.0 + erf(x / std::f64::consts::SQRT_2))
+    0.5 * (1.0 + erf(x / SQRT_2))
 }
 
 /// Incomplete beta function approximation
@@ -525,7 +523,7 @@ fn ln_gamma(x: f64) -> f64 {
     if x < 0.5 {
         // Reflection formula: Γ(1-x) = π / (sin(πx) * Γ(x))
         // ln(Γ(x)) = ln(π) - ln(sin(πx)) - ln(Γ(1-x))
-        std::f64::consts::PI.ln() - (std::f64::consts::PI * x).sin().ln() - ln_gamma(1.0 - x)
+        crate::utils::constants::PI.ln() - (crate::utils::constants::PI * x).sin().ln() - ln_gamma(1.0 - x)
     } else {
         // Standard Lanczos approximation for x ≥ 0.5
         let mut sum = p[0];

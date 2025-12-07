@@ -18,11 +18,7 @@
 
 use num_traits::ToPrimitive;
 use crate::error::{StatsResult, StatsError};
-
-
-/// Inverse square root of 2π (precomputed constant)
-/// Value: 1.0 / sqrt(2π) ≈ 0.3989422804014327
-const INV_SQRT_2PI: f64 = 0.3989422804014327;
+use crate::utils::constants::INV_SQRT_2PI;
 
 /// Calculate the probability density function (PDF) for a normal distribution
 ///
