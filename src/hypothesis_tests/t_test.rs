@@ -16,12 +16,12 @@
 //! heavier tails compared to the normal distribution to account for the additional
 //! uncertainty from estimating the standard deviation.
 
+use crate::error::{StatsError, StatsResult};
+use crate::prob::erf;
+use crate::utils::constants::{LN_2PI, SQRT_2};
 use num_traits::ToPrimitive;
 use std::f64;
 use std::fmt::Debug;
-
-/// Natural logarithm of 2π (2*pi)
-const LN_2PI: f64 = 1.8378770664093456;
 
 /// Result of a t-test analysis
 #[derive(Debug, Clone)]
@@ -68,22 +68,25 @@ pub struct TTestResult {
 ///     println!("Fail to reject null hypothesis");
 /// }
 /// ```
-pub fn one_sample_t_test<T>(data: &[T], population_mean: T) -> Result<TTestResult, &'static str>
+pub fn one_sample_t_test<T>(data: &[T], population_mean: T) -> StatsResult<TTestResult>
 where
     T: ToPrimitive + Debug + Copy,
 {
     if data.is_empty() {
-        return Err("Cannot perform t-test on empty data");
+        return Err(StatsError::empty_data(
+            "Cannot perform t-test on empty data",
+        ));
     }
 
     if data.len() < 2 {
-        return Err("Need at least 2 data points for t-test");
+        return Err(StatsError::invalid_input(
+            "Need at least 2 data points for t-test",
+        ));
     }
 
-    let pop_mean = match population_mean.to_f64() {
-        Some(v) => v,
-        None => return Err("Failed to convert population mean to f64"),
-    };
+    let pop_mean = population_mean
+        .to_f64()
+        .ok_or_else(|| StatsError::conversion_error("Failed to convert population mean to f64"))?;
 
     // Calculate sample statistics
     let n = data.len() as f64;
@@ -145,16 +148,20 @@ pub fn two_sample_t_test<T>(
     data1: &[T],
     data2: &[T],
     equal_variances: bool,
-) -> Result<TTestResult, &'static str>
+) -> StatsResult<TTestResult>
 where
     T: ToPrimitive + Debug + Copy,
 {
     if data1.is_empty() || data2.is_empty() {
-        return Err("Cannot perform t-test on empty data");
+        return Err(StatsError::empty_data(
+            "Cannot perform t-test on empty data",
+        ));
     }
 
     if data1.len() < 2 || data2.len() < 2 {
-        return Err("Need at least 2 data points in each group for t-test");
+        return Err(StatsError::invalid_input(
+            "Need at least 2 data points in each group for t-test",
+        ));
     }
 
     // Calculate sample statistics
@@ -233,35 +240,47 @@ where
 ///     println!("Fail to reject null hypothesis");
 /// }
 /// ```
-pub fn paired_t_test<T>(data1: &[T], data2: &[T]) -> Result<TTestResult, &'static str>
+pub fn paired_t_test<T>(data1: &[T], data2: &[T]) -> StatsResult<TTestResult>
 where
     T: ToPrimitive + Debug + Copy,
 {
     if data1.is_empty() || data2.is_empty() {
-        return Err("Cannot perform paired t-test on empty data");
+        return Err(StatsError::empty_data(
+            "Cannot perform paired t-test on empty data",
+        ));
     }
 
     if data1.len() != data2.len() {
-        return Err("Paired t-test requires equal sample sizes");
+        return Err(StatsError::dimension_mismatch(format!(
+            "Paired t-test requires equal sample sizes (got {} and {})",
+            data1.len(),
+            data2.len()
+        )));
     }
 
     if data1.len() < 2 {
-        return Err("Need at least 2 pairs for paired t-test");
+        return Err(StatsError::invalid_input(
+            "Need at least 2 pairs for paired t-test",
+        ));
     }
 
     // Calculate differences between paired samples
     let mut differences: Vec<f64> = Vec::with_capacity(data1.len());
 
     for i in 0..data1.len() {
-        let val1 = match data1[i].to_f64() {
-            Some(v) => v,
-            None => return Err("Failed to convert data to f64"),
-        };
+        let val1 = data1[i].to_f64().ok_or_else(|| {
+            StatsError::conversion_error(format!(
+                "Failed to convert data1 value at index {} to f64",
+                i
+            ))
+        })?;
 
-        let val2 = match data2[i].to_f64() {
-            Some(v) => v,
-            None => return Err("Failed to convert data to f64"),
-        };
+        let val2 = data2[i].to_f64().ok_or_else(|| {
+            StatsError::conversion_error(format!(
+                "Failed to convert data2 value at index {} to f64",
+                i
+            ))
+        })?;
 
         differences.push(val1 - val2);
     }
@@ -307,48 +326,54 @@ where
 // Helper functions
 
 /// Calculates the mean of a sample
-fn calculate_mean<T>(data: &[T]) -> Result<f64, &'static str>
+fn calculate_mean<T>(data: &[T]) -> StatsResult<f64>
 where
     T: ToPrimitive + Debug,
 {
     if data.is_empty() {
-        return Err("Cannot calculate mean of empty data");
+        return Err(StatsError::empty_data(
+            "Cannot calculate mean of empty data",
+        ));
     }
 
     let mut sum = 0.0;
     let n = data.len() as f64;
 
-    for value in data {
-        match value.to_f64() {
-            Some(v) => sum += v,
-            None => return Err("Failed to convert data to f64"),
-        }
+    for (i, value) in data.iter().enumerate() {
+        let v = value.to_f64().ok_or_else(|| {
+            StatsError::conversion_error(format!("Failed to convert value at index {} to f64", i))
+        })?;
+        sum += v;
     }
 
     Ok(sum / n)
 }
 
 /// Calculates the variance of a sample
-fn calculate_variance<T>(data: &[T], mean: f64) -> Result<f64, &'static str>
+fn calculate_variance<T>(data: &[T], mean: f64) -> StatsResult<f64>
 where
     T: ToPrimitive + Debug,
 {
     if data.is_empty() {
-        return Err("Cannot calculate variance of empty data");
+        return Err(StatsError::empty_data(
+            "Cannot calculate variance of empty data",
+        ));
     }
 
     if data.len() < 2 {
-        return Err("Need at least 2 data points to calculate variance");
+        return Err(StatsError::invalid_input(
+            "Need at least 2 data points to calculate variance",
+        ));
     }
 
     let mut sum_squared_diff = 0.0;
     let n = data.len() as f64;
 
-    for value in data {
-        match value.to_f64() {
-            Some(v) => sum_squared_diff += (v - mean).powi(2),
-            None => return Err("Failed to convert data to f64"),
-        }
+    for (i, value) in data.iter().enumerate() {
+        let v = value.to_f64().ok_or_else(|| {
+            StatsError::conversion_error(format!("Failed to convert value at index {} to f64", i))
+        })?;
+        sum_squared_diff += (v - mean).powi(2);
     }
 
     Ok(sum_squared_diff / (n - 1.0))
@@ -382,13 +407,14 @@ fn calculate_p_value(t_stat: f64, df: f64) -> f64 {
     let ix = incomplete_beta(0.5 * df, 0.5, a);
 
     // Two-tailed p-value: clamp to [0.0, 1.0] to handle numerical precision issues
-    (2.0 * (1.0 - ix)).max(0.0).min(1.0)
+    (2.0 * (1.0 - ix)).clamp(0.0, 1.0)
 }
 
 /// Standard normal cumulative distribution function
 fn standard_normal_cdf(x: f64) -> f64 {
     // Use error function relationship with normal CDF
-    0.5 * (1.0 + erf(x / std::f64::consts::SQRT_2))
+    // unwrap is safe here as erf always succeeds for f64 values
+    0.5 * (1.0 + erf(x / SQRT_2).unwrap())
 }
 
 /// Incomplete beta function approximation
@@ -499,7 +525,9 @@ fn ln_gamma(x: f64) -> f64 {
     if x < 0.5 {
         // Reflection formula: Γ(1-x) = π / (sin(πx) * Γ(x))
         // ln(Γ(x)) = ln(π) - ln(sin(πx)) - ln(Γ(1-x))
-        std::f64::consts::PI.ln() - (std::f64::consts::PI * x).sin().ln() - ln_gamma(1.0 - x)
+        crate::utils::constants::PI.ln()
+            - (crate::utils::constants::PI * x).sin().ln()
+            - ln_gamma(1.0 - x)
     } else {
         // Standard Lanczos approximation for x ≥ 0.5
         let mut sum = p[0];
@@ -510,29 +538,6 @@ fn ln_gamma(x: f64) -> f64 {
         let t = x + 7.5;
         (x + 0.5) * t.ln() - t + LN_2PI * 0.5 + sum.ln() / x
     }
-}
-/// Error function implementation (erf)
-///
-/// Computes an approximation to the error function using a numerical approximation
-/// based on Abramowitz and Stegun formula 7.1.26.
-fn erf(x: f64) -> f64 {
-    // Constants for the approximation
-    const A1: f64 = 0.254829592;
-    const A2: f64 = -0.284496736;
-    const A3: f64 = 1.421413741;
-    const A4: f64 = -1.453152027;
-    const A5: f64 = 1.061405429;
-    const P: f64 = 0.3275911;
-
-    // Save the sign of x
-    let sign = if x < 0.0 { -1.0 } else { 1.0 };
-    let x = x.abs();
-
-    // Formula 7.1.26 from Abramowitz and Stegun
-    let t = 1.0 / (1.0 + P * x);
-    let y = 1.0 - (((((A5 * t + A4) * t) + A3) * t + A2) * t + A1) * t * (-x * x).exp();
-
-    sign * y
 }
 
 #[cfg(test)]
@@ -621,5 +626,142 @@ mod tests {
                 p_value
             );
         }
+    }
+
+    #[test]
+    fn test_two_sample_t_test_equal_variances_true() {
+        // Test with equal_variances = true (Student's t-test)
+        let group1 = vec![5.2, 6.4, 6.9, 7.3, 7.5];
+        let group2 = vec![4.1, 5.0, 5.5, 6.2, 6.3];
+
+        let result = two_sample_t_test(&group1, &group2, true).unwrap();
+
+        // Verify that the result is valid
+        assert!(
+            !result.t_statistic.is_nan(),
+            "t-statistic should not be NaN"
+        );
+        assert!(!result.p_value.is_nan(), "p-value should not be NaN");
+        assert!(
+            result.p_value >= 0.0 && result.p_value <= 1.0,
+            "p-value should be in [0, 1]"
+        );
+
+        // With equal_variances = true, degrees of freedom should be n1 + n2 - 2
+        let expected_df = (group1.len() + group2.len() - 2) as f64;
+        assert!(
+            (result.degrees_of_freedom - expected_df).abs() < 1e-10,
+            "Degrees of freedom should be n1 + n2 - 2 for equal variances"
+        );
+    }
+
+    #[test]
+    fn test_two_sample_t_test_equal_variances_false() {
+        // Test with equal_variances = false (Welch's t-test)
+        let group1 = vec![5.2, 6.4, 6.9, 7.3, 7.5];
+        let group2 = vec![4.1, 5.0, 5.5, 6.2, 6.3];
+
+        let result = two_sample_t_test(&group1, &group2, false).unwrap();
+
+        // Verify that the result is valid
+        assert!(
+            !result.t_statistic.is_nan(),
+            "t-statistic should not be NaN"
+        );
+        assert!(!result.p_value.is_nan(), "p-value should not be NaN");
+        assert!(
+            result.p_value >= 0.0 && result.p_value <= 1.0,
+            "p-value should be in [0, 1]"
+        );
+
+        // With equal_variances = false, degrees of freedom should use Welch-Satterthwaite equation
+        // This will be different from n1 + n2 - 2
+        let expected_df_min = (group1.len() + group2.len() - 2) as f64;
+        // Welch-Satterthwaite df is typically less than or equal to n1 + n2 - 2
+        assert!(
+            result.degrees_of_freedom <= expected_df_min + 1e-10,
+            "Welch's df should be <= n1 + n2 - 2"
+        );
+    }
+
+    #[test]
+    fn test_two_sample_t_test_equal_vs_unequal_variances() {
+        // Test that equal_variances = true and false produce different results
+        let group1 = vec![5.2, 6.4, 6.9, 7.3, 7.5, 7.8, 8.1, 8.4, 9.2, 9.5];
+        let group2 = vec![4.1, 5.0, 5.5, 6.2, 6.3, 6.5, 6.8, 7.1, 7.4, 7.5];
+
+        let result_equal = two_sample_t_test(&group1, &group2, true).unwrap();
+        let result_unequal = two_sample_t_test(&group1, &group2, false).unwrap();
+
+        // Both should produce valid results
+        assert!(!result_equal.p_value.is_nan());
+        assert!(!result_unequal.p_value.is_nan());
+
+        // Degrees of freedom should be different
+        // Equal variances: df = n1 + n2 - 2
+        // Unequal variances: df uses Welch-Satterthwaite (typically smaller)
+        assert_ne!(
+            result_equal.degrees_of_freedom, result_unequal.degrees_of_freedom,
+            "Degrees of freedom should differ between equal and unequal variance tests"
+        );
+    }
+
+    #[test]
+    fn test_one_sample_t_test_single_data_point() {
+        // Test data.len() < 2 branch
+        let data = vec![5.0];
+        let result = one_sample_t_test(&data, 5.0);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
+    }
+
+    #[test]
+    fn test_two_sample_t_test_single_data_point() {
+        // Test data1.len() < 2 branch
+        let data1 = vec![5.0];
+        let data2 = vec![4.0, 5.0];
+        let result = two_sample_t_test(&data1, &data2, false);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
+
+        // Test data2.len() < 2 branch
+        let data1 = vec![4.0, 5.0];
+        let data2 = vec![5.0];
+        let result = two_sample_t_test(&data1, &data2, false);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
+    }
+
+    #[test]
+    fn test_paired_t_test_length_mismatch() {
+        let data1 = vec![1.0, 2.0, 3.0];
+        let data2 = vec![2.0, 3.0]; // Different length
+        let result = paired_t_test(&data1, &data2);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::DimensionMismatch { .. }
+        ));
+    }
+
+    #[test]
+    fn test_paired_t_test_single_data_point() {
+        let data1 = vec![1.0];
+        let data2 = vec![2.0];
+        let result = paired_t_test(&data1, &data2);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 }

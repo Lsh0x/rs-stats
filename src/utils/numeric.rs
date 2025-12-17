@@ -2,19 +2,35 @@ use num_traits::NumCast;
 /// Provides numerical utility functions for statistical calculations.
 use std::fmt::Debug;
 
+use crate::error::{StatsError, StatsResult};
+
 /// Computes the natural logarithm of x, handling edge cases safely.
 ///
 /// # Arguments
 /// * `x` - The input number.
 ///
 /// # Returns
-/// * `Result<f64>` - The natural logarithm of x, or an error message if x is invalid.
+/// * `StatsResult<f64>` - The natural logarithm of x, or an error if x is invalid.
 ///
 /// # Errors
-/// Returns an error if x is less than or equal to 0.
-pub fn safe_log(x: f64) -> Result<f64, String> {
+/// Returns `StatsError::InvalidInput` if x is less than or equal to 0.
+///
+/// # Examples
+/// ```
+/// use rs_stats::utils::safe_log;
+///
+/// let result = safe_log(2.71828).unwrap();
+/// assert!((result - 1.0).abs() < 1e-5);
+///
+/// // Error case
+/// let result = safe_log(0.0);
+/// assert!(result.is_err());
+/// ```
+pub fn safe_log(x: f64) -> StatsResult<f64> {
     if x <= 0.0 {
-        Err("Logarithm is only defined for positive numbers.".to_string())
+        Err(StatsError::invalid_input(
+            "Logarithm is only defined for positive numbers.",
+        ))
     } else {
         Ok(x.ln())
     }
@@ -121,5 +137,86 @@ mod tests {
     fn test_near_zero() {
         assert!(approx_equal(0.0, 1e-11, None));
         assert!(!approx_equal(0.0, 1e-9, None));
+    }
+
+    // Note: Testing conversion failures in approx_equal is difficult because
+    // NumCast::to_f64() for standard numeric types always succeeds.
+    // The conversion failure path is mainly for custom types that don't implement NumCast properly.
+    // However, we can test the edge cases that are testable.
+
+    #[test]
+    fn test_approx_equal_infinity_combinations() {
+        // Test all infinity combinations
+        assert!(approx_equal(f64::INFINITY, f64::INFINITY, None));
+        assert!(approx_equal(f64::NEG_INFINITY, f64::NEG_INFINITY, None));
+        assert!(!approx_equal(f64::INFINITY, f64::NEG_INFINITY, None));
+        assert!(!approx_equal(f64::NEG_INFINITY, f64::INFINITY, None));
+        assert!(!approx_equal(f64::INFINITY, 0.0, None));
+        assert!(!approx_equal(f64::NEG_INFINITY, 0.0, None));
+    }
+
+    #[test]
+    fn test_approx_equal_nan_combinations() {
+        // Test NaN combinations
+        assert!(!approx_equal(f64::NAN, f64::NAN, None));
+        assert!(!approx_equal(f64::NAN, 0.0, None));
+        assert!(!approx_equal(0.0, f64::NAN, None));
+        assert!(!approx_equal(f64::NAN, f64::INFINITY, None));
+        assert!(!approx_equal(f64::INFINITY, f64::NAN, None));
+    }
+
+    #[test]
+    fn test_approx_equal_relative_difference() {
+        // Test relative difference calculation (for values not near zero)
+        // Relative diff = |1000.0 - 1000.1| / max(|1000.0|, |1000.1|) = 0.1 / 1000.1 ≈ 0.0001 < 1e-3
+        assert!(approx_equal(1000.0, 1000.1, Some(1e-3)));
+        // Relative diff = |1000.0 - 1001.0| / max(|1000.0|, |1001.0|) = 1.0 / 1001.0 ≈ 0.001 = 1e-3
+        // Since relative_diff <= eps (1e-3), they should be equal
+        assert!(approx_equal(1000.0, 1001.0, Some(1e-3)));
+        // But with stricter epsilon, they should not be equal
+        assert!(!approx_equal(1000.0, 1001.0, Some(1e-4)));
+    }
+
+    #[test]
+    fn test_approx_equal_absolute_difference_near_zero() {
+        // Test absolute difference calculation (for values near zero)
+        assert!(approx_equal(1e-11, 0.0, None));
+        assert!(approx_equal(0.0, 1e-11, None));
+        assert!(!approx_equal(1e-9, 0.0, None));
+    }
+
+    #[test]
+    fn test_safe_log_positive() {
+        let result = safe_log(1.0);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0.0);
+    }
+
+    #[test]
+    fn test_safe_log_zero() {
+        let result = safe_log(0.0);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
+    }
+
+    #[test]
+    fn test_safe_log_negative() {
+        let result = safe_log(-1.0);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
+    }
+
+    #[test]
+    fn test_safe_log_known_value() {
+        // ln(e) = 1
+        let result = safe_log(std::f64::consts::E);
+        assert!(result.is_ok());
+        assert!((result.unwrap() - 1.0).abs() < 1e-10);
     }
 }

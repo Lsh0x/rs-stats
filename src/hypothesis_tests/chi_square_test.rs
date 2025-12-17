@@ -17,6 +17,9 @@
 //!
 //! The resulting statistic follows a chi-square distribution with degrees of freedom based on the particular test.
 
+use crate::error::{StatsError, StatsResult};
+use crate::prob::erf;
+use crate::utils::constants::SQRT_2;
 use num_traits::ToPrimitive;
 use std::fmt::Debug;
 
@@ -30,15 +33,16 @@ use std::fmt::Debug;
 /// * `expected` - A slice containing the expected frequencies for each category
 ///
 /// # Returns
-/// A tuple containing:
+/// `StatsResult<(f64, usize, f64)>` containing:
 /// * The chi-square statistic
 /// * The degrees of freedom
 /// * The p-value (if the statistic is less than this value, the null hypothesis cannot be rejected)
 ///
-/// # Panics
-/// * If the slices have different lengths
-/// * If any expected value is zero or negative
-/// * If the slices are empty
+/// # Errors
+/// * Returns `StatsError::EmptyData` if the slices are empty
+/// * Returns `StatsError::DimensionMismatch` if the slices have different lengths
+/// * Returns `StatsError::InvalidParameter` if any expected value is zero or negative
+/// * Returns `StatsError::ConversionError` if value conversion fails
 ///
 /// # Example
 /// ```
@@ -48,36 +52,61 @@ use std::fmt::Debug;
 /// let observed = vec![89, 105, 97, 99, 110, 100]; // Outcomes of 600 die rolls
 /// let expected = vec![100.0, 100.0, 100.0, 100.0, 100.0, 100.0]; // Expected frequencies for a fair die
 ///
-/// let (statistic, df, p_value) = chi_square_goodness_of_fit(&observed, &expected);
+/// let (statistic, df, p_value) = chi_square_goodness_of_fit(&observed, &expected)?;
 /// println!("Chi-square statistic: {}", statistic);
 /// println!("Degrees of freedom: {}", df);
 /// println!("P-value: {}", p_value);
+/// # Ok::<(), rs_stats::StatsError>(())
 /// ```
-pub fn chi_square_goodness_of_fit<T, U>(observed: &[T], expected: &[U]) -> (f64, usize, f64)
+pub fn chi_square_goodness_of_fit<T, U>(
+    observed: &[T],
+    expected: &[U],
+) -> StatsResult<(f64, usize, f64)>
 where
     T: ToPrimitive + Debug + Copy,
     U: ToPrimitive + Debug + Copy,
 {
-    assert!(!observed.is_empty(), "Observed frequencies cannot be empty");
-    assert!(!expected.is_empty(), "Expected frequencies cannot be empty");
-    assert_eq!(
-        observed.len(),
-        expected.len(),
-        "Observed and expected frequencies must have the same length"
-    );
+    if observed.is_empty() {
+        return Err(StatsError::empty_data(
+            "Observed frequencies cannot be empty",
+        ));
+    }
+    if expected.is_empty() {
+        return Err(StatsError::empty_data(
+            "Expected frequencies cannot be empty",
+        ));
+    }
+    if observed.len() != expected.len() {
+        return Err(StatsError::dimension_mismatch(format!(
+            "Observed and expected frequencies must have the same length (got {} and {})",
+            observed.len(),
+            expected.len()
+        )));
+    }
 
     let mut chi_square: f64 = 0.0;
     let degrees_of_freedom = observed.len() - 1;
 
     for i in 0..observed.len() {
-        let obs = observed[i]
-            .to_f64()
-            .expect("Failed to convert observed value to f64");
-        let exp = expected[i]
-            .to_f64()
-            .expect("Failed to convert expected value to f64");
+        let obs = observed[i].to_f64().ok_or_else(|| {
+            StatsError::conversion_error(format!(
+                "Failed to convert observed value at index {} to f64",
+                i
+            ))
+        })?;
+        let exp = expected[i].to_f64().ok_or_else(|| {
+            StatsError::conversion_error(format!(
+                "Failed to convert expected value at index {} to f64",
+                i
+            ))
+        })?;
 
-        assert!(exp > 0.0, "Expected frequencies must be positive");
+        if exp <= 0.0 {
+            return Err(StatsError::invalid_parameter(format!(
+                "Expected frequencies must be positive (got {} at index {})",
+                exp, i
+            )));
+        }
 
         let diff = obs - exp;
         chi_square += (diff * diff) / exp;
@@ -91,13 +120,13 @@ where
         z /= (2.0 / (9.0 * degrees_of_freedom as f64)).sqrt();
 
         // Standard normal CDF approximation
-        0.5 * (1.0 + erf(z / std::f64::consts::SQRT_2))
+        0.5 * (1.0 + erf(z / SQRT_2)?)
     } else {
         1.0 // If df = 0, return p-value of 1.0
     };
 
     // Return the chi-square statistic, degrees of freedom, and p-value
-    (chi_square, degrees_of_freedom, 1.0 - p_value)
+    Ok((chi_square, degrees_of_freedom, 1.0 - p_value))
 }
 
 /// Performs a chi-square test of independence, which determines if there is a significant relationship
@@ -109,14 +138,16 @@ where
 /// * `observed_matrix` - A 2D vector representing the contingency table of observed frequencies
 ///
 /// # Returns
-/// A tuple containing:
+/// `StatsResult<(f64, usize, f64)>` containing:
 /// * The chi-square statistic
 /// * The degrees of freedom
 /// * The p-value (if the statistic is less than this value, the null hypothesis cannot be rejected)
 ///
-/// # Panics
-/// * If the matrix is empty
-/// * If any row has a different length
+/// # Errors
+/// * Returns `StatsError::EmptyData` if the matrix is empty
+/// * Returns `StatsError::DimensionMismatch` if any row has a different length
+/// * Returns `StatsError::ConversionError` if value conversion fails
+/// * Returns `StatsError::InvalidParameter` if any expected frequency is zero or negative
 ///
 /// # Example
 /// ```
@@ -128,29 +159,33 @@ where
 ///     vec![40, 180],  // Smokers: [No cancer, Cancer]
 /// ];
 ///
-/// let (statistic, df, p_value) = chi_square_independence(&observed);
+/// let (statistic, df, p_value) = chi_square_independence(&observed)?;
 /// println!("Chi-square statistic: {}", statistic);
 /// println!("Degrees of freedom: {}", df);
 /// println!("P-value: {}", p_value);
+/// # Ok::<(), rs_stats::StatsError>(())
 /// ```
-pub fn chi_square_independence<T>(observed_matrix: &[Vec<T>]) -> (f64, usize, f64)
+pub fn chi_square_independence<T>(observed_matrix: &[Vec<T>]) -> StatsResult<(f64, usize, f64)>
 where
     T: ToPrimitive + Debug + Copy,
 {
-    assert!(
-        !observed_matrix.is_empty(),
-        "Observed matrix cannot be empty"
-    );
+    if observed_matrix.is_empty() {
+        return Err(StatsError::empty_data("Observed matrix cannot be empty"));
+    }
+
     let row_count = observed_matrix.len();
     let col_count = observed_matrix[0].len();
 
     // Make sure all rows have the same length
-    for row in observed_matrix {
-        assert_eq!(
-            row.len(),
-            col_count,
-            "All rows in the observed matrix must have the same length"
-        );
+    for (row_idx, row) in observed_matrix.iter().enumerate() {
+        if row.len() != col_count {
+            return Err(StatsError::dimension_mismatch(format!(
+                "All rows in the observed matrix must have the same length (row {} has length {}, expected {})",
+                row_idx,
+                row.len(),
+                col_count
+            )));
+        }
     }
 
     // Calculate row sums and column sums
@@ -160,9 +195,21 @@ where
 
     for i in 0..row_count {
         for (j, col_sum) in col_sums.iter_mut().enumerate().take(col_count) {
-            let value = observed_matrix[i][j]
+            let value = observed_matrix[i]
+                .get(j)
+                .ok_or_else(|| {
+                    StatsError::index_out_of_bounds(format!(
+                        "Index out of bounds: row {}, column {}",
+                        i, j
+                    ))
+                })?
                 .to_f64()
-                .expect("Failed to convert observed value to f64");
+                .ok_or_else(|| {
+                    StatsError::conversion_error(format!(
+                        "Failed to convert observed value at row {}, column {} to f64",
+                        i, j
+                    ))
+                })?;
 
             row_sums[i] += value;
             *col_sum += value;
@@ -179,11 +226,28 @@ where
             // Expected value = (row sum * column sum) / total
             let expected = (row_sums[i] * col_sum) / total_sum;
 
-            assert!(expected > 0.0, "Expected frequency must be positive");
+            if expected <= 0.0 {
+                return Err(StatsError::invalid_parameter(format!(
+                    "Expected frequency must be positive (got {} at row {}, column {})",
+                    expected, i, j
+                )));
+            }
 
-            let observed = observed_matrix[i][j]
+            let observed = observed_matrix[i]
+                .get(j)
+                .ok_or_else(|| {
+                    StatsError::index_out_of_bounds(format!(
+                        "Index out of bounds: row {}, column {}",
+                        i, j
+                    ))
+                })?
                 .to_f64()
-                .expect("Failed to convert observed value to f64");
+                .ok_or_else(|| {
+                    StatsError::conversion_error(format!(
+                        "Failed to convert observed value at row {}, column {} to f64",
+                        i, j
+                    ))
+                })?;
 
             let diff = observed - expected;
             // Use more precise calculation method
@@ -202,33 +266,13 @@ where
         z /= (2.0 / (9.0 * degrees_of_freedom as f64)).sqrt();
 
         // Standard normal CDF approximation
-        0.5 * (1.0 + erf(z / std::f64::consts::SQRT_2))
+        0.5 * (1.0 + erf(z / SQRT_2)?)
     } else {
         1.0 // If df = 0, return p-value of 1.0
     };
 
     // Return the chi-square statistic, degrees of freedom, and p-value
-    (chi_square, degrees_of_freedom, 1.0 - p_value)
-}
-
-// Error function approximation
-fn erf(x: f64) -> f64 {
-    // Constants for the approximation
-    let a1 = 0.254829592;
-    let a2 = -0.284496736;
-    let a3 = 1.421413741;
-    let a4 = -1.453152027;
-    let a5 = 1.061405429;
-    let p = 0.3275911;
-
-    let sign = if x < 0.0 { -1.0 } else { 1.0 };
-    let x = x.abs();
-
-    // Abramowitz and Stegun formula 7.1.26
-    let t = 1.0 / (1.0 + p * x);
-    let y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * (-x * x).exp();
-
-    sign * y
+    Ok((chi_square, degrees_of_freedom, 1.0 - p_value))
 }
 
 #[cfg(test)]
@@ -241,7 +285,7 @@ mod tests {
         let observed = vec![24, 20, 18, 22, 15, 21]; // 120 rolls
         let expected = vec![20.0, 20.0, 20.0, 20.0, 20.0, 20.0]; // Equal probability for each face
 
-        let (statistic, df, _) = chi_square_goodness_of_fit(&observed, &expected);
+        let (statistic, df, _) = chi_square_goodness_of_fit(&observed, &expected).unwrap();
 
         // Verify that degrees of freedom is correct
         assert_eq!(df, 5, "Degrees of freedom should be 5");
@@ -263,7 +307,7 @@ mod tests {
         let observed = vec![10, 15, 25];
         let expected = vec![16.6667, 16.6667, 16.6667]; // Equal probability over 3 categories for 50 trials
 
-        let (statistic, df, _) = chi_square_goodness_of_fit(&observed, &expected);
+        let (statistic, df, _) = chi_square_goodness_of_fit(&observed, &expected).unwrap();
 
         assert_eq!(df, 2, "Degrees of freedom should be 2");
 
@@ -289,7 +333,7 @@ mod tests {
         // Female     |    60    |    40    |
         let observed = vec![vec![45, 55], vec![60, 40]];
 
-        let (statistic, df, _) = chi_square_independence(&observed);
+        let (statistic, df, _) = chi_square_independence(&observed).unwrap();
 
         assert_eq!(df, 1, "Degrees of freedom should be 1");
 
@@ -319,7 +363,7 @@ mod tests {
         // Testing a 3x3 contingency table
         let observed = vec![vec![30, 25, 15], vec![35, 40, 30], vec![20, 30, 25]];
 
-        let (statistic, df, _) = chi_square_independence(&observed);
+        let (statistic, df, _) = chi_square_independence(&observed).unwrap();
 
         assert_eq!(df, 4, "Degrees of freedom should be 4");
 
@@ -328,20 +372,90 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Expected frequencies must be positive")]
     fn test_chi_square_goodness_of_fit_zero_expected() {
         let observed = vec![10, 15, 20];
-        let expected = vec![15.0, 0.0, 30.0]; // Zero expected frequency should cause panic
+        let expected = vec![15.0, 0.0, 30.0]; // Zero expected frequency should cause error
 
-        chi_square_goodness_of_fit(&observed, &expected);
+        let result = chi_square_goodness_of_fit(&observed, &expected);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidParameter { .. }
+        ));
     }
 
     #[test]
-    #[should_panic(expected = "Observed and expected frequencies must have the same length")]
     fn test_chi_square_goodness_of_fit_mismatched_lengths() {
         let observed = vec![10, 15, 20, 25];
         let expected = vec![15.0, 20.0, 35.0]; // Different length from observed
 
-        chi_square_goodness_of_fit(&observed, &expected);
+        let result = chi_square_goodness_of_fit(&observed, &expected);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::DimensionMismatch { .. }
+        ));
+    }
+
+    #[test]
+    fn test_chi_square_goodness_of_fit_empty_observed() {
+        let observed: Vec<u32> = vec![];
+        let expected = vec![15.0, 20.0, 35.0];
+
+        let result = chi_square_goodness_of_fit(&observed, &expected);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::EmptyData { .. }));
+    }
+
+    #[test]
+    fn test_chi_square_independence_empty_matrix() {
+        let observed: Vec<Vec<u32>> = vec![];
+
+        let result = chi_square_independence(&observed);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::EmptyData { .. }));
+    }
+
+    #[test]
+    fn test_chi_square_independence_mismatched_rows() {
+        let observed = vec![vec![10, 15], vec![20, 25, 30]]; // Different row lengths
+
+        let result = chi_square_independence(&observed);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::DimensionMismatch { .. }
+        ));
+    }
+
+    #[test]
+    fn test_chi_square_goodness_of_fit_df_zero() {
+        // Test with df == 0 (single category)
+        // This happens when observed and expected have length 1
+        let observed = vec![10];
+        let expected = vec![10.0];
+
+        let (statistic, df, p_value) = chi_square_goodness_of_fit(&observed, &expected).unwrap();
+
+        assert_eq!(df, 0, "Degrees of freedom should be 0 for single category");
+        assert_eq!(
+            statistic, 0.0,
+            "Chi-square statistic should be 0 when observed equals expected"
+        );
+        // When df == 0, p-value should be 1.0 (as per the code)
+        assert_eq!(
+            p_value, 0.0,
+            "p-value should be 0.0 when df == 0 (1.0 - 1.0)"
+        );
+    }
+
+    #[test]
+    fn test_chi_square_goodness_of_fit_empty_expected() {
+        let observed = vec![10, 15, 20];
+        let expected: Vec<f64> = vec![];
+
+        let result = chi_square_goodness_of_fit(&observed, &expected);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::EmptyData { .. }));
     }
 }

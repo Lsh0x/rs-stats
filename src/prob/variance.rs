@@ -13,7 +13,7 @@
 //! - Big integers (BigInt, BigUint)
 //! - Any custom type that implements ToPrimitive
 
-use crate::prob::average::average;
+use crate::error::{StatsError, StatsResult};
 use num_traits::ToPrimitive;
 use std::fmt::Debug;
 
@@ -26,13 +26,11 @@ use std::fmt::Debug;
 /// * `data` - A slice of numeric values implementing `ToPrimitive`
 ///
 /// # Returns
-/// * `Some(f64)` - The variance as a `f64` if the input slice is non-empty
-/// * `None` - If the input slice is empty
+/// * `StatsResult<f64>` - The variance as a `f64`, or an error if the input is invalid
 ///
 /// # Errors
-/// Returns `None` if:
-/// - The input slice is empty
-/// - Any value cannot be converted to f64
+/// Returns `StatsError::EmptyData` if the input slice is empty.
+/// Returns `StatsError::ConversionError` if any value cannot be converted to f64.
 ///
 /// # Examples
 /// ```
@@ -40,33 +38,50 @@ use std::fmt::Debug;
 ///
 /// // Calculate variance of integers
 /// let int_data = [1, 2, 3, 4, 5];
-/// let var = variance(&int_data).unwrap();
+/// let var = variance(&int_data)?;
 /// println!("Variance of integers: {}", var);
 ///
 /// // Calculate variance of floats
 /// let float_data = [1.0, 2.5, 3.0, 4.5, 5.0];
-/// let var = variance(&float_data).unwrap();
+/// let var = variance(&float_data)?;
 /// println!("Variance of floats: {}", var);
 ///
 /// // Handle empty input
 /// let empty_data: &[i32] = &[];
-/// assert!(variance(empty_data).is_none());
+/// assert!(variance(empty_data).is_err());
+/// # Ok::<(), rs_stats::StatsError>(())
 /// ```
-pub fn variance<T>(data: &[T]) -> Option<f64>
+#[inline]
+pub fn variance<T>(data: &[T]) -> StatsResult<f64>
 where
     T: ToPrimitive + Debug,
 {
     if data.is_empty() {
-        return None;
+        return Err(StatsError::empty_data(
+            "prob::variance: Cannot calculate variance of empty dataset",
+        ));
     }
 
-    let avg = average(data)?;
-    let mut sum = 0.0;
-    for x in data {
-        let x = x.to_f64()?;
-        sum += (x - avg).powi(2);
+    let mut mean = 0.0;
+    let mut m2 = 0.0;
+    let mut n = 0.0;
+
+    for (i, x) in data.iter().enumerate() {
+        let value = x.to_f64().ok_or_else(|| {
+            StatsError::conversion_error(format!(
+                "prob::variance: Failed to convert value at index {} to f64",
+                i
+            ))
+        })?;
+
+        n += 1.0;
+        let delta = value - mean;
+        mean += delta / n;
+        let delta2 = value - mean;
+        m2 += delta * delta2;
     }
-    Some(sum / data.len() as f64)
+
+    Ok(m2 / n)
 }
 
 #[cfg(test)]
@@ -105,7 +120,11 @@ mod tests {
     fn test_variance_empty_slice() {
         let data: &[f64] = &[];
         let variance = variance(data);
-        assert!(variance.is_none());
+        assert!(variance.is_err());
+        assert!(matches!(
+            variance.unwrap_err(),
+            StatsError::EmptyData { .. }
+        ));
     }
 
     #[test]

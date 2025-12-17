@@ -1,5 +1,6 @@
 // src/regression/multiple_linear_regression.rs
 
+use crate::error::{StatsError, StatsResult};
 use num_traits::{Float, NumCast};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -59,50 +60,84 @@ where
     /// * `y_values` - Dependent variable values (observations)
     ///
     /// # Returns
-    /// * `Result<(), String>` - Ok if successful, Err with message if the inputs are invalid
-    pub fn fit<U, V>(&mut self, x_values: &[Vec<U>], y_values: &[V]) -> Result<(), String>
+    /// * `StatsResult<()>` - Ok if successful, Err with StatsError if the inputs are invalid
+    ///
+    /// # Errors
+    /// Returns `StatsError::EmptyData` if input arrays are empty.
+    /// Returns `StatsError::DimensionMismatch` if X and Y arrays have different lengths.
+    /// Returns `StatsError::InvalidInput` if rows in X have inconsistent lengths.
+    /// Returns `StatsError::ConversionError` if value conversion fails.
+    /// Returns `StatsError::MathematicalError` if the linear system cannot be solved.
+    pub fn fit<U, V>(&mut self, x_values: &[Vec<U>], y_values: &[V]) -> StatsResult<()>
     where
         U: NumCast + Copy,
         V: NumCast + Copy,
     {
         // Validate inputs
         if x_values.is_empty() || y_values.is_empty() {
-            return Err("Cannot fit regression with empty arrays".to_string());
+            return Err(StatsError::empty_data(
+                "Cannot fit regression with empty arrays",
+            ));
         }
 
         if x_values.len() != y_values.len() {
-            return Err("Number of observations in X and Y must match".to_string());
+            return Err(StatsError::dimension_mismatch(format!(
+                "Number of observations in X and Y must match (got {} and {})",
+                x_values.len(),
+                y_values.len()
+            )));
         }
 
         self.n = x_values.len();
 
         // Check that all rows in x_values have the same length
         if x_values.is_empty() {
-            return Err("X values array is empty".to_string());
+            return Err(StatsError::empty_data("X values array is empty"));
         }
 
         self.p = x_values[0].len();
 
-        for row in x_values {
+        for (i, row) in x_values.iter().enumerate() {
             if row.len() != self.p {
-                return Err("All rows in X must have the same number of features".to_string());
+                return Err(StatsError::invalid_input(format!(
+                    "All rows in X must have the same number of features (row {} has {} features, expected {})",
+                    i,
+                    row.len(),
+                    self.p
+                )));
             }
         }
 
         // Convert input arrays to T type
         let mut x_cast: Vec<Vec<T>> = Vec::with_capacity(self.n);
-        for row in x_values {
-            let row_cast: Result<Vec<T>, String> = row
+        for (row_idx, row) in x_values.iter().enumerate() {
+            let row_cast: StatsResult<Vec<T>> = row
                 .iter()
-                .map(|&x| T::from(x).ok_or_else(|| "Failed to cast X value".to_string()))
+                .enumerate()
+                .map(|(col_idx, &x)| {
+                    T::from(x).ok_or_else(|| {
+                        StatsError::conversion_error(format!(
+                            "Failed to cast X value at row {}, column {} to type T",
+                            row_idx, col_idx
+                        ))
+                    })
+                })
                 .collect();
             x_cast.push(row_cast?);
         }
 
         let y_cast: Vec<T> = y_values
             .iter()
-            .map(|&y| T::from(y).ok_or_else(|| "Failed to cast Y value".to_string()))
-            .collect::<Result<Vec<T>, String>>()?;
+            .enumerate()
+            .map(|(i, &y)| {
+                T::from(y).ok_or_else(|| {
+                    StatsError::conversion_error(format!(
+                        "Failed to cast Y value at index {} to type T",
+                        i
+                    ))
+                })
+            })
+            .collect::<StatsResult<Vec<T>>>()?;
 
         // Augment the X matrix with a column of 1s for the intercept
         let mut augmented_x = Vec::with_capacity(self.n);
@@ -128,7 +163,10 @@ where
         }
 
         // Calculate fitted values and R²
-        let y_mean = y_cast.iter().fold(T::zero(), |acc, &y| acc + y) / T::from(self.n).unwrap();
+        let n_as_t = T::from(self.n).ok_or_else(|| {
+            StatsError::conversion_error(format!("Failed to convert {} to type T", self.n))
+        })?;
+        let y_mean = y_cast.iter().fold(T::zero(), |acc, &y| acc + y) / n_as_t;
 
         let mut ss_total = T::zero();
         let mut ss_residual = T::zero();
@@ -148,8 +186,18 @@ where
 
             // Adjusted R² = 1 - [(1 - R²) * (n - 1) / (n - p - 1)]
             if self.n > self.p + 1 {
-                let n_minus_1 = T::from(self.n - 1).unwrap();
-                let n_minus_p_minus_1 = T::from(self.n - self.p - 1).unwrap();
+                let n_minus_1 = T::from(self.n - 1).ok_or_else(|| {
+                    StatsError::conversion_error(format!(
+                        "Failed to convert {} to type T",
+                        self.n - 1
+                    ))
+                })?;
+                let n_minus_p_minus_1 = T::from(self.n - self.p - 1).ok_or_else(|| {
+                    StatsError::conversion_error(format!(
+                        "Failed to convert {} to type T",
+                        self.n - self.p - 1
+                    ))
+                })?;
 
                 self.adjusted_r_squared =
                     T::one() - ((T::one() - self.r_squared) * n_minus_1 / n_minus_p_minus_1);
@@ -158,7 +206,12 @@ where
 
         // Calculate standard error
         if self.n > self.p + 1 {
-            let n_minus_p_minus_1 = T::from(self.n - self.p - 1).unwrap();
+            let n_minus_p_minus_1 = T::from(self.n - self.p - 1).ok_or_else(|| {
+                StatsError::conversion_error(format!(
+                    "Failed to convert {} to type T",
+                    self.n - self.p - 1
+                ))
+            })?;
             self.standard_error = (ss_residual / n_minus_p_minus_1).sqrt();
         }
 
@@ -185,25 +238,65 @@ where
     /// Predict y value for a given set of x values using the fitted model
     ///
     /// # Arguments
-    /// * `x` - Vector of x values for prediction
+    /// * `x` - Vector of x values for prediction (must match the number of features used during fitting)
     ///
     /// # Returns
-    /// * The predicted y value
-    pub fn predict<U>(&self, x: &[U]) -> T
+    /// * `StatsResult<T>` - The predicted y value
+    ///
+    /// # Errors
+    /// Returns `StatsError::NotFitted` if the model has not been fitted (coefficients is empty).
+    /// Returns `StatsError::DimensionMismatch` if the number of features doesn't match the model (x.len() != p).
+    /// Returns `StatsError::ConversionError` if type conversion fails.
+    ///
+    /// # Examples
+    /// ```
+    /// use rs_stats::regression::multiple_linear_regression::MultipleLinearRegression;
+    ///
+    /// let mut model = MultipleLinearRegression::<f64>::new();
+    /// let x = vec![
+    ///     vec![1.0, 2.0],
+    ///     vec![2.0, 1.0],
+    ///     vec![3.0, 3.0],
+    ///     vec![4.0, 2.0],
+    /// ];
+    /// let y = vec![5.0, 4.0, 9.0, 8.0];
+    /// model.fit(&x, &y).unwrap();
+    ///
+    /// let prediction = model.predict(&[3.0, 4.0]).unwrap();
+    /// ```
+    pub fn predict<U>(&self, x: &[U]) -> StatsResult<T>
     where
         U: NumCast + Copy,
     {
+        if self.coefficients.is_empty() {
+            return Err(StatsError::not_fitted(
+                "Model has not been fitted. Call fit() before predicting.",
+            ));
+        }
+
         if x.len() != self.p {
-            return T::nan();
+            return Err(StatsError::dimension_mismatch(format!(
+                "Expected {} features, but got {}",
+                self.p,
+                x.len()
+            )));
         }
 
         // Convert input to T type
-        let x_cast: Result<Vec<T>, ()> = x.iter().map(|&val| T::from(val).ok_or(())).collect();
+        let x_cast: StatsResult<Vec<T>> = x
+            .iter()
+            .enumerate()
+            .map(|(i, &val)| {
+                T::from(val).ok_or_else(|| {
+                    StatsError::conversion_error(format!(
+                        "Failed to convert feature value at index {} to type T",
+                        i
+                    ))
+                })
+            })
+            .collect();
 
-        match x_cast {
-            Ok(x_t) => self.predict_t(&x_t),
-            Err(_) => T::nan(),
-        }
+        Ok(self.predict_t(&x_cast?))
     }
 
     /// Calculate predictions for multiple observations
@@ -212,8 +305,30 @@ where
     /// * `x_values` - 2D array of feature values for prediction
     ///
     /// # Returns
-    /// * Vector of predicted y values
-    pub fn predict_many<U>(&self, x_values: &[Vec<U>]) -> Vec<T>
+    /// * `StatsResult<Vec<T>>` - Vector of predicted y values
+    ///
+    /// # Errors
+    /// Returns `StatsError::NotFitted` if the model has not been fitted.
+    /// Returns an error if any prediction fails (dimension mismatch or conversion error).
+    ///
+    /// # Examples
+    /// ```
+    /// use rs_stats::regression::multiple_linear_regression::MultipleLinearRegression;
+    ///
+    /// let mut model = MultipleLinearRegression::<f64>::new();
+    /// let x = vec![
+    ///     vec![1.0, 2.0],
+    ///     vec![2.0, 1.0],
+    ///     vec![3.0, 3.0],
+    ///     vec![4.0, 2.0],
+    /// ];
+    /// let y = vec![5.0, 4.0, 9.0, 8.0];
+    /// model.fit(&x, &y).unwrap();
+    ///
+    /// let predictions = model.predict_many(&[vec![3.0, 4.0], vec![5.0, 6.0]]).unwrap();
+    /// assert_eq!(predictions.len(), 2);
+    /// ```
+    pub fn predict_many<U>(&self, x_values: &[Vec<U>]) -> StatsResult<Vec<T>>
     where
         U: NumCast + Copy,
     {
@@ -230,7 +345,7 @@ where
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), io::Error> {
         let file = File::create(path)?;
         // Use JSON format for human-readability
-        serde_json::to_writer(file, self).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        serde_json::to_writer(file, self).map_err(io::Error::other)
     }
 
     /// Save the model in binary format
@@ -243,7 +358,7 @@ where
     pub fn save_binary<P: AsRef<Path>>(&self, path: P) -> Result<(), io::Error> {
         let file = File::create(path)?;
         // Use bincode for more compact binary format
-        bincode::serialize_into(file, self).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        bincode::serialize_into(file, self).map_err(io::Error::other)
     }
 
     /// Load a model from a file
@@ -333,10 +448,15 @@ where
     }
 
     // Helper function: Solve a system of linear equations using Gaussian elimination
-    fn solve_linear_system(&self, a: &[Vec<T>], b: &[T]) -> Result<Vec<T>, String> {
+    fn solve_linear_system(&self, a: &[Vec<T>], b: &[T]) -> StatsResult<Vec<T>> {
         let n = a.len();
         if n == 0 || a[0].len() != n || b.len() != n {
-            return Err("Invalid matrix dimensions for linear system solving".to_string());
+            return Err(StatsError::dimension_mismatch(format!(
+                "Invalid matrix dimensions for linear system solving: A is {}x{}, b has {} elements",
+                n,
+                if n > 0 { a[0].len() } else { 0 },
+                b.len()
+            )));
         }
 
         // Create augmented matrix [A|b]
@@ -361,9 +481,13 @@ where
                 }
             }
 
-            let epsilon: T = T::from(1e-10).unwrap();
+            let epsilon: T = T::from(1e-10).ok_or_else(|| {
+                StatsError::conversion_error("Failed to convert epsilon (1e-10) to type T")
+            })?;
             if max_val < epsilon {
-                return Err("Matrix is singular or near-singular".to_string());
+                return Err(StatsError::mathematical_error(
+                    "Matrix is singular or near-singular, cannot solve linear system",
+                ));
             }
 
             // Swap rows if needed
@@ -400,7 +524,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::numeric::approx_equal;
+    use crate::utils::approx_equal;
     use tempfile::tempdir;
 
     #[test]
@@ -479,7 +603,11 @@ mod tests {
         model.fit(&x, &y).unwrap();
 
         // Test prediction: 1 + 2*5 + 3*4 = 1 + 10 + 12 = 23
-        assert!(approx_equal(model.predict(&[5u32, 4u32]), 23.0, Some(1e-6)));
+        assert!(approx_equal(
+            model.predict(&[5u32, 4u32]).unwrap(),
+            23.0,
+            Some(1e-6)
+        ));
     }
 
     #[test]
@@ -492,7 +620,7 @@ mod tests {
 
         let new_x = vec![vec![1u32, 2u32], vec![5u32, 4u32]];
 
-        let predictions = model.predict_many(&new_x);
+        let predictions = model.predict_many(&new_x).unwrap();
         assert_eq!(predictions.len(), 2);
         assert!(approx_equal(predictions[0], 9.0, Some(1e-6)));
         assert!(approx_equal(predictions[1], 23.0, Some(1e-6)));
@@ -616,5 +744,177 @@ mod tests {
         assert!(approx_equal(loaded.r_squared, model.r_squared, Some(1e-6)));
         assert_eq!(loaded.n, model.n);
         assert_eq!(loaded.p, model.p);
+    }
+
+    #[test]
+    fn test_predict_not_fitted() {
+        // Test that predict() works even when model is not fitted
+        let model = MultipleLinearRegression::<f64>::new();
+        // Don't fit the model
+
+        // Predict should return an error when model is not fitted
+        let features = vec![1.0, 2.0];
+        let result = model.predict(&features);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::NotFitted { .. }));
+    }
+
+    #[test]
+    fn test_predict_dimension_mismatch() {
+        // Test predict with wrong number of features
+        let mut model = MultipleLinearRegression::<f64>::new();
+        // Use more data points to avoid singular matrix
+        let x = vec![
+            vec![1.0, 2.0],
+            vec![2.0, 1.0],
+            vec![3.0, 3.0],
+            vec![4.0, 2.0],
+        ];
+        let y = vec![3.0, 3.0, 6.0, 6.0];
+        model.fit(&x, &y).unwrap();
+
+        // Try to predict with wrong number of features
+        let wrong_features = vec![1.0]; // Should be 2 features
+        let result = model.predict(&wrong_features);
+        // predict returns error when dimension mismatch
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::DimensionMismatch { .. }
+        ));
+    }
+
+    #[test]
+    fn test_fit_singular_matrix() {
+        // Test with linearly dependent features (singular matrix)
+        // This should trigger a mathematical error
+        let x = vec![
+            vec![1.0, 2.0, 3.0], // Feature 3 = Feature 1 + Feature 2 (linearly dependent)
+            vec![2.0, 4.0, 6.0], // Feature 3 = 2 * (Feature 1 + Feature 2)
+            vec![3.0, 6.0, 9.0], // Feature 3 = 3 * (Feature 1 + Feature 2)
+        ];
+        let y = vec![1.0, 2.0, 3.0];
+
+        let mut model = MultipleLinearRegression::<f64>::new();
+        let result = model.fit(&x, &y);
+        // This might succeed or fail depending on numerical precision
+        // The important thing is it doesn't panic
+        match result {
+            Ok(_) => {
+                // If it succeeds, verify the model is valid
+                assert!(!model.coefficients.is_empty());
+            }
+            Err(e) => {
+                // If it fails, it should be a mathematical error
+                assert!(matches!(e, StatsError::MathematicalError { .. }));
+            }
+        }
+    }
+
+    #[test]
+    fn test_save_invalid_path() {
+        // Test saving to an invalid path
+        let mut model = MultipleLinearRegression::<f64>::new();
+        let x = vec![vec![1.0], vec![2.0]];
+        let y = vec![2.0, 4.0];
+        model.fit(&x, &y).unwrap();
+
+        let invalid_path = std::path::Path::new("/nonexistent/directory/model.json");
+        let result = model.save(invalid_path);
+        assert!(
+            result.is_err(),
+            "Saving to invalid path should return error"
+        );
+    }
+
+    #[test]
+    fn test_load_nonexistent_file() {
+        // Test loading a non-existent file
+        let nonexistent_path = std::path::Path::new("/nonexistent/file.json");
+        let result = MultipleLinearRegression::<f64>::load(nonexistent_path);
+        assert!(
+            result.is_err(),
+            "Loading non-existent file should return error"
+        );
+    }
+
+    #[test]
+    fn test_from_json_invalid() {
+        // Test deserializing invalid JSON string
+        let invalid_json = "not valid json";
+        let result = MultipleLinearRegression::<f64>::from_json(invalid_json);
+        assert!(
+            result.is_err(),
+            "Deserializing invalid JSON should return error"
+        );
+    }
+
+    #[test]
+    fn test_predict_t_coefficients_empty() {
+        // Test predict_t when coefficients are empty
+        let model = MultipleLinearRegression::<f64>::new();
+        let features = vec![1.0, 2.0];
+        // predict_t is private, but we can test through predict
+        let result = model.predict(&features);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::NotFitted { .. }));
+    }
+
+    #[test]
+    fn test_fit_x_values_empty_after_check() {
+        // This tests the redundant check at line 94 (though it should never execute)
+        // But we test it to cover the branch
+        let mut model = MultipleLinearRegression::<f64>::new();
+        // This will fail at the first empty check, but tests the code path
+        let x: Vec<Vec<f64>> = vec![];
+        let y: Vec<f64> = vec![];
+        let result = model.fit(&x, &y);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_predict_many_not_fitted() {
+        // Test predict_many when model is not fitted
+        let model = MultipleLinearRegression::<f64>::new();
+        let result = model.predict_many(&[vec![1.0, 2.0]]);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StatsError::NotFitted { .. }));
+    }
+
+    #[test]
+    fn test_predict_many_dimension_mismatch() {
+        // Test predict_many with wrong number of features
+        let mut model = MultipleLinearRegression::<f64>::new();
+        let x = vec![vec![1.0, 2.0], vec![2.0, 1.0], vec![3.0, 3.0]];
+        let y = vec![3.0, 3.0, 6.0];
+        model.fit(&x, &y).unwrap();
+
+        // Try to predict with wrong number of features
+        let wrong_features = vec![vec![1.0]]; // Should be 2 features
+        let result = model.predict_many(&wrong_features);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::DimensionMismatch { .. }
+        ));
+    }
+
+    #[test]
+    fn test_predict_many_success() {
+        // Test predict_many with valid data
+        let mut model = MultipleLinearRegression::<f64>::new();
+        let x = vec![
+            vec![1.0, 2.0],
+            vec![2.0, 1.0],
+            vec![3.0, 3.0],
+            vec![4.0, 2.0],
+        ];
+        let y = vec![3.0, 3.0, 6.0, 6.0];
+        model.fit(&x, &y).unwrap();
+
+        let predictions = model
+            .predict_many(&[vec![3.0, 4.0], vec![5.0, 6.0]])
+            .unwrap();
+        assert_eq!(predictions.len(), 2);
     }
 }

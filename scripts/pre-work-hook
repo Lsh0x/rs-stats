@@ -1,0 +1,39 @@
+#!/bin/sh
+# Pre-work hook to validate workflow state before file modifications
+#
+# This hook validates:
+# - Issue is in in_progress/ (not todo/)
+# - Issue move was committed
+# - Branch matches issue specification
+#
+# Installation (optional):
+#   cp scripts/pre-work-hook .git/hooks/pre-work
+#   chmod +x .git/hooks/pre-work
+#
+# Or run manually:
+#   ./scripts/pre-work-hook
+#
+# Bypass (not recommended):
+#   Use --force flag with validation script
+
+# Run the validation script
+if [ -f "scripts/validate-workflow-state.py" ]; then
+    python3 scripts/validate-workflow-state.py
+    exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        echo ""
+        echo "❌ Pre-work validation failed. Fix workflow violations before proceeding."
+        echo "   To bypass (not recommended): python3 scripts/validate-workflow-state.py --force"
+        exit $exit_code
+    fi
+else
+    echo "⚠️  Warning: validate-workflow-state.py not found, skipping pre-work validation"
+    exit 0
+fi
+
+exit 0
+
+
+
+
+
