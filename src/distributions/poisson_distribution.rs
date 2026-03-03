@@ -178,7 +178,18 @@ where
             message: "poisson_distribution::cdf: lambda must be positive".to_string(),
         });
     }
-    (0..=k).try_fold(0.0, |acc, i| pmf(i, lambda_64).map(|prob| acc + prob))
+    // Incremental log-factorial computation: O(k) instead of O(k²)
+    // Each step reuses the previous log_fact, avoiding redundant ln() calls
+    let mut log_fact = 0.0_f64;
+    let mut cdf_sum = 0.0_f64;
+    for i in 0..=k {
+        if i > 0 {
+            log_fact += (i as f64).ln();
+        }
+        let log_pmf = (i as f64) * lambda_64.ln() - lambda_64 - log_fact;
+        cdf_sum += log_pmf.exp();
+    }
+    Ok(cdf_sum.clamp(0.0, 1.0))
 }
 
 #[cfg(test)]

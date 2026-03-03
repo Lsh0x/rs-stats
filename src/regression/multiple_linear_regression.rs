@@ -407,22 +407,26 @@ where
     }
 
     // Helper function: Matrix multiplication where one matrix is transposed: A^T * B
+    // Loop order: k (rows of A) in outer loop for cache locality —
+    // both a[k] and b[k] are contiguous row accesses, avoiding column-stride misses.
     fn matrix_multiply_transpose(&self, a: &[Vec<T>], b: &[Vec<T>]) -> Vec<Vec<T>> {
         let a_rows = a.len();
         let a_cols = if a_rows > 0 { a[0].len() } else { 0 };
-        let b_rows = b.len();
-        let b_cols = if b_rows > 0 { b[0].len() } else { 0 };
+        let b_cols = if !b.is_empty() { b[0].len() } else { 0 };
 
         // Result will be a_cols × b_cols
         let mut result = vec![vec![T::zero(); b_cols]; a_cols];
 
-        for (i, result_row) in result.iter_mut().enumerate().take(a_cols) {
-            for (j, result_elem) in result_row.iter_mut().enumerate().take(b_cols) {
-                let mut sum = T::zero();
-                for k in 0..a_rows {
-                    sum = sum + (a[k][i] * b[k][j]);
+        // Cache-friendly loop: iterate over shared dimension (k) in the outer loop
+        for k in 0..a_rows {
+            let a_row = &a[k];
+            let b_row = &b[k];
+            for i in 0..a_cols {
+                let a_ki = a_row[i];
+                let result_row = &mut result[i];
+                for j in 0..b_cols {
+                    result_row[j] = result_row[j] + (a_ki * b_row[j]);
                 }
-                *result_elem = sum;
             }
         }
 
@@ -459,22 +463,23 @@ where
             )));
         }
 
-        // Create augmented matrix [A|b]
-        let mut aug = Vec::with_capacity(n);
+        // Create augmented matrix [A|b] — allocate once with correct capacity
+        let mut aug: Vec<Vec<T>> = Vec::with_capacity(n);
         for i in 0..n {
-            let mut row = a[i].clone();
+            let mut row = Vec::with_capacity(n + 1);
+            row.extend_from_slice(&a[i]);
             row.push(b[i]);
             aug.push(row);
         }
 
         // Gaussian elimination with partial pivoting
         for i in 0..n {
-            // Find pivot
+            // Find pivot — direct index range, no skip/take overhead
             let mut max_row = i;
             let mut max_val = aug[i][i].abs();
 
-            for (j, row) in aug.iter().enumerate().skip(i + 1).take(n - (i + 1)) {
-                let abs_val = row[i].abs();
+            for j in (i + 1)..n {
+                let abs_val = aug[j][i].abs();
                 if abs_val > max_val {
                     max_row = j;
                     max_val = abs_val;
@@ -505,13 +510,13 @@ where
             }
         }
 
-        // Back substitution
+        // Back substitution — direct range indexing
         let mut x = vec![T::zero(); n];
         for i in (0..n).rev() {
             let mut sum = aug[i][n];
 
-            for (j, &x_val) in x.iter().enumerate().skip(i + 1).take(n - (i + 1)) {
-                sum = sum - (aug[i][j] * x_val);
+            for j in (i + 1)..n {
+                sum = sum - (aug[i][j] * x[j]);
             }
 
             x[i] = sum / aug[i][i];

@@ -208,7 +208,32 @@ pub fn cdf(k: u64, n: u64, p: f64) -> StatsResult<f64> {
             message: "binomial_distribution::cdf: k must be less than or equal to n".to_string(),
         });
     }
-    (0..=k).try_fold(0.0, |acc, i| pmf(i, n, p).map(|prob| acc + prob))
+    // Use PMF recurrence relation: P(X=i+1) = P(X=i) * (n-i)/(i+1) * p/(1-p)
+    // This avoids recomputing factorials at each step: O(k) total, O(1) per step
+    if p == 0.0 {
+        return Ok(1.0); // P(X <= k) = 1 when p = 0 (all mass at k=0)
+    }
+    if p == 1.0 {
+        return Ok(if k >= n { 1.0 } else { 0.0 });
+    }
+
+    // Start with pmf(0) = (1-p)^n
+    let q = 1.0 - p;
+    let mut pmf_i = q.powi(n as i32);
+    // For very large n where powi overflows, fall back to log-space
+    if pmf_i == 0.0 && n > 0 {
+        let log_pmf_0 = (n as f64) * q.ln();
+        pmf_i = log_pmf_0.exp();
+    }
+    let mut cdf_sum = pmf_i;
+    let ratio = p / q;
+
+    for i in 0..k {
+        pmf_i *= ((n - i) as f64 / (i + 1) as f64) * ratio;
+        cdf_sum += pmf_i;
+    }
+
+    Ok(cdf_sum.clamp(0.0, 1.0))
 }
 
 /// Calculate the binomial coefficient (n choose k).

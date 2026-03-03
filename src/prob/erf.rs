@@ -44,6 +44,7 @@ use num_traits::ToPrimitive;
 /// // Verify symmetry property
 /// assert!((erf(x).unwrap() + erf(-x).unwrap()).abs() < 1e-8);
 /// ```
+#[inline]
 pub fn erf<T>(x: T) -> StatsResult<f64>
 where
     T: ToPrimitive,

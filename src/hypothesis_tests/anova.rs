@@ -120,12 +120,12 @@ where
     // Calculate total number of observations
     let n_total: usize = groups.iter().map(|group| group.len()).sum();
 
-    // Calculate the grand mean (mean of all observations)
-    let all_values: Vec<f64> = groups
+    // Calculate the grand mean (mean of all observations) — zero-allocation iterator chain
+    let grand_mean = groups
         .iter()
         .flat_map(|group| group.iter().copied())
-        .collect();
-    let grand_mean = all_values.iter().sum::<f64>() / (n_total as f64);
+        .sum::<f64>()
+        / (n_total as f64);
 
     // Calculate group means
     let group_means: Vec<f64> = groups
