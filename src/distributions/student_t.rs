@@ -64,11 +64,14 @@ impl StudentT {
         let m4 = data.iter().map(|&x| (x - mu).powi(4)).sum::<f64>() / n;
         let excess_kurtosis = m4 / (variance * variance) - 3.0;
 
-        // ν = 4 + 6/κ  (from κ = 6/(ν-4) for ν > 4)
+        // ν = 4 + 6/κ  (from the identity κ_excess = 6/(ν−4), valid for ν > 4).
+        // Threshold 0.01: below this the sample kurtosis is indistinguishable from 0
+        // (Normal) given finite-sample noise, so we default to ν = 30 — a large enough
+        // value that the t-distribution is virtually identical to Normal (< 0.1% diff).
         let nu = if excess_kurtosis > 0.01 {
             (4.0 + 6.0 / excess_kurtosis).max(2.01)
         } else {
-            30.0 // effectively Normal
+            30.0 // ν ≥ 30 → t(ν) ≈ Normal; avoids artificially heavy tails from noisy kurtosis
         };
 
         Self::new(mu, sigma, nu)

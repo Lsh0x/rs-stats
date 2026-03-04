@@ -42,6 +42,7 @@
 use crate::distributions::traits::DiscreteDistribution;
 use crate::error::{StatsError, StatsResult};
 use crate::utils::special_functions::ln_gamma;
+use serde::{Deserialize, Serialize};
 
 /// Negative Binomial distribution NegBinom(r, p).
 ///
@@ -53,7 +54,7 @@ use crate::utils::special_functions::ln_gamma;
 /// let nb = NegativeBinomial::new(5.0, 0.5).unwrap();
 /// assert!((nb.mean() - 5.0).abs() < 1e-10);
 /// ```
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct NegativeBinomial {
     /// Number of successes r > 0 (can be non-integer, i.e. the overdispersion parameter)
     pub r: f64,
