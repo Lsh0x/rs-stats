@@ -1,13 +1,32 @@
 //! # Geometric Distribution
 //!
-//! The Geometric distribution models the number of trials until (and including) the
-//! first success in a sequence of Bernoulli trials with success probability p.
+//! The Geometric distribution models the number of Bernoulli trials until (and
+//! including) the first success, where each trial has constant success probability p.
 //!
 //! Support: k = 1, 2, 3, …
 //!
 //! **PMF**: P(X = k) = (1−p)^(k−1) · p
 //!
 //! **Mean**: 1/p   **Variance**: (1−p)/p²
+//!
+//! ## Medical applications
+//!
+//! - **Screening programs**: number of colonoscopy sessions until a polyp is detected
+//! - **Treatment attempts**: number of chemotherapy cycles until remission is achieved
+//! - **Procedure success**: number of lumbar puncture attempts until CSF is obtained
+//! - **Vaccination campaigns**: number of contact attempts until a patient is reached
+//!
+//! ## Example — colonoscopy screening
+//!
+//! ```rust
+//! use rs_stats::distributions::geometric::Geometric;
+//! use rs_stats::DiscreteDistribution;
+//!
+//! // P(detecting a polyp per colonoscopy session) = 0.18
+//! let screening = Geometric::new(0.18).unwrap();
+//! println!("E[sessions to detect] = {:.1}", screening.mean());   // ≈ 5.6
+//! println!("P(detected ≤ 3)       = {:.1}%", screening.cdf(3).unwrap() * 100.0);
+//! ```
 
 use crate::distributions::traits::DiscreteDistribution;
 use crate::error::{StatsError, StatsResult};

@@ -1,11 +1,44 @@
 //! # Weibull Distribution
 //!
-//! The Weibull distribution with shape k and scale λ models lifetimes, failure rates,
-//! and extreme values.
+//! The Weibull(k, λ) distribution models time-to-event data where the hazard rate
+//! is not constant but follows a power law.  The shape parameter k controls how
+//! the hazard evolves over time:
+//!
+//! | k value | Hazard rate | Interpretation |
+//! |---------|------------|----------------|
+//! | k < 1 | Decreasing | Early-failure regime (post-op complications, infant mortality) |
+//! | k = 1 | Constant | Memoryless (equivalent to Exponential) |
+//! | k > 1 | Increasing | Wear-out / aging (cancer relapse, device fatigue) |
 //!
 //! **PDF**: f(x; k, λ) = (k/λ) · (x/λ)^(k−1) · exp(−(x/λ)^k),  x ≥ 0
 //!
+//! **CDF**: F(x) = 1 − exp(−(x/λ)^k)  (closed-form, invertible)
+//!
 //! **Mean**: λ · Γ(1 + 1/k)   **Variance**: λ² · [Γ(1 + 2/k) − Γ(1 + 1/k)²]
+//!
+//! ## Medical applications
+//!
+//! - **Time to cancer relapse** after treatment (k > 1: hazard increases with time)
+//! - **Medical device / implant survival** (cardiac pacemakers, hip prostheses)
+//! - **Time to first seizure** after neurosurgery
+//! - **Organ transplant survival** curves
+//!
+//! ## Example — cancer relapse-free survival
+//!
+//! ```rust
+//! use rs_stats::distributions::weibull::Weibull;
+//! use rs_stats::distributions::traits::Distribution;
+//!
+//! // Time to relapse (months) after chemotherapy for 10 patients
+//! let relapse = vec![3.1, 7.4, 12.5, 2.8, 18.2, 5.9, 9.6, 15.3, 4.2, 22.0];
+//! let w = Weibull::fit(&relapse).unwrap();
+//! println!("k={:.2}  λ={:.2}", w.k, w.lambda);
+//! // k > 1 → increasing hazard (survivors become progressively more at risk)
+//!
+//! println!("Median RFS           = {:.1} months", w.inverse_cdf(0.5).unwrap());
+//! println!("P(relapse < 6 mo)    = {:.1}%", w.cdf(6.0).unwrap() * 100.0);
+//! println!("1-year survival      = {:.1}%", (1.0 - w.cdf(12.0).unwrap()) * 100.0);
+//! ```
 
 use crate::distributions::traits::Distribution;
 use crate::error::{StatsError, StatsResult};

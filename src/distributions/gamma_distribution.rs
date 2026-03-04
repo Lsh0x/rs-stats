@@ -1,11 +1,35 @@
 //! # Gamma Distribution
 //!
-//! The Gamma distribution Gamma(α, β) (shape α, rate β) is a continuous distribution
-//! over (0, ∞), generalising the exponential and chi-squared distributions.
+//! The Gamma(α, β) distribution (shape α, rate β) is a flexible model for
+//! positive right-skewed continuous data, generalising the Exponential (α=1)
+//! and Chi-Squared (α=k/2, β=1/2) distributions.
 //!
 //! **PDF**: f(x; α, β) = β^α · x^(α−1) · e^(−βx) / Γ(α),  x > 0
 //!
 //! **Mean**: α/β   **Variance**: α/β²
+//!
+//! ## Medical applications
+//!
+//! - **ICU length-of-stay** (days): right-skewed, positive, well-captured by Gamma
+//! - **Time between hospital re-admissions**: inter-event times with variable rate
+//! - **Blood glucose AUC** in oral glucose tolerance tests (OGTT)
+//! - **Radiation dose** absorbed by tissue (dosimetry)
+//!
+//! ## Example — ICU length-of-stay
+//!
+//! ```rust
+//! use rs_stats::distributions::gamma_distribution::Gamma;
+//! use rs_stats::distributions::traits::Distribution;
+//!
+//! // ICU LOS data (days) — positive and right-skewed
+//! let icu_los = vec![
+//!     1.5, 2.0, 4.5, 1.2, 7.8, 3.1, 2.4, 10.2, 1.8, 5.6,
+//!     3.9, 2.1, 6.3, 1.4, 8.9, 4.0, 2.7,  3.5, 1.9, 12.1,
+//! ];
+//! let g = Gamma::fit(&icu_los).unwrap();
+//! println!("Mean LOS        = {:.1} days", g.mean());
+//! println!("P(LOS > 7 days) = {:.1}%", (1.0 - g.cdf(7.0).unwrap()) * 100.0);
+//! ```
 
 use crate::distributions::traits::Distribution;
 use crate::error::{StatsError, StatsResult};

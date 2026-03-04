@@ -2,12 +2,42 @@
 //!
 //! The Negative Binomial distribution NegBinom(r, p) models the number of failures
 //! before achieving r successes in Bernoulli trials with success probability p.
+//! It also serves as the canonical model for **overdispersed count data** (variance > mean).
 //!
 //! Support: k = 0, 1, 2, …  (number of failures)
 //!
 //! **PMF**: P(X = k) = C(k+r−1, k) · p^r · (1−p)^k
 //!
 //! **Mean**: r(1−p)/p   **Variance**: r(1−p)/p²
+//!
+//! ## When to use over Poisson
+//!
+//! When count data has **variance > mean** (overdispersion), Poisson underfits.
+//! Use Negative Binomial — it adds a free parameter r to absorb the extra variability.
+//! Common in healthcare where patients are heterogeneous (different baseline risks).
+//!
+//! ## Medical applications
+//!
+//! - **Hospital readmissions** before stable remission (heterogeneous patient risk)
+//! - **Overdispersed adverse event counts** in pharmacovigilance
+//! - **Number of disease recurrences** before sustained response
+//! - **Emergency department visits** per patient per year (high inter-patient variability)
+//!
+//! ## Example — re-admissions before remission
+//!
+//! ```rust
+//! use rs_stats::distributions::negative_binomial::NegativeBinomial;
+//! use rs_stats::DiscreteDistribution;
+//!
+//! // Re-admissions data across 20 patients — variance >> mean → overdispersed
+//! let admissions = vec![
+//!     0.0, 2.0, 1.0, 5.0, 3.0, 0.0, 4.0, 1.0, 2.0, 6.0,
+//!     1.0, 0.0, 3.0, 2.0, 1.0, 4.0, 0.0, 2.0, 3.0, 1.0,
+//! ];
+//! let nb = NegativeBinomial::fit(&admissions).unwrap();
+//! println!("NegBin(r={:.2}, p={:.3})", nb.r, nb.p);
+//! println!("P(0 re-admissions) = {:.1}%", nb.pmf(0).unwrap() * 100.0);
+//! ```
 
 use crate::distributions::traits::DiscreteDistribution;
 use crate::error::{StatsError, StatsResult};

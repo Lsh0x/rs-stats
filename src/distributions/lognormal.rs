@@ -1,11 +1,51 @@
 //! # Log-Normal Distribution
 //!
 //! If X ~ LogNormal(μ, σ), then ln(X) ~ Normal(μ, σ²).
-//! Defined for x > 0.
+//! The distribution is defined for x > 0 and is right-skewed.
 //!
 //! **PDF**: f(x) = 1 / (x σ √(2π)) · exp(−(ln x − μ)² / (2σ²))
 //!
-//! **MLE**: μ = mean(ln data), σ = std(ln data)  (exact MLE)
+//! **MLE**: μ̂ = mean(ln data),  σ̂ = pop-std(ln data)  (exact MLE)
+//!
+//! **Median** = exp(μ)  (more informative than mean for skewed data)
+//!
+//! ## When to use
+//!
+//! Log-Normal arises naturally when a positive quantity is the *product* of many
+//! independent factors, or whenever the natural logarithm of the data is approximately
+//! Normal.  It always produces right-skewed, positive-valued data — a hallmark of
+//! many biological measurements.
+//!
+//! ## Medical applications
+//!
+//! | Biomarker / quantity | Why log-normal |
+//! |----------------------|---------------|
+//! | **CRP** (C-reactive protein, mg/L) | Spans < 1 to > 100 in the same cohort |
+//! | **Serum creatinine** (µmol/L) | Positive, right-skewed in kidney disease |
+//! | **Drug plasma concentration** (AUC) | Product of absorption / distribution factors |
+//! | **Tumour volume** | Multiplicative growth process |
+//! | **Hospital length-of-stay** | Most stays short, rare very long admissions |
+//!
+//! ## Example — CRP inflammation marker
+//!
+//! ```rust
+//! use rs_stats::distributions::lognormal::LogNormal;
+//! use rs_stats::distributions::traits::Distribution;
+//!
+//! // CRP levels (mg/L) — healthy < 5, elevated 5–100, critical > 100
+//! let crp = vec![
+//!     0.8, 1.2, 1.5, 2.1, 2.4, 3.2, 3.9, 5.6, 9.7, 12.4,
+//!     22.3, 45.0, 88.0, 0.9, 1.3, 1.8, 0.7, 0.6, 0.5, 1.1,
+//! ];
+//! let dist = LogNormal::fit(&crp).unwrap();
+//! println!("LogNormal(μ={:.2}, σ={:.2})", dist.mu, dist.sigma);
+//!
+//! // Median is more appropriate than mean for skewed biomarkers
+//! let median = dist.inverse_cdf(0.5).unwrap();
+//! let p_high = 1.0 - dist.cdf(10.0).unwrap();
+//! println!("Median CRP       = {:.2} mg/L", median);
+//! println!("P(CRP > 10 mg/L) = {:.1}%", p_high * 100.0);
+//! ```
 
 use std::f64::consts::PI;
 

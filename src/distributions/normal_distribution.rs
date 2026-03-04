@@ -1,3 +1,49 @@
+//! # Normal Distribution
+//!
+//! The Normal (Gaussian) distribution N(μ, σ) is the most widely used continuous
+//! distribution, arising naturally as the limiting distribution of sums and averages
+//! of independent random variables (Central Limit Theorem).
+//!
+//! **PDF**: f(x) = 1/(σ√(2π)) · exp(−(x−μ)²/(2σ²))
+//!
+//! **CDF**: F(x) = Φ((x−μ)/σ), where Φ is the standard normal CDF
+//!
+//! ## Medical applications
+//!
+//! | Measurement | Typical parameters |
+//! |-------------|-------------------|
+//! | **Systolic blood pressure** (healthy adults) | N(120, 10) mmHg |
+//! | **Diastolic blood pressure** (healthy adults) | N(80, 8) mmHg |
+//! | **Adult height** (men, Western population) | N(175, 7) cm |
+//! | **Haemoglobin** (adult men) | N(14.5, 1.0) g/dL |
+//! | **Body temperature** | N(37.0, 0.4) °C |
+//! | **IQ scores** (by design) | N(100, 15) |
+//! | **Lab measurement error** | N(0, σ_instrument) |
+//!
+//! ## Example — blood pressure reference intervals
+//!
+//! ```rust
+//! use rs_stats::distributions::normal_distribution::Normal;
+//! use rs_stats::distributions::traits::Distribution;
+//!
+//! // Diastolic BP in a healthy cohort: N(80, 8) mmHg
+//! let bp = Normal::new(80.0, 8.0).unwrap();
+//!
+//! // P(DBP > 90 mmHg) — stage 1 hypertension threshold
+//! let p_high = 1.0 - bp.cdf(90.0).unwrap();
+//! println!("P(DBP > 90 mmHg) = {:.1}%", p_high * 100.0);  // ≈ 10.6%
+//!
+//! // 95% reference interval (2.5th – 97.5th percentile)
+//! let lower = bp.inverse_cdf(0.025).unwrap();
+//! let upper = bp.inverse_cdf(0.975).unwrap();
+//! println!("Reference interval: [{:.1}, {:.1}] mmHg", lower, upper);
+//!
+//! // Fit to patient data (MLE: μ̂ = mean, σ̂ = pop std-dev)
+//! let readings = vec![78.0, 82.0, 79.0, 85.0, 81.0, 77.0, 83.0, 80.0];
+//! let fitted = Normal::fit(&readings).unwrap();
+//! println!("Fitted μ = {:.2}, σ = {:.2}", fitted.mean(), fitted.std_dev());
+//! ```
+
 use num_traits::ToPrimitive;
 
 use crate::distributions::traits::Distribution;

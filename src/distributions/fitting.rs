@@ -2,14 +2,60 @@
 //!
 //! High-level API for automatic distribution detection and fitting.
 //!
-//! ## Usage
+//! Given a dataset, this module:
+//! 1. **Detects** whether the data is discrete or continuous (`detect_data_type`)
+//! 2. **Fits** all applicable distribution candidates using MLE or MOM
+//! 3. **Ranks** them by AIC (lower = better fit, penalised for complexity)
+//! 4. **Validates** with a Kolmogorov-Smirnov goodness-of-fit test
 //!
+//! ## Key functions
+//!
+//! | Function | Description |
+//! |----------|-------------|
+//! | `auto_fit(data)` | Auto-detect type + return single best fit |
+//! | `fit_all(data)` | All 10 continuous distributions, ranked by AIC |
+//! | `fit_best(data)` | Best continuous distribution (lowest AIC) |
+//! | `fit_all_discrete(data)` | All 4 discrete distributions, ranked by AIC |
+//! | `fit_best_discrete(data)` | Best discrete distribution |
+//! | `detect_data_type(data)` | `DataKind::Discrete` or `DataKind::Continuous` |
+//! | `ks_test(data, cdf)` | Two-sided KS test for continuous distributions |
+//! | `ks_test_discrete(data, cdf)` | KS test for discrete distributions |
+//!
+//! ## Medical example — identifying the best distribution for drug half-life
+//!
+//! ```rust
+//! use rs_stats::distributions::fitting::{fit_all, auto_fit};
+//!
+//! // Drug half-life (hours) measured in 20 patients — typically log-normal in PK studies
+//! let half_lives = vec![
+//!     4.2, 6.1, 3.8, 9.5, 5.3, 7.4, 4.9, 11.2, 3.5, 6.8,
+//!     8.1, 4.4, 5.7, 7.0, 3.9, 10.3, 5.1,  6.5, 4.7,  8.6,
+//! ];
+//!
+//! // One-call: auto-detect + return single best (lowest AIC)
+//! let best = auto_fit(&half_lives).unwrap();
+//! println!("Best fit: {} (AIC={:.2}, KS p={:.3})", best.name, best.aic, best.ks_p_value);
+//!
+//! // Full ranking for model comparison and reporting
+//! println!("{:<15} {:>8} {:>8} {:>10}", "Distribution", "AIC", "BIC", "KS p-value");
+//! for r in fit_all(&half_lives).unwrap() {
+//!     println!("{:<15} {:>8.2} {:>8.2} {:>10.4}", r.name, r.aic, r.bic, r.ks_p_value);
+//! }
 //! ```
-//! use rs_stats::distributions::fitting::{fit_best, fit_all, detect_data_type, DataKind};
 //!
-//! let data = vec![1.2, 2.3, 1.8, 2.9, 1.5, 2.1, 1.7, 2.6];
-//! let best = fit_best(&data).unwrap();
-//! println!("Best fit: {} (AIC={:.2})", best.name, best.aic);
+//! ## Medical example — discrete event counts (adverse reactions)
+//!
+//! ```rust
+//! use rs_stats::distributions::fitting::fit_all_discrete;
+//!
+//! // Adverse drug reaction counts per patient over 6 months
+//! let adr_counts = vec![0.0, 1.0, 0.0, 2.0, 0.0, 1.0, 3.0, 0.0, 1.0, 0.0,
+//!                       2.0, 1.0, 0.0, 0.0, 1.0, 4.0, 0.0, 2.0, 1.0, 0.0];
+//!
+//! for r in fit_all_discrete(&adr_counts).unwrap() {
+//!     println!("{:<20} AIC={:.2}  KS p={:.3}", r.name, r.aic, r.ks_p_value);
+//! }
+//! // Poisson usually wins when variance ≈ mean; NegativeBinomial wins if overdispersed
 //! ```
 
 use crate::distributions::{

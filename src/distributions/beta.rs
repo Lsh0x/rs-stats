@@ -1,11 +1,50 @@
 //! # Beta Distribution
 //!
-//! The Beta distribution Beta(α, β) is a continuous distribution on [0, 1],
-//! commonly used to model probabilities and proportions.
+//! The Beta(α, β) distribution is a continuous distribution on [0, 1], making it
+//! the natural model for proportions, rates, and probabilities.
 //!
 //! **PDF**: f(x; α, β) = x^(α−1) · (1−x)^(β−1) / B(α, β),  x ∈ [0, 1]
 //!
-//! **MLE**: method-of-moments — μ̂ and σ̂² from data → α̂, β̂.
+//! **Fit**: method-of-moments — estimates μ̂ and σ̂² from data, then solves for α̂, β̂.
+//!
+//! **Mean**: α / (α + β)   **Variance**: αβ / [(α+β)²(α+β+1)]
+//!
+//! ## When to use
+//!
+//! Use Beta whenever your outcome is a **proportion** constrained to (0, 1):
+//! it can be symmetric (α=β), right-skewed (α<β), left-skewed (α>β), or U-shaped (α,β<1).
+//!
+//! ## Medical applications
+//!
+//! | Proportion | Description |
+//! |------------|-------------|
+//! | **Sensitivity / Specificity** | Diagnostic test performance across studies (meta-analysis) |
+//! | **Time-in-therapeutic range (TTR)** | Anticoagulation quality (warfarin, DOAC) |
+//! | **Medication adherence rate** | Fraction of prescribed doses taken |
+//! | **Tumour response rate** | Proportion of patients achieving response |
+//! | **Prevalence** | Bayesian prior / posterior for disease frequency |
+//!
+//! ## Example — warfarin time-in-therapeutic range (TTR)
+//!
+//! ```rust
+//! use rs_stats::distributions::beta::Beta;
+//! use rs_stats::distributions::traits::Distribution;
+//!
+//! // TTR values (0–1) for anticoagulated patients
+//! // TTR ≥ 0.70 is the recommended target for well-controlled anticoagulation
+//! let ttr = vec![
+//!     0.72, 0.65, 0.88, 0.55, 0.91, 0.78, 0.62, 0.84,
+//!     0.70, 0.58, 0.79, 0.93, 0.67, 0.75, 0.48, 0.82,
+//! ];
+//! let b = Beta::fit(&ttr).unwrap();
+//! println!("Beta(α={:.2}, β={:.2})", b.alpha, b.beta);
+//!
+//! let p_controlled = 1.0 - b.cdf(0.70).unwrap();
+//! println!("P(TTR ≥ 70%) = {:.1}%", p_controlled * 100.0);
+//!
+//! let median_ttr = b.inverse_cdf(0.5).unwrap();
+//! println!("Median TTR   = {:.1}%", median_ttr * 100.0);
+//! ```
 
 use crate::distributions::traits::Distribution;
 use crate::error::{StatsError, StatsResult};
