@@ -1,5 +1,52 @@
+//! # Normal Distribution
+//!
+//! The Normal (Gaussian) distribution N(μ, σ) is the most widely used continuous
+//! distribution, arising naturally as the limiting distribution of sums and averages
+//! of independent random variables (Central Limit Theorem).
+//!
+//! **PDF**: f(x) = 1/(σ√(2π)) · exp(−(x−μ)²/(2σ²))
+//!
+//! **CDF**: F(x) = Φ((x−μ)/σ), where Φ is the standard normal CDF
+//!
+//! ## Medical applications
+//!
+//! | Measurement | Typical parameters |
+//! |-------------|-------------------|
+//! | **Systolic blood pressure** (healthy adults) | N(120, 10) mmHg |
+//! | **Diastolic blood pressure** (healthy adults) | N(80, 8) mmHg |
+//! | **Adult height** (men, Western population) | N(175, 7) cm |
+//! | **Haemoglobin** (adult men) | N(14.5, 1.0) g/dL |
+//! | **Body temperature** | N(37.0, 0.4) °C |
+//! | **IQ scores** (by design) | N(100, 15) |
+//! | **Lab measurement error** | N(0, σ_instrument) |
+//!
+//! ## Example — blood pressure reference intervals
+//!
+//! ```rust
+//! use rs_stats::distributions::normal_distribution::Normal;
+//! use rs_stats::distributions::traits::Distribution;
+//!
+//! // Diastolic BP in a healthy cohort: N(80, 8) mmHg
+//! let bp = Normal::new(80.0, 8.0).unwrap();
+//!
+//! // P(DBP > 90 mmHg) — stage 1 hypertension threshold
+//! let p_high = 1.0 - bp.cdf(90.0).unwrap();
+//! println!("P(DBP > 90 mmHg) = {:.1}%", p_high * 100.0);  // ≈ 10.6%
+//!
+//! // 95% reference interval (2.5th – 97.5th percentile)
+//! let lower = bp.inverse_cdf(0.025).unwrap();
+//! let upper = bp.inverse_cdf(0.975).unwrap();
+//! println!("Reference interval: [{:.1}, {:.1}] mmHg", lower, upper);
+//!
+//! // Fit to patient data (MLE: μ̂ = mean, σ̂ = pop std-dev)
+//! let readings = vec![78.0, 82.0, 79.0, 85.0, 81.0, 77.0, 83.0, 80.0];
+//! let fitted = Normal::fit(&readings).unwrap();
+//! println!("Fitted μ = {:.2}, σ = {:.2}", fitted.mean(), fitted.std_dev());
+//! ```
+
 use num_traits::ToPrimitive;
 
+use crate::distributions::traits::Distribution;
 use crate::error::{StatsError, StatsResult};
 use crate::prob::erf;
 use crate::utils::constants::{INV_SQRT_2PI, SQRT_2};
@@ -299,6 +346,85 @@ where
     let result = mean + std_dev * final_z;
     // Convert from standard normal to the specified distribution
     Ok(result)
+}
+
+// ── Typed struct + Distribution impl ──────────────────────────────────────────
+
+/// Normal (Gaussian) distribution N(μ, σ²) as a typed struct.
+///
+/// Implements [`Distribution`] for use with `fit_all` / `fit_best`.
+///
+/// # Examples
+/// ```
+/// use rs_stats::distributions::normal_distribution::Normal;
+/// use rs_stats::distributions::traits::Distribution;
+///
+/// let n = Normal::new(0.0, 1.0).unwrap();
+/// assert!((n.mean() - 0.0).abs() < 1e-10);
+/// assert!((n.pdf(0.0).unwrap() - 0.398_942_280_401_4).abs() < 1e-10);
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct Normal {
+    /// Mean μ
+    pub mean: f64,
+    /// Standard deviation σ (must be > 0)
+    pub std_dev: f64,
+}
+
+impl Normal {
+    /// Creates a `Normal` distribution with validation.
+    pub fn new(mean: f64, std_dev: f64) -> StatsResult<Self> {
+        if std_dev <= 0.0 || std_dev.is_nan() || mean.is_nan() {
+            return Err(StatsError::InvalidInput {
+                message: "Normal::new: std_dev must be positive and parameters must be finite"
+                    .to_string(),
+            });
+        }
+        Ok(Self { mean, std_dev })
+    }
+
+    /// Maximum-likelihood estimate from data.
+    ///
+    /// MLE: μ = mean(data), σ = population std-dev.
+    pub fn fit(data: &[f64]) -> StatsResult<Self> {
+        if data.is_empty() {
+            return Err(StatsError::InvalidInput {
+                message: "Normal::fit: data must not be empty".to_string(),
+            });
+        }
+        let n = data.len() as f64;
+        let mean = data.iter().sum::<f64>() / n;
+        let variance = data.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
+        Self::new(mean, variance.sqrt())
+    }
+}
+
+impl Distribution for Normal {
+    fn name(&self) -> &str {
+        "Normal"
+    }
+    fn num_params(&self) -> usize {
+        2
+    }
+    fn pdf(&self, x: f64) -> StatsResult<f64> {
+        normal_pdf(x, self.mean, self.std_dev)
+    }
+    fn logpdf(&self, x: f64) -> StatsResult<f64> {
+        let z = (x - self.mean) / self.std_dev;
+        Ok(-0.5 * z * z - self.std_dev.ln() - 0.5 * (2.0 * std::f64::consts::PI).ln())
+    }
+    fn cdf(&self, x: f64) -> StatsResult<f64> {
+        normal_cdf(x, self.mean, self.std_dev)
+    }
+    fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
+        normal_inverse_cdf(p, self.mean, self.std_dev)
+    }
+    fn mean(&self) -> f64 {
+        self.mean
+    }
+    fn variance(&self) -> f64 {
+        self.std_dev * self.std_dev
+    }
 }
 
 #[cfg(test)]

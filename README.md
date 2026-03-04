@@ -2,378 +2,654 @@
 
 [![Rust](https://img.shields.io/badge/rust-1.56%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.0.0-green.svg)](https://crates.io/crates/rs-stats)
-[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/lsh0x/rs-stats/actions)
-[![GitHub last commit](https://img.shields.io/github/last-commit/lsh0x/rs-stats)](https://github.com/lsh0x/rs-stats/commits/main)
+[![Version](https://img.shields.io/badge/version-2.0.2-green.svg)](https://crates.io/crates/rs-stats)
+[![Tests](https://img.shields.io/badge/tests-343%20passing-brightgreen.svg)](https://github.com/lsh0x/rs-stats/actions)
 [![CI](https://github.com/lsh0x/rs-stats/workflows/CI/badge.svg)](https://github.com/lsh0x/rs-stats/actions)
-[![Codecov](https://codecov.io/gh/lsh0x/rs-stats/branch/main/graph/badge.svg)](https://codecov.io/gh/lsh0x/rs-stats)
 [![Docs](https://docs.rs/rs-stats/badge.svg)](https://docs.rs/rs-stats)
 [![Crates.io](https://img.shields.io/crates/v/rs-stats.svg)](https://crates.io/crates/rs-stats)
-[![crates.io](https://img.shields.io/crates/d/rs-stats)](https://crates.io/crates/rs-stats)
 
-A comprehensive statistical library written in Rust, providing powerful tools for probability, distributions, and hypothesis testing.
+A comprehensive statistical library written in Rust, designed for data scientists, researchers and engineers who need reliable, production-grade statistics.
 
-rs-stats offers a broad range of statistical functionality implemented in pure Rust. It's designed to be intuitive, efficient, and reliable for both simple and complex statistical analysis. The library aims to provide a comprehensive set of tools for data scientists, researchers, and developers working with statistical models.
+**rs-stats** covers the full statistical pipeline: probability functions, 14 parametric distributions with MLE/MOM fitting, automatic distribution detection, Kolmogorov-Smirnov goodness-of-fit tests, hypothesis testing, and regression analysis — all **panic-free** via `StatsResult<T>`.
 
-## 🎯 Key Features
+---
 
-- **Panic-Free Error Handling**: All functions return `StatsResult<T>` instead of panicking, making the library production-ready and safe
-- **Comprehensive Error Types**: Custom `StatsError` enum provides detailed error information for all failure cases
-- **Type-Safe**: Leverages Rust's type system for compile-time safety
+## Table of Contents
 
-## Features
+- [Key Features](#-key-features)
+- [Installation](#installation)
+- [Quick Start — Medical Example](#quick-start--medical-example)
+- [Distributions](#distributions)
+  - [Continuous Distributions](#continuous-distributions)
+  - [Discrete Distributions](#discrete-distributions)
+- [Automatic Distribution Fitting](#automatic-distribution-fitting)
+- [Hypothesis Testing](#hypothesis-testing)
+- [Regression Analysis](#regression-analysis)
+- [Error Handling](#error-handling)
+- [Documentation](#documentation)
 
-- **Probability Functions**
-  - Error functions (erf, erfc)
-  - Cumulative distribution functions
-  - Probability density functions
-  - Z-scores
-  - Basic statistics (mean, variance, standard deviation, standard error)
+---
 
-- **Statistical Distributions**
-  - Normal (Gaussian) distribution
-  - Binomial distribution
-  - Exponential distribution
-  - Poisson distribution
-  - Uniform distribution
+## ✨ Key Features
 
-- **Regression Analysis**
-  - Linear Regression (fit, predict, confidence intervals)
-  - Multiple Linear Regression (multiple predictor variables)
-  - Model statistics (R², adjusted R², standard error)
-  - Model persistence (save/load models in JSON or binary format)
+- **14 parametric distributions** — continuous and discrete, each with `fit()` (MLE or MOM), PDF/PMF, CDF, quantile, mean, variance, AIC, BIC
+- **Unified trait interface** — `Distribution` and `DiscreteDistribution` traits enable polymorphism and `Box<dyn Distribution>` at runtime
+- **Auto-fit API** — detect data type, fit all candidates, rank by AIC/BIC/KS-test in a single call
+- **Kolmogorov-Smirnov goodness-of-fit** — continuous and discrete variants
+- **Special functions** — `ln_gamma`, regularized incomplete gamma and beta (Lanczos + Numerical Recipes)
+- **Hypothesis testing** — t-tests (one-sample, two-sample, paired), ANOVA, chi-square, chi-square independence
+- **Regression** — linear, multiple linear, decision trees (regression and classification)
+- **Panic-free** — every computation returns `StatsResult<T>`, ready for production
 
-- **Hypothesis Testing**
-  - ANOVA (Analysis of Variance)
-  - Chi-square tests (independence and goodness of fit)
-  - T-tests (one-sample, two-sample, paired)
+---
 
 ## Installation
 
-Add rs-stats to your `Cargo.toml`:
-
 ```toml
 [dependencies]
-rs-stats = "2.0.0"
+rs-stats = "2.0.2"
 ```
 
-Or use cargo add:
+Or:
 
 ```bash
 cargo add rs-stats
 ```
 
-## Usage Examples
+---
 
-### Basic Statistical Functions
+## Quick Start — Medical Example
+
+> **Scenario**: You receive anonymised blood pressure measurements from 1 200 patients in a hypertension study. You want to identify the best-fitting distribution, compute the probability of a dangerously high reading, and compare two treatment arms.
 
 ```rust
-use rs_stats::prob::{average, variance, population_std_dev, std_err};
+use rs_stats::{auto_fit, fit_all, Distribution};
+use rs_stats::distributions::normal_distribution::Normal;
+use rs_stats::hypothesis_tests::t_test::two_sample_t_test;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-    
-    let mean = average(&data)?;
-    let var = variance(&data)?;
-    let std_dev = population_std_dev(&data)?;
-    let std_error = std_err(&data)?;
-    
-    println!("Mean: {}", mean);
-    println!("Variance: {}", var);
-    println!("Standard Deviation: {}", std_dev);
-    println!("Standard Error: {}", std_error);
-    
-    Ok(())
+// ── Step 1: systolic blood pressure data (mmHg) ──────────────────────────────
+// Real study would have 1 200 values; small sample used for illustration
+let systolic_bp = vec![
+    115.0, 122.0, 118.0, 130.0, 125.0, 119.0, 128.0, 132.0,
+    121.0, 117.0, 126.0, 135.0, 123.0, 120.0, 127.0, 131.0,
+];
+
+// ── Step 2: auto-detect the distribution and find the best fit ────────────────
+let best = auto_fit(&systolic_bp)?;
+println!("Best distribution : {}", best.name);   // → Normal
+println!("  AIC             : {:.2}", best.aic);
+println!("  KS p-value      : {:.4}", best.ks_p_value);
+
+// ── Step 3: use the fitted Normal to answer clinical questions ────────────────
+let bp_dist = Normal::fit(&systolic_bp)?;
+println!("Fitted Normal(μ={:.1}, σ={:.1})", bp_dist.mean(), bp_dist.std_dev());
+
+// P(BP > 140 mmHg) — hypertensive threshold
+let p_hyper = 1.0 - bp_dist.cdf(140.0)?;
+println!("P(BP > 140 mmHg) = {:.2}%", p_hyper * 100.0);
+
+// 95th percentile — what value do 95% of patients fall below?
+let p95 = bp_dist.inverse_cdf(0.95)?;
+println!("95th percentile  = {:.1} mmHg", p95);
+
+// ── Step 4: compare two treatment arms ───────────────────────────────────────
+let control_arm   = vec![128.0, 132.0, 125.0, 130.0, 129.0, 131.0, 127.0, 133.0];
+let treatment_arm = vec![118.0, 122.0, 115.0, 120.0, 119.0, 121.0, 117.0, 123.0];
+
+let t_result = two_sample_t_test(&control_arm, &treatment_arm, false)?;
+println!("Two-sample t-test: t={:.3}, p={:.4}", t_result.t_statistic, t_result.p_value);
+if t_result.p_value < 0.05 {
+    println!("→ Statistically significant BP reduction (α = 0.05)");
 }
 ```
 
-### Working with Distributions
+---
+
+## Distributions
+
+### Continuous Distributions
+
+All continuous distributions implement the `Distribution` trait and expose:
+- `Dist::new(params)` — validated constructor
+- `Dist::fit(data)` — maximum likelihood (MLE) or method-of-moments (MOM) estimation
+- `.pdf(x)`, `.logpdf(x)`, `.cdf(x)`, `.inverse_cdf(p)` — core functions
+- `.mean()`, `.variance()`, `.std_dev()` — moments
+- `.aic(data)`, `.bic(data)` — model selection criteria
+
+---
+
+#### Normal — `distributions::normal_distribution::Normal`
+
+> **When to use**: Symmetric continuous measurements that cluster around a mean.
+> **Medical examples**: Blood pressure, height, weight in large populations, IQ scores, measurement errors in lab instruments.
 
 ```rust
-use rs_stats::distributions::normal_distribution::{normal_pdf, normal_cdf, normal_inverse_cdf};
+use rs_stats::distributions::normal_distribution::Normal;
+use rs_stats::Distribution;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Standard normal distribution (mean=0, std_dev=1)
-    let x = 1.96;
-    
-    // Probability density at x
-    let density = normal_pdf(x, 0.0, 1.0)?;
-    println!("PDF at {}: {}", x, density);
-    
-    // Cumulative probability P(X ≤ x)
-    let cumulative = normal_cdf(x, 0.0, 1.0)?;
-    println!("CDF at {}: {}", x, cumulative);
-    
-    // Inverse CDF (quantile function)
-    let p = 0.975;
-    let quantile = normal_inverse_cdf(p, 0.0, 1.0)?;
-    println!("{}th percentile: {}", p * 100.0, quantile);
-    
-    Ok(())
-}
+// Diastolic blood pressure in a healthy cohort: N(80, 8)
+let bp = Normal::new(80.0, 8.0)?;
+
+// P(diastolic BP > 90 mmHg) — stage 1 hypertension threshold
+let p_high = 1.0 - bp.cdf(90.0)?;
+println!("P(DBP > 90) = {:.1}%", p_high * 100.0);   // ≈ 10.6%
+
+// 97.5th percentile — upper reference range
+let upper_ref = bp.inverse_cdf(0.975)?;
+println!("Upper reference (97.5th pct) = {:.1} mmHg", upper_ref);  // ≈ 95.7
+
+// Fit to patient data (MLE: μ̂ = mean, σ̂ = pop std-dev)
+let measurements = vec![78.0, 82.0, 79.0, 85.0, 81.0, 77.0, 83.0, 80.0];
+let fitted = Normal::fit(&measurements)?;
+println!("Fitted μ = {:.2}, σ = {:.2}", fitted.mean(), fitted.std_dev());
 ```
 
-### Hypothesis Testing
+---
+
+#### Log-Normal — `distributions::lognormal::LogNormal`
+
+> **When to use**: Right-skewed positive data — concentrations, durations, biological assays.
+> **Medical examples**: CRP (C-reactive protein) levels, serum creatinine, drug plasma concentrations, tumour volumes, hospital length-of-stay.
 
 ```rust
-use rs_stats::hypothesis_tests::t_test::{one_sample_t_test, two_sample_t_test};
-use rs_stats::hypothesis_tests::chi_square_test::{chi_square_goodness_of_fit, chi_square_independence};
-use rs_stats::hypothesis_tests::anova::one_way_anova;
+use rs_stats::distributions::lognormal::LogNormal;
+use rs_stats::Distribution;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // One-sample t-test
-    let sample = vec![5.1, 5.2, 4.9, 5.0, 5.3];
-    let result = one_sample_t_test(&sample, 5.0)?;
-    println!("One-sample t-test p-value: {}", result.p_value);
-    
-    // Two-sample t-test
-    let sample1 = vec![5.1, 5.2, 4.9, 5.0, 5.3];
-    let sample2 = vec![4.8, 4.9, 5.0, 4.7, 4.9];
-    let result = two_sample_t_test(&sample1, &sample2, true)?;
-    println!("Two-sample t-test p-value: {}", result.p_value);
-    
-    // ANOVA
-    let groups = vec![
-        vec![5.1, 5.2, 4.9, 5.0, 5.3],
-        vec![4.8, 4.9, 5.0, 4.7, 4.9],
-        vec![5.2, 5.3, 5.1, 5.4, 5.2],
-    ];
-    let groups_refs: Vec<&[f64]> = groups.iter().map(|g| g.as_slice()).collect();
-    let result = one_way_anova(&groups_refs)?;
-    println!("ANOVA p-value: {}", result.p_value);
-    
-    // Chi-square test of independence
-    let observed = vec![
-        vec![45, 55],
-        vec![60, 40],
-    ];
-    let (chi_sq, df, p_value) = chi_square_independence(&observed)?;
-    println!("Chi-square independence test p-value: {}", p_value);
-    
-    Ok(())
-}
+// CRP levels (mg/L) in an outpatient cohort
+// CRP is log-normally distributed: healthy < 5, elevated 5–100, critical > 100
+let crp_data = vec![
+    1.2, 0.8, 2.1, 1.5, 45.0, 3.2, 0.9, 12.4, 1.8, 88.0,
+    2.4, 1.1, 5.6, 0.7, 22.3, 3.9, 1.3, 9.7,  0.6,  0.5,
+];
+
+let crp = LogNormal::fit(&crp_data)?;
+println!("LogNormal(μ={:.2}, σ={:.2})", crp.mu, crp.sigma);
+
+// Median CRP (more informative than mean for skewed data)
+let median = crp.inverse_cdf(0.5)?;
+println!("Median CRP     = {:.2} mg/L", median);
+
+// P(CRP > 10 mg/L) — significant inflammation threshold
+let p_inflamed = 1.0 - crp.cdf(10.0)?;
+println!("P(CRP > 10)    = {:.1}%", p_inflamed * 100.0);
 ```
 
-### Regression Analysis
+---
+
+#### Weibull — `distributions::weibull::Weibull`
+
+> **When to use**: Time-to-event data where the hazard rate changes over time.
+> **Medical examples**: Time to relapse after cancer treatment, medical device/implant survival, time until a drug loses efficacy, organ transplant survival.
+
+```rust
+use rs_stats::distributions::weibull::Weibull;
+use rs_stats::Distribution;
+
+// Time to relapse (months) after chemotherapy — k > 1 means increasing hazard
+let relapse_times = vec![3.1, 7.4, 12.5, 2.8, 18.2, 5.9, 9.6, 15.3, 4.2, 22.0];
+
+let w = Weibull::fit(&relapse_times)?;
+println!("Weibull(k={:.2}, λ={:.2})", w.k, w.lambda);
+// k > 1 → hazard rate increases over time (survivors become more at risk)
+
+// Median relapse-free survival
+let median_rfs = w.inverse_cdf(0.5)?;
+println!("Median relapse-free survival = {:.1} months", median_rfs);
+
+// P(relapse within 6 months) — short-term risk
+let p_6mo = w.cdf(6.0)?;
+println!("P(relapse < 6 months)        = {:.1}%", p_6mo * 100.0);
+
+// 1-year survival probability
+let p_1yr = 1.0 - w.cdf(12.0)?;
+println!("1-year relapse-free survival = {:.1}%", p_1yr * 100.0);
+```
+
+---
+
+#### Gamma — `distributions::gamma_distribution::Gamma`
+
+> **When to use**: Positive right-skewed data, especially waiting times or accumulated effects.
+> **Medical examples**: ICU length-of-stay, time between hospital readmissions, blood glucose AUC in OGTT.
+
+```rust
+use rs_stats::distributions::gamma_distribution::Gamma;
+use rs_stats::Distribution;
+
+// ICU length-of-stay (days) — Gamma naturally models positive skewed durations
+let icu_los = vec![
+    1.5, 2.0, 4.5, 1.2, 7.8, 3.1, 2.4, 10.2, 1.8, 5.6,
+    3.9, 2.1, 6.3, 1.4, 8.9, 4.0, 2.7,  3.5, 1.9, 12.1,
+];
+
+let gamma = Gamma::fit(&icu_los)?;
+println!("Gamma(α={:.2}, β={:.2})", gamma.alpha, gamma.beta);
+println!("Mean ICU stay   = {:.2} days", gamma.mean());
+println!("Std-dev         = {:.2} days", gamma.std_dev());
+
+// P(LOS > 7 days) — prolonged ICU stay threshold for resource planning
+let p_prolonged = 1.0 - gamma.cdf(7.0)?;
+println!("P(LOS > 7 days) = {:.1}%", p_prolonged * 100.0);
+```
+
+---
+
+#### Beta — `distributions::beta::Beta`
+
+> **When to use**: Proportions, rates, and probabilities bounded in (0, 1).
+> **Medical examples**: Diagnostic test sensitivity and specificity, medication adherence rates, tumour response rates, proportion of time in therapeutic range (TTR) for anticoagulant patients.
+
+```rust
+use rs_stats::distributions::beta::Beta;
+use rs_stats::Distribution;
+
+// Time-in-therapeutic-range (TTR) for warfarin patients (values in 0–1)
+// TTR ≥ 0.70 is considered well-controlled anticoagulation
+let ttr_data = vec![
+    0.72, 0.65, 0.88, 0.55, 0.91, 0.78, 0.62, 0.84,
+    0.70, 0.58, 0.79, 0.93, 0.67, 0.75, 0.48, 0.82,
+];
+
+let beta = Beta::fit(&ttr_data)?;
+println!("Beta(α={:.2}, β={:.2})", beta.alpha, beta.beta);
+
+// P(TTR ≥ 0.70) — probability of being well-controlled
+let p_well = 1.0 - beta.cdf(0.70)?;
+println!("P(TTR ≥ 0.70) = {:.1}%", p_well * 100.0);
+
+// Median TTR across the population
+let median_ttr = beta.inverse_cdf(0.5)?;
+println!("Median TTR    = {:.1}%", median_ttr * 100.0);
+```
+
+---
+
+#### Student's t — `distributions::student_t::StudentT`
+
+> **When to use**: Symmetric distributions with heavier tails than Normal; small-sample inference.
+> **Medical examples**: Standardised effect sizes in small pilot studies, residuals from mixed-effects models, computing critical values for paired-samples tests.
+
+```rust
+use rs_stats::distributions::student_t::StudentT;
+use rs_stats::Distribution;
+
+// Small diabetes pilot study (n=12): t-distribution with df = n-1 = 11
+let t_dist = StudentT::new(0.0, 1.0, 11.0)?;
+
+// Two-sided critical value at α = 0.05
+let t_crit = t_dist.inverse_cdf(0.975)?;
+println!("t-critical (α=0.05, df=11) = {:.3}", t_crit);   // ≈ 2.201
+
+// p-value for an observed t-statistic of 2.5 (two-tailed)
+let p_value = 2.0 * (1.0 - t_dist.cdf(2.5)?);
+println!("p-value for |t|=2.5        = {:.4}", p_value);
+```
+
+---
+
+#### Exponential — `distributions::exponential_distribution::Exponential`
+
+> **When to use**: Time between events when events occur at a constant rate (memoryless property).
+> **Medical examples**: Inter-arrival times in an emergency department, time between seizures in epilepsy patients, spontaneous adverse events during a trial.
+
+```rust
+use rs_stats::distributions::exponential_distribution::Exponential;
+use rs_stats::Distribution;
+
+// Time (minutes) between patient arrivals in an ED
+let inter_arrivals = vec![8.2, 12.5, 4.1, 9.8, 6.3, 15.0, 3.7, 11.2, 7.4, 9.1];
+
+let exp = Exponential::fit(&inter_arrivals)?;
+println!("Exponential(λ={:.3} arrivals/min)", exp.lambda);
+println!("Mean inter-arrival = {:.1} min", exp.mean());
+
+// P(next patient within 5 minutes) — triage planning
+let p_5min = exp.cdf(5.0)?;
+println!("P(arrival < 5 min) = {:.1}%", p_5min * 100.0);
+```
+
+---
+
+#### Chi-Squared — `distributions::chi_squared::ChiSquared`
+
+> **When to use**: Distribution of sums of squared standard normals; used in goodness-of-fit tests and variance confidence intervals.
+> **Medical examples**: Testing whether observed disease frequencies match expected proportions, variance confidence intervals for measurement devices.
+
+```rust
+use rs_stats::distributions::chi_squared::ChiSquared;
+use rs_stats::Distribution;
+
+// 6-category goodness-of-fit test: df = 6 - 1 = 5
+let chi2 = ChiSquared::new(5.0)?;
+
+// Critical value at α = 0.05
+let chi2_crit = chi2.inverse_cdf(0.95)?;
+println!("χ²(5) critical value (α=0.05) = {:.3}", chi2_crit);  // ≈ 11.07
+
+// p-value for an observed χ² = 9.2
+let p_value = 1.0 - chi2.cdf(9.2)?;
+println!("p-value for χ²=9.2            = {:.4}", p_value);
+```
+
+---
+
+#### F-Distribution — `distributions::f_distribution::FDistribution`
+
+> **When to use**: Ratio of two chi-squared variables; used in ANOVA and regression significance tests.
+> **Medical examples**: Comparing biomarker variance across patient groups, multi-arm ANOVA F-statistic, F-test in multiple regression predicting clinical outcomes.
+
+```rust
+use rs_stats::distributions::f_distribution::FDistribution;
+use rs_stats::Distribution;
+
+// ANOVA with 4 groups, total n=52: F(3, 48)
+let f_dist = FDistribution::new(3.0, 48.0)?;
+
+// Critical value at α = 0.05
+let f_crit = f_dist.inverse_cdf(0.95)?;
+println!("F(3,48) critical value (α=0.05) = {:.3}", f_crit);  // ≈ 2.80
+
+// p-value for observed F = 4.5
+let p_value = 1.0 - f_dist.cdf(4.5)?;
+println!("p-value for F=4.5               = {:.4}", p_value);
+```
+
+---
+
+#### Uniform — `distributions::uniform_distribution::Uniform`
+
+> **When to use**: All values in a range are equally likely.
+> **Medical examples**: Randomisation checks in clinical trials, uncertainty about a drug's effective window, boundary-condition stress testing.
+
+```rust
+use rs_stats::distributions::uniform_distribution::Uniform;
+use rs_stats::Distribution;
+
+// Drug release window: effective between 2 h and 6 h post-ingestion
+let release = Uniform::new(2.0, 6.0)?;
+
+// P(effective within the first 3 hours)
+let p_3h = release.cdf(3.0)?;
+println!("P(effective by 3h) = {:.1}%", p_3h * 100.0);  // 25%
+```
+
+---
+
+### Discrete Distributions
+
+All discrete distributions implement the `DiscreteDistribution` trait and expose:
+- `Dist::new(params)` — validated constructor
+- `Dist::fit(data)` — MLE or MOM from `&[f64]`
+- `.pmf(k)`, `.logpmf(k)`, `.cdf(k)` — core functions
+- `.mean()`, `.variance()`, `.std_dev()` — moments
+- `.aic(data)`, `.bic(data)` — model selection
+
+---
+
+#### Poisson — `distributions::poisson_distribution::Poisson`
+
+> **When to use**: Count of rare independent events in a fixed time or space window.
+> **Medical examples**: Adverse drug reactions per 1 000 prescriptions, surgical site infections per month, emergency calls per hour, mutations per cell division.
+
+```rust
+use rs_stats::distributions::poisson_distribution::Poisson;
+use rs_stats::DiscreteDistribution;
+
+// Hospital-acquired infections (HAI) per ward per month: λ = 2.3
+let hai = Poisson::new(2.3)?;
+
+println!("P(0 HAI)     = {:.1}%", hai.pmf(0)? * 100.0);   // ≈ 10.0%
+println!("P(≥5 HAI)    = {:.1}%", (1.0 - hai.cdf(4)?) * 100.0);  // alert threshold
+
+// Fit from 12 months of observed counts
+let monthly_counts = vec![1.0, 3.0, 2.0, 0.0, 4.0, 2.0, 1.0, 3.0, 2.0, 1.0, 5.0, 2.0];
+let fitted = Poisson::fit(&monthly_counts)?;
+println!("Estimated λ  = {:.2} infections/month", fitted.lambda);
+```
+
+---
+
+#### Binomial — `distributions::binomial_distribution::Binomial`
+
+> **When to use**: Number of successes in n independent trials with constant probability p.
+> **Medical examples**: Responders in a treatment cohort, positive tests in a screening batch, side-effect events in a treated group.
+
+```rust
+use rs_stats::distributions::binomial_distribution::Binomial;
+use rs_stats::DiscreteDistribution;
+
+// Trial: n=100 patients, literature response rate p=0.35
+let trial = Binomial::new(100, 0.35)?;
+
+println!("E[responders]   = {:.0}", trial.mean());   // 35
+
+// P(≥ 45 responders) — detect a meaningful improvement
+let p_improved = 1.0 - trial.cdf(44)?;
+println!("P(≥45 respond)  = {:.2}%", p_improved * 100.0);
+```
+
+---
+
+#### Geometric — `distributions::geometric::Geometric`
+
+> **When to use**: Number of trials until the first success (k ≥ 1).
+> **Medical examples**: Screening cycles until a lesion is detected, treatment attempts until remission, needle passes until a successful lumbar puncture.
+
+```rust
+use rs_stats::distributions::geometric::Geometric;
+use rs_stats::DiscreteDistribution;
+
+// Colonoscopy screening: P(detecting polyp per session) = 0.18
+let screening = Geometric::new(0.18)?;
+
+println!("E[sessions to detect] = {:.1}", screening.mean());   // ≈ 5.6
+let p_within_3 = screening.cdf(3)?;
+println!("P(detected ≤ 3 sessions) = {:.1}%", p_within_3 * 100.0);
+```
+
+---
+
+#### Negative Binomial — `distributions::negative_binomial::NegativeBinomial`
+
+> **When to use**: Overdispersed count data (variance > mean), or number of failures before r-th success.
+> **Medical examples**: Hospitalisations before stable remission, overdispersed adverse event counts, recurrences before sustained response.
+
+```rust
+use rs_stats::distributions::negative_binomial::NegativeBinomial;
+use rs_stats::DiscreteDistribution;
+
+// Re-admissions before stable remission — overdispersed (variance > mean)
+let admissions = vec![
+    0.0, 2.0, 1.0, 5.0, 3.0, 0.0, 4.0, 1.0, 2.0, 6.0,
+    1.0, 0.0, 3.0, 2.0, 1.0, 4.0, 0.0, 2.0, 3.0, 1.0,
+];
+
+let nb = NegativeBinomial::fit(&admissions)?;
+println!("NegBin(r={:.2}, p={:.3})", nb.r, nb.p);
+println!("Mean re-admissions = {:.2}", nb.mean());
+println!("P(0 re-admissions) = {:.1}%", nb.pmf(0)? * 100.0);
+```
+
+---
+
+## Automatic Distribution Fitting
+
+> **Scenario**: A pharmacokineticist wants to know which distribution best describes drug half-life across 80 patients, without assuming Normality.
+
+```rust
+use rs_stats::{auto_fit, fit_all};
+
+// Drug half-life (hours) — typically log-normal or Weibull in PK studies
+let half_lives = vec![
+    4.2, 6.1, 3.8, 9.5, 5.3, 7.4, 4.9, 11.2, 3.5, 6.8,
+    8.1, 4.4, 5.7, 7.0, 3.9, 10.3, 5.1,  6.5, 4.7,  8.6,
+];
+
+// One-call: auto-detect type + best AIC
+let best = auto_fit(&half_lives)?;
+println!("Best fit: {} (AIC={:.2}, KS p={:.3})", best.name, best.aic, best.ks_p_value);
+
+// Full ranking — compare all candidates
+println!("\n{:<15} {:>8} {:>8} {:>10}", "Distribution", "AIC", "BIC", "KS p-value");
+println!("{}", "-".repeat(45));
+for r in fit_all(&half_lives)? {
+    println!("{:<15} {:>8.2} {:>8.2} {:>10.4}", r.name, r.aic, r.bic, r.ks_p_value);
+}
+// Typical output:
+// Distribution    AIC      BIC   KS p-value
+// -----------------------------------------
+// LogNormal     82.34    84.12     0.8231
+// Gamma         83.71    85.49     0.7654
+// Weibull       84.02    85.80     0.7412
+// Normal        89.45    91.23     0.4103
+```
+
+### Available candidates
+
+| Type | Distributions |
+|------|--------------|
+| Continuous (`fit_all`) | Normal, Exponential, Uniform, Gamma, LogNormal, Weibull, Beta, StudentT, F, ChiSquared |
+| Discrete (`fit_all_discrete`) | Poisson, Geometric, NegativeBinomial, Binomial |
+
+---
+
+## Hypothesis Testing
+
+> **Scenario**: A clinical trial compares HbA1c reduction across three diabetes treatments.
+
+```rust
+use rs_stats::hypothesis_tests::{
+    t_test::{one_sample_t_test, two_sample_t_test, paired_t_test},
+    anova::one_way_anova,
+    chi_square_test::chi_square_independence,
+};
+
+// ── Paired t-test: before vs after treatment ──────────────────────────────────
+let before = vec![8.2, 7.9, 8.6, 9.1, 8.4, 8.0, 8.8, 9.3];  // HbA1c %
+let after  = vec![7.4, 7.1, 7.9, 8.3, 7.5, 7.2, 8.0, 8.5];
+let paired = paired_t_test(&before, &after)?;
+println!("Paired t-test: t={:.3}, p={:.4}", paired.t_statistic, paired.p_value);
+// p < 0.05 → significant reduction in HbA1c
+
+// ── One-way ANOVA: compare three treatment arms ───────────────────────────────
+let drug_a = vec![-0.8, -1.2, -0.5, -1.5, -0.9];  // HbA1c change %
+let drug_b = vec![-1.4, -1.8, -1.1, -2.0, -1.6];
+let drug_c = vec![-0.4, -0.6, -0.3, -0.8, -0.5];
+let groups: Vec<&[f64]> = vec![&drug_a, &drug_b, &drug_c];
+let anova = one_way_anova(&groups)?;
+println!("ANOVA: F={:.3}, p={:.4}", anova.f_statistic, anova.p_value);
+
+// ── Chi-square independence: side-effect rate by treatment ────────────────────
+// Rows: Drug A, B, C  |  Cols: No side-effect, Side-effect occurred
+let observed = vec![
+    vec![42, 8],   // Drug A
+    vec![36, 14],  // Drug B
+    vec![45, 5],   // Drug C
+];
+let (_chi2, _df, p) = chi_square_independence(&observed)?;
+println!("χ² independence: p={:.4}", p);
+```
+
+---
+
+## Regression Analysis
+
+> **Scenario**: Predict post-operative recovery time from patient characteristics.
 
 ```rust
 use rs_stats::regression::linear_regression::LinearRegression;
 use rs_stats::regression::multiple_linear_regression::MultipleLinearRegression;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Simple Linear Regression
-    let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-    let y = vec![2.0, 4.0, 6.0, 8.0, 10.0];
-    
-    let mut model = LinearRegression::new();
-    model.fit(&x, &y)?;
-    
-    println!("Slope: {}", model.slope);
-    println!("Intercept: {}", model.intercept);
-    println!("R-squared: {}", model.r_squared);
-    
-    // Predict new values
-    let prediction = model.predict(6.0);
-    println!("Prediction for x=6: {}", prediction);
-    
-    // Calculate confidence interval (95%)
-    match model.confidence_interval(6.0, 0.95) {
-        Ok((lower, upper)) => {
-            println!("95% confidence interval: ({}, {})", lower, upper);
-        }
-        Err(e) => {
-            println!("Could not calculate confidence interval: {}", e);
-        }
-    }
-    
-    // Multiple Linear Regression
-    let x_multi = vec![
-        vec![1.0, 2.0], // observation 1: x1=1.0, x2=2.0
-        vec![2.0, 1.0], // observation 2: x1=2.0, x2=1.0
-        vec![3.0, 3.0], // observation 3: x1=3.0, x2=3.0
-        vec![4.0, 2.0], // observation 4: x1=4.0, x2=2.0
-    ];
-    let y_multi = vec![9.0, 8.0, 16.0, 15.0];
-    
-    let mut multi_model = MultipleLinearRegression::new();
-    multi_model.fit(&x_multi, &y_multi)?;
-    
-    println!("Coefficients: {:?}", multi_model.coefficients);
-    println!("R-squared: {}", multi_model.r_squared);
-    println!("Adjusted R-squared: {}", multi_model.adjusted_r_squared);
-    
-    // Predict with multiple variables
-    let new_observation = vec![5.0, 4.0];
-    let prediction = multi_model.predict(&new_observation);
-    println!("Prediction for new observation: {}", prediction);
-    
-    // Save model to file
-    multi_model.save("model.json")?;
-    
-    // Load model from file
-    let loaded_model = MultipleLinearRegression::load("model.json")?;
-    
-    Ok(())
-}
+// ── Simple linear regression: age → recovery time ────────────────────────────
+let age           = vec![35.0, 45.0, 55.0, 62.0, 70.0, 48.0, 58.0, 40.0];
+let recovery_days = vec![ 4.0,  5.5,  7.0,  8.5, 10.0,  6.0,  7.5,  5.0];
+
+let mut model = LinearRegression::new();
+model.fit(&age, &recovery_days)?;
+println!("Recovery ~ Age: slope={:.3} d/yr, R²={:.4}", model.slope, model.r_squared);
+
+// Predict for a 52-year-old patient with 95% CI
+let predicted = model.predict(52.0);
+let (lo, hi)  = model.confidence_interval(52.0, 0.95)?;
+println!("Predicted (age=52): {:.1} days  95% CI [{:.1}, {:.1}]", predicted, lo, hi);
+
+// ── Multiple regression: age + BMI + comorbidity score → recovery ─────────────
+let features = vec![
+    vec![35.0, 23.0, 1.0],   // [age, BMI, comorbidity score]
+    vec![55.0, 28.0, 2.0],
+    vec![62.0, 31.0, 3.0],
+    vec![45.0, 25.0, 1.0],
+    vec![70.0, 33.0, 4.0],
+    vec![48.0, 26.0, 2.0],
+];
+let outcomes = vec![4.5, 7.2, 9.8, 5.1, 12.3, 6.4];
+
+let mut mlr = MultipleLinearRegression::new();
+mlr.fit(&features, &outcomes)?;
+println!("MLR R² = {:.4}, Adj. R² = {:.4}", mlr.r_squared, mlr.adjusted_r_squared);
 ```
 
-### Decision Trees
-
-```rust
-use rs_stats::regression::decision_tree::{DecisionTree, TreeType, SplitCriterion};
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Example 1: Regression Tree for Patient Recovery Time Prediction
-    let mut recovery_time_tree = DecisionTree::<f64, f64>::new(
-        TreeType::Regression,
-        SplitCriterion::Mse,
-        5,   // max_depth
-        2,   // min_samples_split
-        1    // min_samples_leaf
-    );
-
-    // Training data: [age, treatment_intensity, bmi, comorbidity_score, initial_severity]
-    let patient_features = vec![
-        vec![45.0, 3.0, 28.5, 2.0, 7.0],  // Patient 1: 45 years, treatment intensity 3, BMI 28.5, etc.
-        vec![62.0, 4.0, 31.2, 3.0, 8.0],  // Patient 2
-        vec![38.0, 2.0, 24.3, 1.0, 5.0],  // Patient 3
-        // ... more patients
-    ];
-    let recovery_days = vec![14.0, 28.0, 10.0];  // Recovery time in days
-
-    // Train the model to predict recovery time
-    recovery_time_tree.fit(&patient_features, &recovery_days)?;
-
-    // Make predictions for a new patient
-    let new_patient = vec![
-        vec![55.0, 3.0, 27.0, 2.0, 6.0],  // New patient characteristics
-    ];
-    let predicted_recovery_days = recovery_time_tree.predict(&new_patient)?;
-    println!("Predicted recovery days: {:?}", predicted_recovery_days);
-
-    // Example 2: Classification Tree for Diabetes Risk Assessment
-    let mut diabetes_risk_tree = DecisionTree::<u8, f64>::new(
-        TreeType::Classification,
-        SplitCriterion::Gini,
-        4,   // max_depth
-        2,   // min_samples_split
-        1    // min_samples_leaf
-    );
-
-    // Training data: [glucose_level, bmi, blood_pressure, age, family_history]
-    let medical_features = vec![
-        vec![85.0, 22.0, 120.0, 35.0, 0.0],  // Patient 1: glucose 85 mg/dL, BMI 22, BP 120, etc.
-        vec![140.0, 31.0, 145.0, 52.0, 1.0],  // Patient 2
-        vec![165.0, 34.0, 155.0, 48.0, 1.0],  // Patient 3
-        // ... more patients
-    ];
-    let diabetes_status = vec![0, 1, 1];  // 0: No diabetes, 1: Diabetes
-
-    // Train the classifier
-    diabetes_risk_tree.fit(&medical_features, &diabetes_status)?;
-
-    // Print tree structure and summary
-    println!("Tree Structure:\n{}", diabetes_risk_tree.tree_structure());
-    println!("Tree Summary:\n{}", diabetes_risk_tree.summary());
-
-    // Feature importance - which medical measurements are most predictive
-    let importance = diabetes_risk_tree.feature_importances();
-    println!("Feature Importance: {:?}", importance);
-    
-    Ok(())
-}
-```
-
-The Decision Tree implementation supports:
-- Both regression and classification tasks
-- Multiple split criteria (MSE, MAE for regression; Gini, Entropy for classification)
-- Generic types with appropriate trait bounds
-- Parallel processing for optimal performance
-- Tree visualization and interpretation tools
-- Feature importance calculation
+---
 
 ## Error Handling
 
-rs-stats uses a custom error handling system that makes the library **panic-free** and production-ready. All functions return `StatsResult<T>`, which is a type alias for `Result<T, StatsError>`.
-
-### Error Types
-
-The `StatsError` enum provides detailed error information:
+All functions return `StatsResult<T>` — a type alias for `Result<T, StatsError>`. The library **never panics**.
 
 ```rust
 use rs_stats::{StatsError, StatsResult};
+use rs_stats::distributions::normal_distribution::Normal;
+use rs_stats::Distribution;
 
-// Example: Handling errors in statistical calculations
-fn analyze_data(data: &[f64]) -> StatsResult<f64> {
-    let mean = rs_stats::prob::average(data)?;  // Propagates errors automatically
-    let variance = rs_stats::prob::variance(data)?;
-    Ok(mean + variance)
+fn reference_range(mean: f64, sd: f64) -> StatsResult<(f64, f64)> {
+    let dist  = Normal::new(mean, sd)?;          // Err if sd ≤ 0
+    let lower = dist.inverse_cdf(0.025)?;
+    let upper = dist.inverse_cdf(0.975)?;
+    Ok((lower, upper))
 }
 
-// Example: Pattern matching on errors
-match analyze_data(&vec![]) {
-    Ok(result) => println!("Result: {}", result),
-    Err(StatsError::EmptyData { message }) => {
-        println!("Error: {}", message);
-    }
-    Err(StatsError::ConversionError { message }) => {
-        println!("Conversion error: {}", message);
-    }
-    Err(e) => println!("Other error: {}", e),
+match reference_range(80.0, -5.0) {             // Invalid: negative SD
+    Ok((lo, hi)) => println!("Ref range: [{:.1}, {:.1}]", lo, hi),
+    Err(StatsError::InvalidInput { message }) =>
+        println!("Invalid params: {}", message), // → "Normal::new: std_dev must be positive"
+    Err(e) => println!("Error: {}", e),
 }
 ```
 
-### Common Error Variants
+### Error Variants
 
-- `InvalidInput`: Invalid input parameters
-- `ConversionError`: Type conversion failures
-- `EmptyData`: Empty data arrays
-- `DimensionMismatch`: Mismatched array dimensions
-- `NumericalError`: Numerical computation errors
-- `NotFitted`: Model not fitted before prediction
-- `InvalidParameter`: Invalid parameter values
-- `IndexOutOfBounds`: Array index out of bounds
-- `MathematicalError`: Mathematical operation errors
+| Variant | Raised when |
+|---------|-------------|
+| `InvalidInput` | Out-of-domain parameter (negative σ, p ∉ [0,1], …) |
+| `EmptyData` | Empty slice passed to `fit()` or statistical functions |
+| `DimensionMismatch` | Mismatched array lengths (regression, paired tests) |
+| `ConversionError` | Type conversion failures |
+| `NumericalError` | Numerical instability (overflow, NaN propagation) |
+| `NotFitted` | `predict()` called before `fit()` on a regression model |
 
-All errors implement `std::error::Error` and can be easily converted to strings for logging or user-facing messages.
+---
 
 ## Documentation
 
-For detailed API documentation, run:
-
 ```bash
-cargo doc --open
+cargo doc --open          # full API documentation
+cargo test                # 343 unit tests + 66 doc tests
+cargo clippy              # linting
+cargo fmt --check         # formatting
 ```
 
-## Testing
-
-The library includes a comprehensive test suite. Run the tests with:
-
-```bash
-cargo test
-```
+---
 
 ## Contributing
 
-Contributions are welcome! Here's how you can contribute:
-
 1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/my-new-feature`
-3. Commit your changes: `git commit -am 'Add some feature'`
-4. Push to the branch: `git push origin feature/my-new-feature`
-5. Submit a pull request
+2. Create a branch: `git checkout -b feat/my-feature`
+3. Commit: `git commit -m "feat(scope): description"`
+4. Push and open a pull request
 
-Before submitting your PR, please make sure:
-- All tests pass
-- Code follows the project's style and conventions
-- New features include appropriate documentation and tests
+All PRs must pass `cargo test`, `cargo clippy -- -D warnings`, and `cargo fmt --check`.
+
+---
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Acknowledgments
-
-- The Rust community for their excellent documentation and support
-- Contributors to the project
-- Various statistical references and research papers that informed the implementations
+MIT — see [LICENSE](LICENSE).

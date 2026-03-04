@@ -254,6 +254,81 @@ fn combination(n: u64, k: u64) -> StatsResult<f64> {
     Ok((1..=k).fold(1.0_f64, |acc, i| acc * (n - i + 1) as f64 / i as f64))
 }
 
+// ── Typed struct + DiscreteDistribution impl ───────────────────────────────────
+
+/// Binomial distribution Binomial(n, p) as a typed struct.
+///
+/// # Examples
+/// ```
+/// use rs_stats::distributions::binomial_distribution::Binomial;
+/// use rs_stats::distributions::traits::DiscreteDistribution;
+///
+/// let b = Binomial::new(10, 0.5).unwrap();
+/// assert!((b.mean() - 5.0).abs() < 1e-10);
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct Binomial {
+    /// Number of trials n (must be ≥ 1)
+    pub n: u64,
+    /// Success probability p ∈ [0, 1]
+    pub p: f64,
+}
+
+impl Binomial {
+    /// Creates a `Binomial` distribution with validation.
+    pub fn new(n: u64, p: f64) -> StatsResult<Self> {
+        if n == 0 {
+            return Err(StatsError::InvalidInput {
+                message: "Binomial::new: n must be at least 1".to_string(),
+            });
+        }
+        if !(0.0..=1.0).contains(&p) {
+            return Err(StatsError::InvalidInput {
+                message: "Binomial::new: p must be in [0, 1]".to_string(),
+            });
+        }
+        Ok(Self { n, p })
+    }
+
+    /// MLE: assume n = max(data), p = mean(data) / n.
+    pub fn fit(data: &[f64]) -> StatsResult<Self> {
+        if data.is_empty() {
+            return Err(StatsError::InvalidInput {
+                message: "Binomial::fit: data must not be empty".to_string(),
+            });
+        }
+        let n = data
+            .iter()
+            .cloned()
+            .fold(f64::NEG_INFINITY, f64::max)
+            .round() as u64;
+        let mean = data.iter().sum::<f64>() / data.len() as f64;
+        let p = if n == 0 { 0.5 } else { mean / n as f64 };
+        Self::new(n.max(1), p.clamp(0.0, 1.0))
+    }
+}
+
+impl crate::distributions::traits::DiscreteDistribution for Binomial {
+    fn name(&self) -> &str {
+        "Binomial"
+    }
+    fn num_params(&self) -> usize {
+        2
+    }
+    fn pmf(&self, k: u64) -> StatsResult<f64> {
+        pmf(k, self.n, self.p)
+    }
+    fn cdf(&self, k: u64) -> StatsResult<f64> {
+        cdf(k, self.n, self.p)
+    }
+    fn mean(&self) -> f64 {
+        self.n as f64 * self.p
+    }
+    fn variance(&self) -> f64 {
+        self.n as f64 * self.p * (1.0 - self.p)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

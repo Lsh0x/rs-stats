@@ -1,29 +1,50 @@
 //! # Poisson Distribution
 //!
-//! This module implements the Poisson distribution, a discrete probability distribution
-//! that models the probability of a given number of events occurring in a fixed interval
-//! of time or space.
+//! Models the number of independent events that occur in a fixed interval of time
+//! or space when events happen at a constant average rate λ.
 //!
-//! ## Key Characteristics
-//! - Parameterized by λ (lambda), the average rate of occurrence
-//! - Discrete probability distribution
-//! - Models rare events in large populations
+//! **PMF**: P(X = k) = e^(−λ) · λ^k / k!,  k = 0, 1, 2, …
 //!
-//! ## Common Applications
-//! - Modeling call center traffic
-//! - Predicting system failures
-//! - Analyzing radioactive decay
-//! - Counting website visitors
+//! **Mean** = **Variance** = λ
 //!
-//! ## Mathematical Formulation
-//! The probability mass function (PMF) is given by:
+//! ## When to use
 //!
-//! P(X = k) = (e^(-λ) * λ^k) / k!
+//! Use Poisson when:
+//! - Events are independent (one event does not affect the probability of another)
+//! - The rate λ is constant over the observation window
+//! - The number of events in non-overlapping windows are independent
 //!
-//! where:
-//! - λ is the expected number of occurrences
-//! - k is the number of occurrences
-//! - e is Euler's number (~2.71828)
+//! ## Medical applications
+//!
+//! | Scenario | λ interpretation |
+//! |----------|-----------------|
+//! | Hospital-acquired infections | infections per ward per month |
+//! | Adverse drug reactions | events per 1 000 prescriptions |
+//! | Emergency department arrivals | patients per hour |
+//! | Surgical site infections | cases per 100 procedures |
+//! | Mutations in a tumour | mutations per cell division |
+//!
+//! ## Example
+//!
+//! ```rust
+//! use rs_stats::distributions::poisson_distribution::Poisson;
+//! use rs_stats::DiscreteDistribution;
+//!
+//! // Hospital-acquired infections (HAI): historical rate λ = 2.3 per ward/month
+//! let hai = Poisson::new(2.3).unwrap();
+//!
+//! // Probability of a zero-infection month (baseline benchmark)
+//! println!("P(0 HAI)  = {:.1}%", hai.pmf(0).unwrap() * 100.0);   // ≈ 10.0%
+//!
+//! // Alert threshold: P(≥ 5 infections) — trigger infection-control review
+//! let p_alert = 1.0 - hai.cdf(4).unwrap();
+//! println!("P(≥5 HAI) = {:.1}%", p_alert * 100.0);
+//!
+//! // Fit from 12 months of observed counts (MLE: λ̂ = sample mean)
+//! let monthly = vec![1.0, 3.0, 2.0, 0.0, 4.0, 2.0, 1.0, 3.0, 2.0, 1.0, 5.0, 2.0];
+//! let fitted = Poisson::fit(&monthly).unwrap();
+//! println!("Estimated λ = {:.2} infections/month", fitted.lambda);
+//! ```
 
 use crate::error::{StatsError, StatsResult};
 use num_traits::ToPrimitive;
@@ -222,6 +243,73 @@ where
         cdf_sum += log_pmf.exp();
     }
     Ok(cdf_sum.clamp(0.0, 1.0))
+}
+
+// ── Typed struct + DiscreteDistribution impl ───────────────────────────────────
+
+/// Poisson distribution Poisson(λ) as a typed struct.
+///
+/// # Examples
+/// ```
+/// use rs_stats::distributions::poisson_distribution::Poisson;
+/// use rs_stats::distributions::traits::DiscreteDistribution;
+///
+/// let p = Poisson::new(3.0).unwrap();
+/// assert!((p.mean() - 3.0).abs() < 1e-10);
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct Poisson {
+    /// Rate parameter λ > 0
+    pub lambda: f64,
+}
+
+impl Poisson {
+    /// Creates a `Poisson` distribution with validation.
+    pub fn new(lambda: f64) -> StatsResult<Self> {
+        if lambda <= 0.0 {
+            return Err(StatsError::InvalidInput {
+                message: "Poisson::new: lambda must be positive".to_string(),
+            });
+        }
+        Ok(Self { lambda })
+    }
+
+    /// MLE: λ = mean(data).
+    pub fn fit(data: &[f64]) -> StatsResult<Self> {
+        if data.is_empty() {
+            return Err(StatsError::InvalidInput {
+                message: "Poisson::fit: data must not be empty".to_string(),
+            });
+        }
+        let lambda = data.iter().sum::<f64>() / data.len() as f64;
+        Self::new(lambda)
+    }
+}
+
+impl crate::distributions::traits::DiscreteDistribution for Poisson {
+    fn name(&self) -> &str {
+        "Poisson"
+    }
+    fn num_params(&self) -> usize {
+        1
+    }
+    fn pmf(&self, k: u64) -> StatsResult<f64> {
+        pmf(k, self.lambda)
+    }
+    fn logpmf(&self, k: u64) -> StatsResult<f64> {
+        // ln P(k) = k*ln(λ) - λ - ln(k!)
+        let ln_fact = ln_factorial(k);
+        Ok((k as f64) * self.lambda.ln() - self.lambda - ln_fact)
+    }
+    fn cdf(&self, k: u64) -> StatsResult<f64> {
+        cdf(k, self.lambda)
+    }
+    fn mean(&self) -> f64 {
+        self.lambda
+    }
+    fn variance(&self) -> f64 {
+        self.lambda
+    }
 }
 
 #[cfg(test)]

@@ -321,6 +321,82 @@ where
     Ok((a_64 + b_64) / 2.0)
 }
 
+// ── Typed struct + Distribution impl ──────────────────────────────────────────
+
+/// Uniform distribution U(a, b) as a typed struct.
+///
+/// # Examples
+/// ```
+/// use rs_stats::distributions::uniform_distribution::Uniform;
+/// use rs_stats::distributions::traits::Distribution;
+///
+/// let u = Uniform::new(0.0, 1.0).unwrap();
+/// assert!((u.mean() - 0.5).abs() < 1e-10);
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct Uniform {
+    /// Lower bound a
+    pub a: f64,
+    /// Upper bound b (must be > a)
+    pub b: f64,
+}
+
+impl Uniform {
+    /// Creates a `Uniform` distribution with validation (requires a < b).
+    pub fn new(a: f64, b: f64) -> StatsResult<Self> {
+        if a >= b {
+            return Err(StatsError::InvalidInput {
+                message: "Uniform::new: a must be strictly less than b".to_string(),
+            });
+        }
+        Ok(Self { a, b })
+    }
+
+    /// MLE: a = min(data), b = max(data).
+    pub fn fit(data: &[f64]) -> StatsResult<Self> {
+        if data.is_empty() {
+            return Err(StatsError::InvalidInput {
+                message: "Uniform::fit: data must not be empty".to_string(),
+            });
+        }
+        let a = data.iter().cloned().fold(f64::INFINITY, f64::min);
+        let b = data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        Self::new(a, b)
+    }
+}
+
+impl crate::distributions::traits::Distribution for Uniform {
+    fn name(&self) -> &str {
+        "Uniform"
+    }
+    fn num_params(&self) -> usize {
+        2
+    }
+    fn pdf(&self, x: f64) -> StatsResult<f64> {
+        uniform_pdf(x, self.a, self.b)
+    }
+    fn logpdf(&self, x: f64) -> StatsResult<f64> {
+        if x < self.a || x > self.b {
+            // log(0) = -∞; return a large negative number
+            Ok(f64::NEG_INFINITY)
+        } else {
+            Ok(-((self.b - self.a).ln()))
+        }
+    }
+    fn cdf(&self, x: f64) -> StatsResult<f64> {
+        uniform_cdf(x, self.a, self.b)
+    }
+    fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
+        uniform_inverse_cdf(p, self.a, self.b)
+    }
+    fn mean(&self) -> f64 {
+        (self.a + self.b) / 2.0
+    }
+    fn variance(&self) -> f64 {
+        (self.b - self.a).powi(2) / 12.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

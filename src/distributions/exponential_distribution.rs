@@ -318,6 +318,84 @@ pub fn exponential_variance(lambda: f64) -> StatsResult<f64> {
     Ok(1.0 / (lambda * lambda))
 }
 
+// ── Typed struct + Distribution impl ──────────────────────────────────────────
+
+/// Exponential distribution Exp(λ) as a typed struct.
+///
+/// # Examples
+/// ```
+/// use rs_stats::distributions::exponential_distribution::Exponential;
+/// use rs_stats::distributions::traits::Distribution;
+///
+/// let e = Exponential::new(2.0).unwrap();
+/// assert!((e.mean() - 0.5).abs() < 1e-10);
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct Exponential {
+    /// Rate parameter λ > 0
+    pub lambda: f64,
+}
+
+impl Exponential {
+    /// Creates an `Exponential` distribution with validation.
+    pub fn new(lambda: f64) -> StatsResult<Self> {
+        if lambda <= 0.0 {
+            return Err(StatsError::InvalidInput {
+                message: "Exponential::new: lambda must be positive".to_string(),
+            });
+        }
+        Ok(Self { lambda })
+    }
+
+    /// MLE: λ = 1 / mean(data).  Data must be non-negative.
+    pub fn fit(data: &[f64]) -> StatsResult<Self> {
+        if data.is_empty() {
+            return Err(StatsError::InvalidInput {
+                message: "Exponential::fit: data must not be empty".to_string(),
+            });
+        }
+        if data.iter().any(|&x| x < 0.0) {
+            return Err(StatsError::InvalidInput {
+                message: "Exponential::fit: all data values must be non-negative".to_string(),
+            });
+        }
+        let mean = data.iter().sum::<f64>() / data.len() as f64;
+        Self::new(1.0 / mean)
+    }
+}
+
+impl crate::distributions::traits::Distribution for Exponential {
+    fn name(&self) -> &str {
+        "Exponential"
+    }
+    fn num_params(&self) -> usize {
+        1
+    }
+    fn pdf(&self, x: f64) -> StatsResult<f64> {
+        exponential_pdf(x, self.lambda)
+    }
+    fn logpdf(&self, x: f64) -> StatsResult<f64> {
+        if x < 0.0 {
+            return Err(StatsError::InvalidInput {
+                message: "Exponential::logpdf: x must be non-negative".to_string(),
+            });
+        }
+        Ok(self.lambda.ln() - self.lambda * x)
+    }
+    fn cdf(&self, x: f64) -> StatsResult<f64> {
+        exponential_cdf(x, self.lambda)
+    }
+    fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
+        exponential_inverse_cdf(p, self.lambda)
+    }
+    fn mean(&self) -> f64 {
+        1.0 / self.lambda
+    }
+    fn variance(&self) -> f64 {
+        1.0 / (self.lambda * self.lambda)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
