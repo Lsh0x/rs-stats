@@ -284,6 +284,156 @@ pub fn fit_best(data: &[f64]) -> StatsResult<FitResult> {
     Ok(all.remove(0))
 }
 
+// ── Verbose fitting (with diagnostics) ────────────────────────────────────────
+
+/// A distribution candidate that failed to fit, with a human-readable reason.
+///
+/// Returned alongside successful fits by [`fit_all_verbose`] and [`fit_all_discrete_verbose`].
+#[derive(Debug, Clone)]
+pub struct SkippedFit {
+    /// Distribution name (e.g. `"Beta"`).
+    pub name: &'static str,
+    /// Why this distribution was not included (e.g. `"fit failed: data must be in (0,1)"`).
+    pub reason: String,
+}
+
+/// Like [`fit_all`] but also reports which distributions were skipped and why.
+///
+/// # Examples
+/// ```
+/// use rs_stats::distributions::fitting::fit_all_verbose;
+///
+/// // Data outside (0,1): Beta will be skipped
+/// let data = vec![2.1, 3.5, 1.8, 4.2, 2.9];
+/// let (fitted, skipped) = fit_all_verbose(&data).unwrap();
+/// println!("{} distributions fitted, {} skipped", fitted.len(), skipped.len());
+/// for s in &skipped {
+///     println!("  Skipped {}: {}", s.name, s.reason);
+/// }
+/// ```
+pub fn fit_all_verbose(data: &[f64]) -> StatsResult<(Vec<FitResult>, Vec<SkippedFit>)> {
+    if data.is_empty() {
+        return Err(StatsError::InvalidInput {
+            message: "fit_all_verbose: data must not be empty".to_string(),
+        });
+    }
+
+    let mut results: Vec<FitResult> = Vec::new();
+    let mut skipped: Vec<SkippedFit> = Vec::new();
+
+    macro_rules! try_fit_v {
+        ($name:literal, $fit_expr:expr) => {
+            match $fit_expr {
+                Err(e) => skipped.push(SkippedFit {
+                    name: $name,
+                    reason: format!("fit failed: {e}"),
+                }),
+                Ok(dist) => match (dist.aic(data), dist.bic(data)) {
+                    (Ok(aic), Ok(bic)) if aic.is_finite() && bic.is_finite() => {
+                        let ks = ks_test(data, |x| dist.cdf(x).unwrap_or(0.0));
+                        results.push(FitResult {
+                            name: dist.name().to_string(),
+                            aic,
+                            bic,
+                            ks_statistic: ks.statistic,
+                            ks_p_value: ks.p_value,
+                        });
+                    }
+                    _ => skipped.push(SkippedFit {
+                        name: $name,
+                        reason: "non-finite AIC/BIC (log-likelihood diverged)".to_string(),
+                    }),
+                },
+            }
+        };
+    }
+
+    try_fit_v!("Normal", Normal::fit(data));
+    try_fit_v!(
+        "Exponential",
+        crate::distributions::exponential_distribution::Exponential::fit(data)
+    );
+    try_fit_v!("Uniform", Uniform::fit(data));
+    try_fit_v!("Gamma", Gamma::fit(data));
+    try_fit_v!("LogNormal", LogNormal::fit(data));
+    try_fit_v!("Weibull", Weibull::fit(data));
+    try_fit_v!("Beta", Beta::fit(data));
+    try_fit_v!("StudentT", StudentT::fit(data));
+    try_fit_v!("FDistribution", FDistribution::fit(data));
+    try_fit_v!("ChiSquared", ChiSquared::fit(data));
+
+    if results.is_empty() {
+        return Err(StatsError::InvalidInput {
+            message: "fit_all_verbose: no distribution could be fitted to the data".to_string(),
+        });
+    }
+
+    results.sort_by(|a, b| {
+        a.aic
+            .partial_cmp(&b.aic)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    Ok((results, skipped))
+}
+
+/// Like [`fit_all_discrete`] but also reports which distributions were skipped and why.
+pub fn fit_all_discrete_verbose(data: &[f64]) -> StatsResult<(Vec<FitResult>, Vec<SkippedFit>)> {
+    if data.is_empty() {
+        return Err(StatsError::InvalidInput {
+            message: "fit_all_discrete_verbose: data must not be empty".to_string(),
+        });
+    }
+
+    let int_data: Vec<u64> = data.iter().map(|&x| x.round() as u64).collect();
+    let mut results: Vec<FitResult> = Vec::new();
+    let mut skipped: Vec<SkippedFit> = Vec::new();
+
+    macro_rules! try_fit_disc_v {
+        ($name:literal, $fit_expr:expr) => {
+            match $fit_expr {
+                Err(e) => skipped.push(SkippedFit {
+                    name: $name,
+                    reason: format!("fit failed: {e}"),
+                }),
+                Ok(dist) => match (dist.aic(&int_data), dist.bic(&int_data)) {
+                    (Ok(aic), Ok(bic)) if aic.is_finite() && bic.is_finite() => {
+                        let ks = ks_test_discrete(data, |k| dist.cdf(k).unwrap_or(0.0));
+                        results.push(FitResult {
+                            name: dist.name().to_string(),
+                            aic,
+                            bic,
+                            ks_statistic: ks.statistic,
+                            ks_p_value: ks.p_value,
+                        });
+                    }
+                    _ => skipped.push(SkippedFit {
+                        name: $name,
+                        reason: "non-finite AIC/BIC (log-likelihood diverged)".to_string(),
+                    }),
+                },
+            }
+        };
+    }
+
+    try_fit_disc_v!("Poisson", Poisson::fit(data));
+    try_fit_disc_v!("Geometric", Geometric::fit(data));
+    try_fit_disc_v!("NegativeBinomial", NegativeBinomial::fit(data));
+    try_fit_disc_v!("Binomial", Binomial::fit(data));
+
+    if results.is_empty() {
+        return Err(StatsError::InvalidInput {
+            message: "fit_all_discrete_verbose: no distribution could be fitted".to_string(),
+        });
+    }
+
+    results.sort_by(|a, b| {
+        a.aic
+            .partial_cmp(&b.aic)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    Ok((results, skipped))
+}
+
 // ── Discrete fitting ───────────────────────────────────────────────────────────
 
 /// Fit all discrete distributions to integer `data` (passed as f64) and return ranked results.
