@@ -8,16 +8,34 @@ use crate::error::{StatsError, StatsResult};
 /// * `n` - The number to compute the factorial of.
 ///
 /// # Returns
-/// * `u64` - The factorial of n.
+/// * `StatsResult<u64>` - The factorial of n, or an error if n >= 21 (overflow).
 ///
-/// # Note
-/// This function does not return a Result because factorial is always valid
-/// for any u64 input (though it may overflow for large values).
-pub fn factorial(n: u64) -> u64 {
+/// # Errors
+/// Returns `StatsError::InvalidInput` if `n >= 21` (result overflows `u64`).
+///
+/// # Examples
+/// ```
+/// use rs_stats::utils::combinatorics::factorial;
+///
+/// assert_eq!(factorial(0).unwrap(), 1);
+/// assert_eq!(factorial(5).unwrap(), 120);
+/// assert!(factorial(21).is_err()); // Overflows u64
+/// ```
+pub fn factorial(n: u64) -> StatsResult<u64> {
     match n {
-        0 => 1,
-        1 => 1,
-        _ => (2..=n).product::<u64>(),
+        0 | 1 => Ok(1),
+        _ => {
+            let mut result: u64 = 1;
+            for i in 2..=n {
+                result = result.checked_mul(i).ok_or_else(|| {
+                    StatsError::invalid_input(format!(
+                        "factorial({}) overflows u64 (max supported: factorial(20))",
+                        n
+                    ))
+                })?;
+            }
+            Ok(result)
+        }
     }
 }
 
@@ -92,10 +110,21 @@ mod tests {
 
     #[test]
     fn test_factorial() {
-        assert_eq!(factorial(0), 1);
-        assert_eq!(factorial(1), 1);
-        assert_eq!(factorial(5), 120);
-        assert_eq!(factorial(10), 3628800);
+        assert_eq!(factorial(0).unwrap(), 1);
+        assert_eq!(factorial(1).unwrap(), 1);
+        assert_eq!(factorial(5).unwrap(), 120);
+        assert_eq!(factorial(10).unwrap(), 3628800);
+        assert_eq!(factorial(20).unwrap(), 2_432_902_008_176_640_000);
+    }
+
+    #[test]
+    fn test_factorial_overflow() {
+        // factorial(21) overflows u64
+        assert!(factorial(21).is_err());
+        assert!(matches!(
+            factorial(21).unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
     }
 
     #[test]
