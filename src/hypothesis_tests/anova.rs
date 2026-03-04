@@ -26,6 +26,8 @@
 
 use crate::error::{StatsError, StatsResult};
 use num_traits::ToPrimitive;
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 use std::fmt::Debug;
 
 /// Result of a one-way ANOVA test
@@ -120,14 +122,20 @@ where
     // Calculate total number of observations
     let n_total: usize = groups.iter().map(|group| group.len()).sum();
 
-    // Calculate the grand mean (mean of all observations)
-    let all_values: Vec<f64> = groups
+    // Calculate the grand mean (mean of all observations) — zero-allocation iterator chain
+    let grand_mean = groups
         .iter()
         .flat_map(|group| group.iter().copied())
-        .collect();
-    let grand_mean = all_values.iter().sum::<f64>() / (n_total as f64);
+        .sum::<f64>()
+        / (n_total as f64);
 
-    // Calculate group means
+    // Calculate group means (parallel when feature enabled)
+    #[cfg(feature = "parallel")]
+    let group_means: Vec<f64> = groups
+        .par_iter()
+        .map(|group| group.iter().sum::<f64>() / (group.len() as f64))
+        .collect();
+    #[cfg(not(feature = "parallel"))]
     let group_means: Vec<f64> = groups
         .iter()
         .map(|group| group.iter().sum::<f64>() / (group.len() as f64))

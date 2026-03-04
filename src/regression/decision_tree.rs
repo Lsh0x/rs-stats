@@ -1,6 +1,7 @@
 use crate::error::{StatsError, StatsResult};
 use num_traits::cast::AsPrimitive;
 use num_traits::{Float, FromPrimitive, NumCast, ToPrimitive};
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -294,9 +295,13 @@ where
         let mut best_left = Vec::new();
         let mut best_right = Vec::new();
 
-        // Check all features in parallel
-        let results: Vec<_> = (0..n_features)
-            .into_par_iter()
+        // Check all features (parallel when 'parallel' feature is enabled)
+        #[cfg(feature = "parallel")]
+        let iter = (0..n_features).into_par_iter();
+        #[cfg(not(feature = "parallel"))]
+        let iter = 0..n_features;
+
+        let results: Vec<_> = iter
             .filter_map(|feature_idx| {
                 // Get all unique values for this feature
                 let mut feature_values: Vec<(usize, D)> = indices

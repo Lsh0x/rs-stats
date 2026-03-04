@@ -29,6 +29,46 @@ use crate::error::{StatsError, StatsResult};
 use num_traits::ToPrimitive;
 use serde::{Deserialize, Serialize};
 
+/// Precomputed ln(k!) for k = 0..=20 (exact values).
+/// For k > 20, we use the Stirling approximation: ln(k!) ≈ k*ln(k) - k + 0.5*ln(2πk).
+/// This makes PMF O(1) per call instead of O(k).
+const LN_FACT_TABLE: [f64; 21] = [
+    0.0,                     // ln(0!) = 0
+    0.0,                     // ln(1!) = 0
+    std::f64::consts::LN_2,  // ln(2!) = ln(2)
+    1.791_759_469_228_055,   // ln(3!)
+    3.178_053_830_347_945_7, // ln(4!)
+    4.787_491_742_782_046,   // ln(5!)
+    6.579_251_212_010_101,   // ln(6!)
+    8.525_161_361_065_415,   // ln(7!)
+    10.604_602_902_745_25,   // ln(8!)
+    12.801_827_480_081_469,  // ln(9!)
+    15.104_412_573_075_516,  // ln(10!)
+    17.502_307_845_873_887,  // ln(11!)
+    19.987_214_495_661_885,  // ln(12!)
+    22.552_163_853_123_42,   // ln(13!)
+    25.191_221_182_738_68,   // ln(14!)
+    27.899_271_383_840_89,   // ln(15!)
+    30.671_860_128_909_07,   // ln(16!)
+    33.505_073_450_136_89,   // ln(17!)
+    36.395_445_208_033_05,   // ln(18!)
+    39.339_884_187_199_49,   // ln(19!)
+    42.335_616_460_753_485,  // ln(20!)
+];
+
+/// Compute ln(k!) in O(1) time.
+/// Uses a precomputed table for k <= 20 and Stirling's approximation for k > 20.
+#[inline]
+fn ln_factorial(k: u64) -> f64 {
+    if k <= 20 {
+        LN_FACT_TABLE[k as usize]
+    } else {
+        // Stirling's approximation: ln(k!) ≈ k*ln(k) - k + 0.5*ln(2πk)
+        let k_f64 = k as f64;
+        k_f64 * k_f64.ln() - k_f64 + 0.5 * (2.0 * std::f64::consts::PI * k_f64).ln()
+    }
+}
+
 /// Configuration for the Poisson distribution.
 ///
 /// # Fields
@@ -121,23 +161,14 @@ where
         });
     }
 
-    // Use log-space calculation to avoid:
-    // 1. Casting u64 to i32 (information loss)
-    // 2. Numerical underflow/overflow with large exponents
-    // 3. Better numerical stability
-    // Formula: λ^k * e^(-λ) / k! = exp(k * ln(λ) - λ - ln(k!))
+    // Use log-space calculation: exp(k * ln(λ) - λ - ln(k!))
+    // ln(k!) computed in O(1) via Stirling approximation (with exact lookup for small k)
     let k_f64 = k as f64;
-
-    // Calculate in log space: k * ln(λ) - λ - ln(k!)
-    // Note: ln(k!) = sum(ln(i)) for i=1..=k, but we already computed k! above
     let log_lambda_power = k_f64 * lambda_64.ln();
-    let log_fact: f64 = (1..=k as usize).map(|i| (i as f64).ln()).sum();
+    let log_fact = ln_factorial(k);
     let log_prob = log_lambda_power - lambda_64 - log_fact;
 
-    // Convert back from log space
-    let prob = log_prob.exp();
-
-    Ok(prob)
+    Ok(log_prob.exp())
 }
 
 /// Cumulative distribution function (CDF) for the Poisson distribution.
@@ -178,7 +209,19 @@ where
             message: "poisson_distribution::cdf: lambda must be positive".to_string(),
         });
     }
-    (0..=k).try_fold(0.0, |acc, i| pmf(i, lambda_64).map(|prob| acc + prob))
+    // Incremental log-factorial computation: O(k) total, O(1) per step.
+    // Each step reuses the previous log_fact via addition.
+    let ln_lambda = lambda_64.ln();
+    let mut log_fact = 0.0_f64;
+    let mut cdf_sum = 0.0_f64;
+    for i in 0..=k {
+        if i > 0 {
+            log_fact += (i as f64).ln();
+        }
+        let log_pmf = (i as f64) * ln_lambda - lambda_64 - log_fact;
+        cdf_sum += log_pmf.exp();
+    }
+    Ok(cdf_sum.clamp(0.0, 1.0))
 }
 
 #[cfg(test)]

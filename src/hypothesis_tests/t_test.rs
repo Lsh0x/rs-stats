@@ -264,8 +264,15 @@ where
         ));
     }
 
-    // Calculate differences between paired samples
-    let mut differences: Vec<f64> = Vec::with_capacity(data1.len());
+    // Single-pass conversion + Welford for all three streams (data1, data2, differences).
+    // Zero heap allocation: O(1) memory instead of O(n) for the differences Vec.
+    let n = data1.len() as f64;
+    let mut sum1 = 0.0_f64;
+    let mut sum2 = 0.0_f64;
+    let mut m2_1 = 0.0_f64; // Welford accumulator for data1
+    let mut m2_2 = 0.0_f64; // Welford accumulator for data2
+    let mut diff_mean = 0.0_f64; // Welford mean for differences
+    let mut diff_m2 = 0.0_f64; // Welford M2 for differences
 
     for i in 0..data1.len() {
         let val1 = data1[i].to_f64().ok_or_else(|| {
@@ -274,7 +281,6 @@ where
                 i
             ))
         })?;
-
         let val2 = data2[i].to_f64().ok_or_else(|| {
             StatsError::conversion_error(format!(
                 "Failed to convert data2 value at index {} to f64",
@@ -282,20 +288,35 @@ where
             ))
         })?;
 
-        differences.push(val1 - val2);
+        let count = (i + 1) as f64;
+
+        // Welford online variance for data1
+        let delta1 = val1 - sum1 / count.max(1.0);
+        sum1 += val1;
+        let delta1_post = val1 - sum1 / count;
+        m2_1 += delta1 * delta1_post;
+
+        // Welford online variance for data2
+        let delta2 = val2 - sum2 / count.max(1.0);
+        sum2 += val2;
+        let delta2_post = val2 - sum2 / count;
+        m2_2 += delta2 * delta2_post;
+
+        // Welford online mean + variance for differences (no Vec needed)
+        let d = val1 - val2;
+        let delta_d = d - diff_mean;
+        diff_mean += delta_d / count;
+        let delta_d2 = d - diff_mean;
+        diff_m2 += delta_d * delta_d2;
     }
 
-    // Calculate statistics on the differences
-    let n = differences.len() as f64;
-    let mean_diff = differences.iter().sum::<f64>() / n;
+    let mean1 = sum1 / n;
+    let mean2 = sum2 / n;
+    let std_dev1 = (m2_1 / (n - 1.0)).sqrt();
+    let std_dev2 = (m2_2 / (n - 1.0)).sqrt();
 
-    // Calculate variance of differences
-    let variance = differences
-        .iter()
-        .map(|&d| (d - mean_diff).powi(2))
-        .sum::<f64>()
-        / (n - 1.0);
-
+    let mean_diff = diff_mean;
+    let variance = diff_m2 / (n - 1.0);
     let std_dev = variance.sqrt();
     let std_error = std_dev / n.sqrt();
 
@@ -305,12 +326,6 @@ where
 
     // Calculate p-value (two-tailed)
     let p_value = calculate_p_value(t_statistic.abs(), degrees_of_freedom);
-
-    // Calculate original means and std devs
-    let mean1 = calculate_mean(data1)?;
-    let mean2 = calculate_mean(data2)?;
-    let std_dev1 = calculate_variance(data1, mean1)?.sqrt();
-    let std_dev2 = calculate_variance(data2, mean2)?.sqrt();
 
     Ok(TTestResult {
         t_statistic,
@@ -326,6 +341,7 @@ where
 // Helper functions
 
 /// Calculates the mean of a sample
+#[inline]
 fn calculate_mean<T>(data: &[T]) -> StatsResult<f64>
 where
     T: ToPrimitive + Debug,
@@ -350,6 +366,7 @@ where
 }
 
 /// Calculates the variance of a sample
+#[inline]
 fn calculate_variance<T>(data: &[T], mean: f64) -> StatsResult<f64>
 where
     T: ToPrimitive + Debug,
@@ -387,6 +404,7 @@ where
 ///
 /// # Returns
 /// The two-tailed p-value corresponding to the t-statistic and degrees of freedom
+#[inline]
 fn calculate_p_value(t_stat: f64, df: f64) -> f64 {
     // For very large degrees of freedom, t-distribution approaches normal distribution
     if df > 1000.0 {
@@ -411,6 +429,7 @@ fn calculate_p_value(t_stat: f64, df: f64) -> f64 {
 }
 
 /// Standard normal cumulative distribution function
+#[inline]
 fn standard_normal_cdf(x: f64) -> f64 {
     // Use error function relationship with normal CDF
     // unwrap is safe here as erf always succeeds for f64 values
@@ -419,6 +438,7 @@ fn standard_normal_cdf(x: f64) -> f64 {
 
 /// Incomplete beta function approximation
 /// Used for calculating the cumulative distribution function of the t-distribution
+#[inline]
 fn incomplete_beta(a: f64, b: f64, x: f64) -> f64 {
     if x == 0.0 || x == 1.0 {
         return x;
@@ -498,6 +518,7 @@ fn incomplete_beta(a: f64, b: f64, x: f64) -> f64 {
 
 /// Beta function B(a, b) = Γ(a) * Γ(b) / Γ(a + b)
 /// where Γ is the gamma function
+#[inline]
 fn beta(a: f64, b: f64) -> f64 {
     // Use Stirling's approximation for gamma function
     let log_gamma_a = ln_gamma(a);
@@ -509,6 +530,7 @@ fn beta(a: f64, b: f64) -> f64 {
 
 /// Natural logarithm of the gamma function
 /// Using Lanczos approximation for the gamma function
+#[inline]
 fn ln_gamma(x: f64) -> f64 {
     // Lanczos coefficients
     let p = [
