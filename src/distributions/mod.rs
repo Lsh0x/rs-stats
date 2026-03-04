@@ -24,12 +24,20 @@ pub mod traits;
 
 // ── Flat re-exports for ergonomic imports ──────────────────────────────────────
 // Allows `use rs_stats::distributions::Weibull` instead of the full module path.
+// Continuous — existing
+pub use binomial_distribution::Binomial;
+pub use exponential_distribution::Exponential;
+pub use normal_distribution::Normal;
+pub use poisson_distribution::Poisson;
+pub use uniform_distribution::Uniform;
+// Continuous — new
 pub use beta::Beta;
 pub use chi_squared::ChiSquared;
 pub use f_distribution::FDistribution;
 pub use gamma_distribution::Gamma;
-pub use geometric::Geometric;
 pub use lognormal::LogNormal;
-pub use negative_binomial::NegativeBinomial;
 pub use student_t::StudentT;
 pub use weibull::Weibull;
+// Discrete — new
+pub use geometric::Geometric;
+pub use negative_binomial::NegativeBinomial;
