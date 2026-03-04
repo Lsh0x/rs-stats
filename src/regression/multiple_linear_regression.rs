@@ -478,6 +478,7 @@ where
             let mut max_row = i;
             let mut max_val = aug[i][i].abs();
 
+            #[allow(clippy::needless_range_loop)]
             for j in (i + 1)..n {
                 let abs_val = aug[j][i].abs();
                 if abs_val > max_val {
@@ -515,6 +516,7 @@ where
         for i in (0..n).rev() {
             let mut sum = aug[i][n];
 
+            #[allow(clippy::needless_range_loop)]
             for j in (i + 1)..n {
                 sum = sum - (aug[i][j] * x[j]);
             }
