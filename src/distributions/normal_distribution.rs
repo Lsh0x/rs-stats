@@ -1,5 +1,6 @@
 use num_traits::ToPrimitive;
 
+use crate::distributions::traits::Distribution;
 use crate::error::{StatsError, StatsResult};
 use crate::prob::erf;
 use crate::utils::constants::{INV_SQRT_2PI, SQRT_2};
@@ -299,6 +300,85 @@ where
     let result = mean + std_dev * final_z;
     // Convert from standard normal to the specified distribution
     Ok(result)
+}
+
+// ── Typed struct + Distribution impl ──────────────────────────────────────────
+
+/// Normal (Gaussian) distribution N(μ, σ²) as a typed struct.
+///
+/// Implements [`Distribution`] for use with `fit_all` / `fit_best`.
+///
+/// # Examples
+/// ```
+/// use rs_stats::distributions::normal_distribution::Normal;
+/// use rs_stats::distributions::traits::Distribution;
+///
+/// let n = Normal::new(0.0, 1.0).unwrap();
+/// assert!((n.mean() - 0.0).abs() < 1e-10);
+/// assert!((n.pdf(0.0).unwrap() - 0.398_942_280_401_4).abs() < 1e-10);
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct Normal {
+    /// Mean μ
+    pub mean: f64,
+    /// Standard deviation σ (must be > 0)
+    pub std_dev: f64,
+}
+
+impl Normal {
+    /// Creates a `Normal` distribution with validation.
+    pub fn new(mean: f64, std_dev: f64) -> StatsResult<Self> {
+        if std_dev <= 0.0 || std_dev.is_nan() || mean.is_nan() {
+            return Err(StatsError::InvalidInput {
+                message: "Normal::new: std_dev must be positive and parameters must be finite"
+                    .to_string(),
+            });
+        }
+        Ok(Self { mean, std_dev })
+    }
+
+    /// Maximum-likelihood estimate from data.
+    ///
+    /// MLE: μ = mean(data), σ = population std-dev.
+    pub fn fit(data: &[f64]) -> StatsResult<Self> {
+        if data.is_empty() {
+            return Err(StatsError::InvalidInput {
+                message: "Normal::fit: data must not be empty".to_string(),
+            });
+        }
+        let n = data.len() as f64;
+        let mean = data.iter().sum::<f64>() / n;
+        let variance = data.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
+        Self::new(mean, variance.sqrt())
+    }
+}
+
+impl Distribution for Normal {
+    fn name(&self) -> &str {
+        "Normal"
+    }
+    fn num_params(&self) -> usize {
+        2
+    }
+    fn pdf(&self, x: f64) -> StatsResult<f64> {
+        normal_pdf(x, self.mean, self.std_dev)
+    }
+    fn logpdf(&self, x: f64) -> StatsResult<f64> {
+        let z = (x - self.mean) / self.std_dev;
+        Ok(-0.5 * z * z - self.std_dev.ln() - 0.5 * (2.0 * std::f64::consts::PI).ln())
+    }
+    fn cdf(&self, x: f64) -> StatsResult<f64> {
+        normal_cdf(x, self.mean, self.std_dev)
+    }
+    fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
+        normal_inverse_cdf(p, self.mean, self.std_dev)
+    }
+    fn mean(&self) -> f64 {
+        self.mean
+    }
+    fn variance(&self) -> f64 {
+        self.std_dev * self.std_dev
+    }
 }
 
 #[cfg(test)]

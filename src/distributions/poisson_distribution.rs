@@ -224,6 +224,73 @@ where
     Ok(cdf_sum.clamp(0.0, 1.0))
 }
 
+// ── Typed struct + DiscreteDistribution impl ───────────────────────────────────
+
+/// Poisson distribution Poisson(λ) as a typed struct.
+///
+/// # Examples
+/// ```
+/// use rs_stats::distributions::poisson_distribution::Poisson;
+/// use rs_stats::distributions::traits::DiscreteDistribution;
+///
+/// let p = Poisson::new(3.0).unwrap();
+/// assert!((p.mean() - 3.0).abs() < 1e-10);
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct Poisson {
+    /// Rate parameter λ > 0
+    pub lambda: f64,
+}
+
+impl Poisson {
+    /// Creates a `Poisson` distribution with validation.
+    pub fn new(lambda: f64) -> StatsResult<Self> {
+        if lambda <= 0.0 {
+            return Err(StatsError::InvalidInput {
+                message: "Poisson::new: lambda must be positive".to_string(),
+            });
+        }
+        Ok(Self { lambda })
+    }
+
+    /// MLE: λ = mean(data).
+    pub fn fit(data: &[f64]) -> StatsResult<Self> {
+        if data.is_empty() {
+            return Err(StatsError::InvalidInput {
+                message: "Poisson::fit: data must not be empty".to_string(),
+            });
+        }
+        let lambda = data.iter().sum::<f64>() / data.len() as f64;
+        Self::new(lambda)
+    }
+}
+
+impl crate::distributions::traits::DiscreteDistribution for Poisson {
+    fn name(&self) -> &str {
+        "Poisson"
+    }
+    fn num_params(&self) -> usize {
+        1
+    }
+    fn pmf(&self, k: u64) -> StatsResult<f64> {
+        pmf(k, self.lambda)
+    }
+    fn logpmf(&self, k: u64) -> StatsResult<f64> {
+        // ln P(k) = k*ln(λ) - λ - ln(k!)
+        let ln_fact = ln_factorial(k);
+        Ok((k as f64) * self.lambda.ln() - self.lambda - ln_fact)
+    }
+    fn cdf(&self, k: u64) -> StatsResult<f64> {
+        cdf(k, self.lambda)
+    }
+    fn mean(&self) -> f64 {
+        self.lambda
+    }
+    fn variance(&self) -> f64 {
+        self.lambda
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
