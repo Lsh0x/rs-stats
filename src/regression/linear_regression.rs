@@ -2,6 +2,8 @@
 
 use crate::error::{StatsError, StatsResult};
 use num_traits::{Float, NumCast};
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::fs::File;
@@ -237,9 +239,17 @@ where
     /// ```
     pub fn predict_many<U>(&self, x_values: &[U]) -> StatsResult<Vec<T>>
     where
-        U: NumCast + Copy,
+        U: NumCast + Copy + Send + Sync,
+        T: Send + Sync,
     {
-        x_values.iter().map(|&x| self.predict(x)).collect()
+        #[cfg(feature = "parallel")]
+        {
+            x_values.par_iter().map(|&x| self.predict(x)).collect()
+        }
+        #[cfg(not(feature = "parallel"))]
+        {
+            x_values.iter().map(|&x| self.predict(x)).collect()
+        }
     }
 
     /// Calculate confidence intervals for the regression line
