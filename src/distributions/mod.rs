@@ -21,3 +21,15 @@ pub mod negative_binomial;
 // ── Traits & fitting ───────────────────────────────────────────────────────────
 pub mod fitting;
 pub mod traits;
+
+// ── Flat re-exports for ergonomic imports ──────────────────────────────────────
+// Allows `use rs_stats::distributions::Weibull` instead of the full module path.
+pub use beta::Beta;
+pub use chi_squared::ChiSquared;
+pub use f_distribution::FDistribution;
+pub use gamma_distribution::Gamma;
+pub use geometric::Geometric;
+pub use lognormal::LogNormal;
+pub use negative_binomial::NegativeBinomial;
+pub use student_t::StudentT;
+pub use weibull::Weibull;
