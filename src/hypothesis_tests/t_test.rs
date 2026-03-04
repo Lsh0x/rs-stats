@@ -264,15 +264,15 @@ where
         ));
     }
 
-    // Single conversion pass: convert data, compute per-dataset stats AND differences
-    // This replaces 7 separate passes (conversion + mean_diff + var_diff + 4× calculate_mean/variance)
-    // with just 1 conversion pass + 1 Welford pass over differences.
+    // Single-pass conversion + Welford for all three streams (data1, data2, differences).
+    // Zero heap allocation: O(1) memory instead of O(n) for the differences Vec.
     let n = data1.len() as f64;
     let mut sum1 = 0.0_f64;
     let mut sum2 = 0.0_f64;
     let mut m2_1 = 0.0_f64; // Welford accumulator for data1
     let mut m2_2 = 0.0_f64; // Welford accumulator for data2
-    let mut differences: Vec<f64> = Vec::with_capacity(data1.len());
+    let mut diff_mean = 0.0_f64; // Welford mean for differences
+    let mut diff_m2 = 0.0_f64; // Welford M2 for differences
 
     for i in 0..data1.len() {
         let val1 = data1[i].to_f64().ok_or_else(|| {
@@ -288,20 +288,26 @@ where
             ))
         })?;
 
-        // Accumulate for Welford online variance (data1)
         let count = (i + 1) as f64;
+
+        // Welford online variance for data1
         let delta1 = val1 - sum1 / count.max(1.0);
         sum1 += val1;
         let delta1_post = val1 - sum1 / count;
         m2_1 += delta1 * delta1_post;
 
-        // Accumulate for Welford online variance (data2)
+        // Welford online variance for data2
         let delta2 = val2 - sum2 / count.max(1.0);
         sum2 += val2;
         let delta2_post = val2 - sum2 / count;
         m2_2 += delta2 * delta2_post;
 
-        differences.push(val1 - val2);
+        // Welford online mean + variance for differences (no Vec needed)
+        let d = val1 - val2;
+        let delta_d = d - diff_mean;
+        diff_mean += delta_d / count;
+        let delta_d2 = d - diff_mean;
+        diff_m2 += delta_d * delta_d2;
     }
 
     let mean1 = sum1 / n;
@@ -309,19 +315,8 @@ where
     let std_dev1 = (m2_1 / (n - 1.0)).sqrt();
     let std_dev2 = (m2_2 / (n - 1.0)).sqrt();
 
-    // Single Welford pass over differences for mean_diff and variance
-    let mut welford_mean = 0.0_f64;
-    let mut welford_m2 = 0.0_f64;
-    for (i, &d) in differences.iter().enumerate() {
-        let count = (i + 1) as f64;
-        let delta = d - welford_mean;
-        welford_mean += delta / count;
-        let delta2 = d - welford_mean;
-        welford_m2 += delta * delta2;
-    }
-
-    let mean_diff = welford_mean;
-    let variance = welford_m2 / (n - 1.0);
+    let mean_diff = diff_mean;
+    let variance = diff_m2 / (n - 1.0);
     let std_dev = variance.sqrt();
     let std_error = std_dev / n.sqrt();
 
@@ -434,6 +429,7 @@ fn calculate_p_value(t_stat: f64, df: f64) -> f64 {
 }
 
 /// Standard normal cumulative distribution function
+#[inline]
 fn standard_normal_cdf(x: f64) -> f64 {
     // Use error function relationship with normal CDF
     // unwrap is safe here as erf always succeeds for f64 values
@@ -442,6 +438,7 @@ fn standard_normal_cdf(x: f64) -> f64 {
 
 /// Incomplete beta function approximation
 /// Used for calculating the cumulative distribution function of the t-distribution
+#[inline]
 fn incomplete_beta(a: f64, b: f64, x: f64) -> f64 {
     if x == 0.0 || x == 1.0 {
         return x;
@@ -521,6 +518,7 @@ fn incomplete_beta(a: f64, b: f64, x: f64) -> f64 {
 
 /// Beta function B(a, b) = Γ(a) * Γ(b) / Γ(a + b)
 /// where Γ is the gamma function
+#[inline]
 fn beta(a: f64, b: f64) -> f64 {
     // Use Stirling's approximation for gamma function
     let log_gamma_a = ln_gamma(a);
@@ -532,6 +530,7 @@ fn beta(a: f64, b: f64) -> f64 {
 
 /// Natural logarithm of the gamma function
 /// Using Lanczos approximation for the gamma function
+#[inline]
 fn ln_gamma(x: f64) -> f64 {
     // Lanczos coefficients
     let p = [
