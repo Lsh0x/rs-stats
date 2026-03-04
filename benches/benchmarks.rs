@@ -101,10 +101,7 @@ mod hypothesis {
             let data = generate_data(n);
             group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, _| {
                 b.iter(|| {
-                    rs_stats::hypothesis_tests::t_test::one_sample_t_test(
-                        black_box(&data),
-                        5.0,
-                    )
+                    rs_stats::hypothesis_tests::t_test::one_sample_t_test(black_box(&data), 5.0)
                 });
             });
         }
@@ -119,9 +116,7 @@ mod hypothesis {
             let g3: Vec<f64> = g1.iter().map(|x| x - 1.0).collect();
             let groups_ref: Vec<&[f64]> = vec![&g1, &g2, &g3];
             group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, _| {
-                b.iter(|| {
-                    rs_stats::hypothesis_tests::anova::one_way_anova(black_box(&groups_ref))
-                });
+                b.iter(|| rs_stats::hypothesis_tests::anova::one_way_anova(black_box(&groups_ref)));
             });
         }
         group.finish();
@@ -151,7 +146,10 @@ mod regression {
         let mut group = c.benchmark_group("linear_regression_fit");
         for n in [10, 100, 1000] {
             let x: Vec<f64> = (0..n).map(|i| i as f64).collect();
-            let y: Vec<f64> = x.iter().map(|&xi| 2.0 * xi + 1.0 + (xi * 0.01).sin()).collect();
+            let y: Vec<f64> = x
+                .iter()
+                .map(|&xi| 2.0 * xi + 1.0 + (xi * 0.01).sin())
+                .collect();
             group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, _| {
                 b.iter(|| {
                     let mut model =
@@ -167,8 +165,7 @@ mod regression {
         let mut group = c.benchmark_group("linear_predict_many");
         let x_train: Vec<f64> = (0..100).map(|i| i as f64).collect();
         let y_train: Vec<f64> = x_train.iter().map(|&xi| 2.0 * xi + 1.0).collect();
-        let mut model =
-            rs_stats::regression::linear_regression::LinearRegression::<f64>::new();
+        let mut model = rs_stats::regression::linear_regression::LinearRegression::<f64>::new();
         model.fit(&x_train, &y_train).unwrap();
 
         for n in [100, 1000, 10_000] {
