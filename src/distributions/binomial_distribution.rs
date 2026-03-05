@@ -26,6 +26,7 @@
 //! - C(n,k) is the binomial coefficient (n choose k)
 
 use crate::error::{StatsError, StatsResult};
+use crate::utils::special_functions::ln_gamma;
 use num_traits::ToPrimitive;
 use serde::{Deserialize, Serialize};
 
@@ -317,6 +318,29 @@ impl crate::distributions::traits::DiscreteDistribution for Binomial {
     }
     fn pmf(&self, k: u64) -> StatsResult<f64> {
         pmf(k, self.n, self.p)
+    }
+    /// Log-space PMF for numerical stability with large n or k.
+    ///
+    /// ln P(X=k) = ln Γ(n+1) − ln Γ(k+1) − ln Γ(n−k+1) + k·ln(p) + (n−k)·ln(1−p)
+    fn logpmf(&self, k: u64) -> StatsResult<f64> {
+        let n = self.n;
+        if k > n {
+            return Ok(f64::NEG_INFINITY);
+        }
+        // ln C(n,k) via ln_gamma — exact and stable for any n, k.
+        let log_binom =
+            ln_gamma((n + 1) as f64) - ln_gamma((k + 1) as f64) - ln_gamma((n - k + 1) as f64);
+        let log_p = match (self.p, k) {
+            (0.0, 0) => 0.0,
+            (0.0, _) => return Ok(f64::NEG_INFINITY),
+            (_, _) => k as f64 * self.p.ln(),
+        };
+        let log_q = match (self.p, n - k) {
+            (1.0, 0) => 0.0,
+            (1.0, _) => return Ok(f64::NEG_INFINITY),
+            (_, nk) => nk as f64 * (1.0 - self.p).ln(),
+        };
+        Ok(log_binom + log_p + log_q)
     }
     fn cdf(&self, k: u64) -> StatsResult<f64> {
         cdf(k, self.n, self.p)

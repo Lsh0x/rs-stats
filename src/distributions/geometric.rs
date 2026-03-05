@@ -30,6 +30,7 @@
 
 use crate::distributions::traits::DiscreteDistribution;
 use crate::error::{StatsError, StatsResult};
+use serde::{Deserialize, Serialize};
 
 /// Geometric distribution Geometric(p).
 ///
@@ -41,7 +42,7 @@ use crate::error::{StatsError, StatsResult};
 /// let g = Geometric::new(0.25).unwrap();
 /// assert!((g.mean() - 4.0).abs() < 1e-10);
 /// ```
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Geometric {
     /// Success probability p ∈ (0, 1]
     pub p: f64,
@@ -74,6 +75,9 @@ impl Geometric {
             });
         }
         let mean = data.iter().sum::<f64>() / data.len() as f64;
+        // Clamp to (0, 1]: 1e-15 prevents p=0 (undefined distribution);
+        // mean < 1 is theoretically impossible for Geometric(p) but guards against
+        // floating-point rounding when all observations are 1.
         Self::new((1.0 / mean).clamp(1e-15, 1.0))
     }
 }
@@ -90,13 +94,15 @@ impl DiscreteDistribution for Geometric {
         if k == 0 {
             return Ok(0.0);
         }
-        Ok(self.p * (1.0 - self.p).powi((k - 1) as i32))
+        // Delegate to logpmf to avoid powi(i32) silent overflow for k > 2^31.
+        Ok(self.logpmf(k)?.exp())
     }
 
     fn logpmf(&self, k: u64) -> StatsResult<f64> {
         if k == 0 {
             return Ok(f64::NEG_INFINITY);
         }
+        // ln P(X=k) = ln(p) + (k-1) * ln(1-p)
         Ok(self.p.ln() + (k - 1) as f64 * (1.0 - self.p).ln())
     }
 
@@ -104,8 +110,29 @@ impl DiscreteDistribution for Geometric {
         if k == 0 {
             return Ok(0.0);
         }
-        // CDF(k) = 1 - (1-p)^k
-        Ok(1.0 - (1.0 - self.p).powi(k as i32))
+        // CDF(k) = 1 - (1-p)^k  — use powf(f64) to handle k > i32::MAX correctly.
+        Ok(1.0 - (1.0 - self.p).powf(k as f64))
+    }
+
+    /// Closed-form quantile: k = ⌈ln(1−p) / ln(1−self.p)⌉.
+    fn inverse_cdf(&self, p: f64) -> crate::error::StatsResult<u64> {
+        use crate::error::StatsError;
+        if !(0.0..=1.0).contains(&p) {
+            return Err(StatsError::InvalidInput {
+                message: format!("Geometric::inverse_cdf: p must be in [0, 1], got {p}"),
+            });
+        }
+        if p == 0.0 {
+            return Ok(0);
+        }
+        if p == 1.0 || self.p == 1.0 {
+            return Ok(1);
+        }
+        // CDF(k) = 1 - (1-p_param)^k ≥ p_target
+        // → (1-p_param)^k ≤ 1 - p_target
+        // → k ≥ ln(1 - p_target) / ln(1 - p_param)   [denominator < 0, inequality flips]
+        let k = (1.0 - p).ln() / (1.0 - self.p).ln();
+        Ok(k.ceil().max(1.0) as u64)
     }
 
     fn mean(&self) -> f64 {

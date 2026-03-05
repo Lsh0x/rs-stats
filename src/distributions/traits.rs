@@ -14,7 +14,7 @@
 //! assert!((pdf - 0.398_942_280_4).abs() < 1e-8);
 //! ```
 
-use crate::error::StatsResult;
+use crate::error::{StatsError, StatsResult};
 
 // ── Continuous distributions ───────────────────────────────────────────────────
 
@@ -108,6 +108,57 @@ pub trait DiscreteDistribution {
 
     /// Cumulative distribution function P(X ≤ k).
     fn cdf(&self, k: u64) -> StatsResult<f64>;
+
+    /// Quantile function: smallest k ≥ 0 such that CDF(k) ≥ p.
+    ///
+    /// Returns an error if `p ∉ [0, 1]`.
+    ///
+    /// The default implementation performs an **exponential search** followed by
+    /// **binary search** on the CDF, which is correct for any monotone CDF but may
+    /// be slow for distributions with very large quantiles.
+    /// Override with a closed-form formula when available.
+    ///
+    /// # Examples
+    /// ```
+    /// use rs_stats::distributions::poisson_distribution::Poisson;
+    /// use rs_stats::DiscreteDistribution;
+    ///
+    /// let p = Poisson::new(3.0).unwrap();
+    /// // Median of Poisson(3) should be 3
+    /// let median = p.inverse_cdf(0.5).unwrap();
+    /// assert!(median == 2 || median == 3);
+    /// ```
+    fn inverse_cdf(&self, p: f64) -> StatsResult<u64> {
+        if !(0.0..=1.0).contains(&p) {
+            return Err(StatsError::InvalidInput {
+                message: format!("inverse_cdf: p must be in [0, 1], got {p}"),
+            });
+        }
+        if p == 0.0 {
+            return Ok(0);
+        }
+        // Phase 1 — exponential search to bracket the answer.
+        let mut hi: u64 = 1;
+        while self.cdf(hi)? < p {
+            hi = hi.saturating_mul(2);
+            if hi == u64::MAX {
+                return Err(StatsError::NumericalError {
+                    message: "inverse_cdf: quantile exceeds u64::MAX".to_string(),
+                });
+            }
+        }
+        // Phase 2 — binary search in [0, hi].
+        let mut lo: u64 = 0;
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            if self.cdf(mid)? < p {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        Ok(lo)
+    }
 
     /// Mean (expected value) μ.
     fn mean(&self) -> f64;
