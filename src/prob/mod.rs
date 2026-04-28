@@ -7,6 +7,7 @@ pub mod prob_density;
 pub mod std_dev;
 pub mod std_err;
 pub mod variance;
+pub mod welford;
 pub mod z_score;
 
 // Re-export functions to allow users to import them directly from prob module
@@ -19,4 +20,5 @@ pub use self::prob_density::probability_density;
 pub use self::std_dev::std_dev;
 pub use self::std_err::std_err;
 pub use self::variance::variance;
+pub use self::welford::{Welford, WelfordCovariance, WelfordVector};
 pub use self::z_score::z_score;
