@@ -47,8 +47,6 @@
 //! ```
 
 use crate::error::{StatsError, StatsResult};
-use num_traits::ToPrimitive;
-use serde::{Deserialize, Serialize};
 
 /// Precomputed ln(k!) for k = 0..=20 (exact values).
 /// For k > 20, we use the Stirling approximation: ln(k!) ≈ k*ln(k) - k + 0.5*ln(2πk).
@@ -90,157 +88,37 @@ fn ln_factorial(k: u64) -> f64 {
     }
 }
 
-/// Configuration for the Poisson distribution.
-///
-/// # Fields
-/// * `lambda` - The average rate (λ) of events. Must be positive.
-///
-/// # Examples
-/// ```
-/// use rs_stats::distributions::poisson_distribution::PoissonConfig;
-///
-/// let config = PoissonConfig { lambda: 2.5 };
-/// assert!(config.lambda > 0.0);
-/// ```
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct PoissonConfig<T>
-where
-    T: ToPrimitive,
-{
-    /// The average rate (λ) of events.
-    pub lambda: T,
-}
+// Private math helpers; the public API is the [`Poisson`] struct's
+// [`DiscreteDistribution`] impl below.
 
-impl<T> PoissonConfig<T>
-where
-    T: ToPrimitive,
-{
-    /// Creates a new PoissonConfig with validation
-    ///
-    /// # Arguments
-    /// * `lambda` - The average rate (λ) of events
-    ///
-    /// # Returns
-    /// `Ok(PoissonConfig)` if lambda is positive, `Err` otherwise
-    pub fn new(lambda: T) -> StatsResult<Self> {
-        let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError {
-            message: "PoissonConfig::new: Failed to convert lambda to f64".to_string(),
-        })?;
-
-        if lambda_64 > 0.0 {
-            Ok(Self { lambda })
-        } else {
-            Err(StatsError::InvalidInput {
-                message: "PoissonConfig::new: lambda must be positive".to_string(),
-            })
-        }
-    }
-}
-
-/// Probability mass function (PMF) for the Poisson distribution.
-///
-/// Calculates the probability of observing exactly `k` events given the rate `λ`.
-///
-/// # Arguments
-/// * `k` - The number of occurrences (must be a non-negative integer)
-/// * `lambda` - The average rate (λ) (must be positive)
-///
-/// # Returns
-/// The probability of exactly `k` events occurring.
-///
-/// # Errors
-/// Returns an error if:
-/// - lambda is not positive
-/// - Type conversion to f64 fails
-/// - k is too large to compute factorial
-///
-/// # Examples
-/// ```
-/// use rs_stats::distributions::poisson_distribution::pmf;
-///
-/// // Calculate probability of 2 events with λ=1.5
-/// let prob = pmf(2, 1.5).unwrap();
-/// assert!((prob - 0.2510214301669835).abs() < 1e-10);
-/// ```
 #[inline]
-pub fn pmf<T>(k: u64, lambda: T) -> StatsResult<f64>
-where
-    T: ToPrimitive,
-{
-    let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError {
-        message: "poisson_distribution::pmf: Failed to convert lambda to f64".to_string(),
-    })?;
-    if lambda_64 <= 0.0 {
+fn pmf(k: u64, lambda: f64) -> StatsResult<f64> {
+    if lambda <= 0.0 {
         return Err(StatsError::InvalidInput {
-            message: "poisson_distribution::pmf: lambda must be positive".to_string(),
+            message: "poisson::pmf: lambda must be positive".to_string(),
         });
     }
-    // Check if k fits in usize (for factorial calculation)
-    if k > usize::MAX as u64 {
-        return Err(StatsError::InvalidInput {
-            message: "poisson_distribution::pmf: k is too large to compute factorial".to_string(),
-        });
-    }
-
-    // Use log-space calculation: exp(k * ln(λ) - λ - ln(k!))
-    // ln(k!) computed in O(1) via Stirling approximation (with exact lookup for small k)
     let k_f64 = k as f64;
-    let log_lambda_power = k_f64 * lambda_64.ln();
-    let log_fact = ln_factorial(k);
-    let log_prob = log_lambda_power - lambda_64 - log_fact;
-
+    let log_prob = k_f64 * lambda.ln() - lambda - ln_factorial(k);
     Ok(log_prob.exp())
 }
 
-/// Cumulative distribution function (CDF) for the Poisson distribution.
-///
-/// Calculates the probability of observing `k` or fewer events given the rate `λ`.
-///
-/// # Arguments
-/// * `k` - The maximum number of occurrences (must be a non-negative integer)
-/// * `lambda` - The average rate (λ) (must be positive)
-///
-/// # Returns
-/// The cumulative probability of `k` or fewer events occurring.
-///
-/// # Errors
-/// Returns an error if:
-/// - lambda is not positive
-/// - Type conversion to f64 fails
-/// - k is too large to compute factorial
-///
-/// # Examples
-/// ```
-/// use rs_stats::distributions::poisson_distribution::cdf;
-///
-/// // Calculate probability of 2 or fewer events with λ=1.5
-/// let prob = cdf(2, 1.5).unwrap();
-/// assert!((prob - 0.8088468305380586).abs() < 1e-10);
-/// ```
 #[inline]
-pub fn cdf<T>(k: u64, lambda: T) -> StatsResult<f64>
-where
-    T: ToPrimitive,
-{
-    let lambda_64 = lambda.to_f64().ok_or_else(|| StatsError::ConversionError {
-        message: "poisson_distribution::cdf: Failed to convert lambda to f64".to_string(),
-    })?;
-    if lambda_64 <= 0.0 {
+fn cdf(k: u64, lambda: f64) -> StatsResult<f64> {
+    if lambda <= 0.0 {
         return Err(StatsError::InvalidInput {
-            message: "poisson_distribution::cdf: lambda must be positive".to_string(),
+            message: "poisson::cdf: lambda must be positive".to_string(),
         });
     }
-    // Incremental log-factorial computation: O(k) total, O(1) per step.
-    // Each step reuses the previous log_fact via addition.
-    let ln_lambda = lambda_64.ln();
+    // Incremental log-factorial: O(k) total, O(1) per step.
+    let ln_lambda = lambda.ln();
     let mut log_fact = 0.0_f64;
     let mut cdf_sum = 0.0_f64;
     for i in 0..=k {
         if i > 0 {
             log_fact += (i as f64).ln();
         }
-        let log_pmf = (i as f64) * ln_lambda - lambda_64 - log_fact;
-        cdf_sum += log_pmf.exp();
+        cdf_sum += ((i as f64) * ln_lambda - lambda - log_fact).exp();
     }
     Ok(cdf_sum.clamp(0.0, 1.0))
 }

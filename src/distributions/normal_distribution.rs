@@ -44,80 +44,13 @@
 //! println!("Fitted μ = {:.2}, σ = {:.2}", fitted.mean(), fitted.std_dev());
 //! ```
 
-use num_traits::ToPrimitive;
-
 use crate::distributions::traits::Distribution;
 use crate::error::{StatsError, StatsResult};
 use crate::prob::erf;
 use crate::utils::constants::{INV_SQRT_2PI, SQRT_2};
-use serde::{Deserialize, Serialize};
 
-/// Configuration for the Normal distribution.
-///
-/// # Fields
-/// * `mean` - The mean (location parameter)
-/// * `std_dev` - The standard deviation (scale parameter, must be positive)
-///
-/// # Examples
-/// ```
-/// use rs_stats::distributions::normal_distribution::NormalConfig;
-///
-/// let config = NormalConfig { mean: 0.0, std_dev: 1.0 };
-/// assert!(config.std_dev > 0.0);
-/// ```
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct NormalConfig<T>
-where
-    T: ToPrimitive,
-{
-    /// The mean (μ) of the distribution.
-    pub mean: T,
-    /// The standard deviation (σ) of the distribution.
-    pub std_dev: T,
-}
-
-impl<T> NormalConfig<T>
-where
-    T: ToPrimitive,
-{
-    /// Creates a new NormalConfig with validation
-    ///
-    /// # Arguments
-    /// * `mean` - The mean of the distribution
-    /// * `std_dev` - The standard deviation of the distribution
-    ///
-    /// # Returns
-    /// `Some(NormalConfig)` if parameters are valid, `None` otherwise
-    ///
-    /// # Examples
-    /// ```
-    /// use rs_stats::distributions::normal_distribution::NormalConfig;
-    ///
-    /// let standard_normal = NormalConfig::new(0.0, 1.0);
-    /// assert!(standard_normal.is_ok());
-    ///
-    /// let invalid_config = NormalConfig::new(0.0, -1.0);
-    /// assert!(invalid_config.is_err());
-    /// ```
-    pub fn new(mean: T, std_dev: T) -> StatsResult<Self> {
-        let std_dev_64 = std_dev
-            .to_f64()
-            .ok_or_else(|| StatsError::ConversionError {
-                message: "NormalConfig::new: Failed to convert std_dev to f64".to_string(),
-            })?;
-        let mean_64 = mean.to_f64().ok_or_else(|| StatsError::ConversionError {
-            message: "NormalConfig::new: Failed to convert mean to f64".to_string(),
-        })?;
-
-        if std_dev_64 > 0.0 && !mean_64.is_nan() && !std_dev_64.is_nan() {
-            Ok(Self { mean, std_dev })
-        } else {
-            Err(StatsError::InvalidInput {
-                message: "NormalConfig::new: std_dev must be positive".to_string(),
-            })
-        }
-    }
-}
+// Private math helpers; the public API is the [`Normal`] struct's
+// [`Distribution`] impl below.
 
 /// Calculates the probability density function (PDF) for the normal distribution.
 ///
@@ -134,38 +67,15 @@ where
 /// - std_dev is not positive
 /// - Type conversion to f64 fails
 ///
-/// # Examples
-/// ```
-/// use rs_stats::distributions::normal_distribution::normal_pdf;
-///
-/// // Standard normal distribution at x = 0
-/// let pdf = normal_pdf(0.0, 0.0, 1.0).unwrap();
-/// assert!((pdf - 0.3989422804014327).abs() < 1e-10);
-///
-/// // Normal distribution with mean = 5, std_dev = 2 at x = 5
-/// let pdf = normal_pdf(5.0, 5.0, 2.0).unwrap();
-/// assert!((pdf - 0.19947114020071635).abs() < 1e-10);
-/// ```
 #[inline]
-pub fn normal_pdf<T>(x: T, mean: f64, std_dev: f64) -> StatsResult<f64>
-where
-    T: ToPrimitive,
-{
+fn normal_pdf(x: f64, mean: f64, std_dev: f64) -> StatsResult<f64> {
     if std_dev <= 0.0 {
         return Err(StatsError::InvalidInput {
-            message: "normal_pdf: Standard deviation must be positive".to_string(),
+            message: "normal_pdf: standard deviation must be positive".to_string(),
         });
     }
-
-    let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError {
-        message: "normal_pdf: Failed to convert x to f64".to_string(),
-    })?;
-
-    // Use multiplication instead of powi(2) for better performance
-    let z = (x_64 - mean) / std_dev;
-    let exponent = -0.5 * z * z;
-    // Use precomputed constant instead of computing sqrt(2π) every call
-    Ok(exponent.exp() * INV_SQRT_2PI / std_dev)
+    let z = (x - mean) / std_dev;
+    Ok((-0.5 * z * z).exp() * INV_SQRT_2PI / std_dev)
 }
 
 /// Calculates the cumulative distribution function (CDF) for the normal distribution.
@@ -183,42 +93,17 @@ where
 /// - std_dev is not positive
 /// - Type conversion to f64 fails
 ///
-/// # Examples
-/// ```
-/// use rs_stats::distributions::normal_distribution::normal_cdf;
-///
-/// // Standard normal distribution at x = 0
-/// let cdf = normal_cdf(0.0, 0.0, 1.0).unwrap();
-/// assert!((cdf - 0.5).abs() < 1e-7);
-///
-/// // Normal distribution with mean = 5, std_dev = 2 at x = 7
-/// let cdf = normal_cdf(7.0, 5.0, 2.0).unwrap();
-/// assert!((cdf - 0.8413447460685429).abs() < 1e-7);
-/// ```
 #[inline]
-pub fn normal_cdf<T>(x: T, mean: f64, std_dev: f64) -> StatsResult<f64>
-where
-    T: ToPrimitive,
-{
+pub(crate) fn normal_cdf(x: f64, mean: f64, std_dev: f64) -> StatsResult<f64> {
     if std_dev <= 0.0 {
         return Err(StatsError::InvalidInput {
-            message: "normal_cdf: Standard deviation must be positive".to_string(),
+            message: "normal_cdf: standard deviation must be positive".to_string(),
         });
     }
-
-    let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError {
-        message: "normal_cdf: Failed to convert x to f64".to_string(),
-    })?;
-
-    // Special case to handle exact value at the mean
-    if x_64 == mean {
+    if x == mean {
         return Ok(0.5);
     }
-
-    // Inline z-score calculation and combine with SQRT_2 division
-    // z_score = (x - mean) / std_dev, then divide by SQRT_2
-    // Combined: (x - mean) / (std_dev * SQRT_2)
-    let z = (x_64 - mean) / (std_dev * SQRT_2);
+    let z = (x - mean) / (std_dev * SQRT_2);
     Ok(0.5 * (1.0 + erf(z)?))
 }
 
@@ -232,24 +117,9 @@ where
 /// # Returns
 /// The value x such that P(X ≤ x) = p
 ///
-/// # Examples
-/// ```
-/// use rs_stats::distributions::normal_distribution::{normal_cdf, normal_inverse_cdf};
-///
-/// // Check that inverse_cdf is the inverse of cdf
-/// let x = 0.5;
-/// let p = normal_cdf(x, 0.0, 1.0).unwrap();
-/// let x_back = normal_inverse_cdf(p, 0.0, 1.0).unwrap();
-/// assert!((x - x_back).abs() < 1e-8);
-/// ```
 #[inline]
-pub fn normal_inverse_cdf<T>(p: T, mean: f64, std_dev: f64) -> StatsResult<f64>
-where
-    T: ToPrimitive,
-{
-    let p_64 = p.to_f64().ok_or_else(|| StatsError::ConversionError {
-        message: "normal_inverse_cdf: Failed to convert p to f64".to_string(),
-    })?;
+pub(crate) fn normal_inverse_cdf(p: f64, mean: f64, std_dev: f64) -> StatsResult<f64> {
+    let p_64 = p;
 
     if !(0.0..=1.0).contains(&p_64) {
         return Err(StatsError::InvalidInput {
@@ -598,46 +468,6 @@ mod tests {
     }
 
     #[test]
-    fn test_normal_config_new_nan_mean() {
-        let result = NormalConfig::new(f64::NAN, 1.0);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            StatsError::InvalidInput { .. }
-        ));
-    }
-
-    #[test]
-    fn test_normal_config_new_nan_std_dev() {
-        let result = NormalConfig::new(0.0, f64::NAN);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            StatsError::InvalidInput { .. }
-        ));
-    }
-
-    #[test]
-    fn test_normal_config_new_std_dev_zero() {
-        let result = NormalConfig::new(0.0, 0.0);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            StatsError::InvalidInput { .. }
-        ));
-    }
-
-    #[test]
-    fn test_normal_config_new_std_dev_negative() {
-        let result = NormalConfig::new(0.0, -1.0);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            StatsError::InvalidInput { .. }
-        ));
-    }
-
-    #[test]
     fn test_normal_inverse_cdf_p_negative() {
         let result = normal_inverse_cdf(-0.1, 0.0, 1.0);
         assert!(result.is_err());
@@ -704,10 +534,9 @@ mod tests {
     }
 
     #[test]
-    fn test_normal_config_new_valid() {
-        let config = NormalConfig::new(0.0, 1.0);
-        assert!(config.is_ok());
-        let config = config.unwrap();
-        assert_eq!(config.mean, 0.0);
+    fn test_normal_new_valid() {
+        let dist = Normal::new(0.0, 1.0).unwrap();
+        assert_eq!(dist.mean, 0.0);
+        assert_eq!(dist.std_dev, 1.0);
     }
 }
