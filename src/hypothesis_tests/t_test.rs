@@ -263,15 +263,18 @@ where
         ));
     }
 
-    // Single-pass conversion + Welford for all three streams (data1, data2, differences).
-    // Zero heap allocation: O(1) memory instead of O(n) for the differences Vec.
+    // Single-pass online statistics for all three streams (data1, data2,
+    // differences). Each stream tracks its own running mean explicitly —
+    // the previous (buggy) version used `running_sum / count` as the
+    // pre-update mean, which lags by one step and yields wrong std_devs.
     let n = data1.len() as f64;
-    let mut sum1 = 0.0_f64;
-    let mut sum2 = 0.0_f64;
-    let mut m2_1 = 0.0_f64; // Welford accumulator for data1
-    let mut m2_2 = 0.0_f64; // Welford accumulator for data2
-    let mut diff_mean = 0.0_f64; // Welford mean for differences
-    let mut diff_m2 = 0.0_f64; // Welford M2 for differences
+    let mut count = 0.0_f64;
+    let mut mean1 = 0.0_f64;
+    let mut mean2 = 0.0_f64;
+    let mut m2_1 = 0.0_f64;
+    let mut m2_2 = 0.0_f64;
+    let mut diff_mean = 0.0_f64;
+    let mut diff_m2 = 0.0_f64;
 
     for i in 0..data1.len() {
         let val1 = data1[i].to_f64().ok_or_else(|| {
@@ -287,30 +290,22 @@ where
             ))
         })?;
 
-        let count = (i + 1) as f64;
+        count += 1.0;
 
-        // Welford online variance for data1
-        let delta1 = val1 - sum1 / count.max(1.0);
-        sum1 += val1;
-        let delta1_post = val1 - sum1 / count;
-        m2_1 += delta1 * delta1_post;
+        let delta1 = val1 - mean1;
+        mean1 += delta1 / count;
+        m2_1 += delta1 * (val1 - mean1);
 
-        // Welford online variance for data2
-        let delta2 = val2 - sum2 / count.max(1.0);
-        sum2 += val2;
-        let delta2_post = val2 - sum2 / count;
-        m2_2 += delta2 * delta2_post;
+        let delta2 = val2 - mean2;
+        mean2 += delta2 / count;
+        m2_2 += delta2 * (val2 - mean2);
 
-        // Welford online mean + variance for differences (no Vec needed)
         let d = val1 - val2;
         let delta_d = d - diff_mean;
         diff_mean += delta_d / count;
-        let delta_d2 = d - diff_mean;
-        diff_m2 += delta_d * delta_d2;
+        diff_m2 += delta_d * (d - diff_mean);
     }
 
-    let mean1 = sum1 / n;
-    let mean2 = sum2 / n;
     let std_dev1 = (m2_1 / (n - 1.0)).sqrt();
     let std_dev2 = (m2_2 / (n - 1.0)).sqrt();
 

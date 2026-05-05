@@ -169,10 +169,7 @@ pub fn ks_test_discrete(data: &[f64], cdf: impl Fn(u64) -> f64) -> KsResult {
 }
 
 /// Zero-allocation variant of [`ks_test_discrete`].
-pub fn ks_test_discrete_with_scratch(
-    scratch: &mut [f64],
-    cdf: impl Fn(u64) -> f64,
-) -> KsResult {
+pub fn ks_test_discrete_with_scratch(scratch: &mut [f64], cdf: impl Fn(u64) -> f64) -> KsResult {
     let n = scratch.len();
     if n == 0 {
         return KsResult {
@@ -261,9 +258,7 @@ pub fn fit_all(data: &[f64]) -> StatsResult<Vec<FitResult>> {
                     if aic.is_finite() && bic.is_finite() {
                         ks_buf.clear();
                         ks_buf.extend_from_slice(data);
-                        let ks = ks_test_with_scratch(&mut ks_buf, |x| {
-                            dist.cdf(x).unwrap_or(0.0)
-                        });
+                        let ks = ks_test_with_scratch(&mut ks_buf, |x| dist.cdf(x).unwrap_or(0.0));
                         results.push(FitResult {
                             name: dist.name().to_string(),
                             aic,
@@ -360,9 +355,7 @@ pub fn fit_all_verbose(data: &[f64]) -> StatsResult<(Vec<FitResult>, Vec<Skipped
                     (Ok(aic), Ok(bic)) if aic.is_finite() && bic.is_finite() => {
                         ks_buf.clear();
                         ks_buf.extend_from_slice(data);
-                        let ks = ks_test_with_scratch(&mut ks_buf, |x| {
-                            dist.cdf(x).unwrap_or(0.0)
-                        });
+                        let ks = ks_test_with_scratch(&mut ks_buf, |x| dist.cdf(x).unwrap_or(0.0));
                         results.push(FitResult {
                             name: dist.name().to_string(),
                             aic,

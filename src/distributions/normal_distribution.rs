@@ -366,16 +366,24 @@ impl Normal {
 
     /// Maximum-likelihood estimate from data.
     ///
-    /// MLE: μ = mean(data), σ = population std-dev.
+    /// MLE: μ = mean(data), σ = population std-dev. Single-pass online
+    /// (Welford) — never walks `data` twice and never allocates.
     pub fn fit(data: &[f64]) -> StatsResult<Self> {
         if data.is_empty() {
             return Err(StatsError::InvalidInput {
                 message: "Normal::fit: data must not be empty".to_string(),
             });
         }
-        let n = data.len() as f64;
-        let mean = data.iter().sum::<f64>() / n;
-        let variance = data.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
+        let mut count = 0.0_f64;
+        let mut mean = 0.0_f64;
+        let mut m2 = 0.0_f64;
+        for &x in data {
+            count += 1.0;
+            let delta = x - mean;
+            mean += delta / count;
+            m2 += delta * (x - mean);
+        }
+        let variance = m2 / count; // population (MLE)
         Self::new(mean, variance.sqrt())
     }
 }

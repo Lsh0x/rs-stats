@@ -88,17 +88,30 @@ impl Weibull {
                 message: "Weibull::fit: all data values must be positive".to_string(),
             });
         }
-        let n = data.len() as f64;
-        let mean = data.iter().sum::<f64>() / n;
-        let variance = data.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
+        // Single-pass online mean+variance (Welford) on data.
+        let mut count = 0.0_f64;
+        let mut mean = 0.0_f64;
+        let mut m2 = 0.0_f64;
+        for &x in data {
+            count += 1.0;
+            let delta = x - mean;
+            mean += delta / count;
+            m2 += delta * (x - mean);
+        }
+        let variance = m2 / count;
         let cv = variance.sqrt() / mean; // coefficient of variation
 
         // Teimouri & Gupta (2013) approximation: k ≈ cv^{-1.086}
         let k = cv.powf(-1.086).max(0.01);
 
-        // Closed-form scale estimate: λ = (Σxᵢᵏ / n)^(1/k)
-        let sum_xk: f64 = data.iter().map(|&x| x.powf(k)).sum::<f64>();
-        let lambda = (sum_xk / n).powf(1.0 / k);
+        // Closed-form scale estimate: λ = (Σxᵢᵏ / n)^(1/k).
+        // This second pass over data still costs O(n) work but is needed —
+        // it depends on `k` which depends on the mean/variance just computed.
+        let mut sum_xk = 0.0_f64;
+        for &x in data {
+            sum_xk += x.powf(k);
+        }
+        let lambda = (sum_xk / count).powf(1.0 / k);
 
         Self::new(k, lambda)
     }

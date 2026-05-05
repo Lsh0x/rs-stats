@@ -27,8 +27,6 @@
 use crate::error::{StatsError, StatsResult};
 use crate::utils::special_functions::regularized_incomplete_beta as canonical_inc_beta;
 use num_traits::ToPrimitive;
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
 use std::fmt::Debug;
 
 /// Result of a one-way ANOVA test
@@ -97,73 +95,63 @@ where
         ));
     }
 
-    // Convert all data to f64 and check that each group has at least 2 observations
-    let mut groups: Vec<Vec<f64>> = Vec::with_capacity(groups_data.len());
+    // Single-pass Welford per group: never materialises Vec<Vec<f64>>,
+    // never walks any group twice. We keep only `(count, mean, m2)` per
+    // group — three f64s — instead of allocating a converted copy of every
+    // observation. ss_within = Σ m2 falls out for free.
+    let n_groups = groups_data.len();
+    let mut counts: Vec<f64> = Vec::with_capacity(n_groups);
+    let mut means: Vec<f64> = Vec::with_capacity(n_groups);
+    let mut m2s: Vec<f64> = Vec::with_capacity(n_groups);
+
     for (group_idx, group) in groups_data.iter().enumerate() {
-        let mut converted_group = Vec::with_capacity(group.len());
+        let mut count = 0.0_f64;
+        let mut mean = 0.0_f64;
+        let mut m2 = 0.0_f64;
         for (value_idx, &value) in group.iter().enumerate() {
-            let f64_value = value.to_f64().ok_or_else(|| {
+            let v = value.to_f64().ok_or_else(|| {
                 StatsError::conversion_error(format!(
                     "Failed to convert value at group {}, index {} to f64",
                     group_idx, value_idx
                 ))
             })?;
-            converted_group.push(f64_value);
+            count += 1.0;
+            let delta = v - mean;
+            mean += delta / count;
+            m2 += delta * (v - mean);
         }
-        if converted_group.len() < 2 {
+        if count < 2.0 {
             return Err(StatsError::invalid_input(format!(
                 "Each group must have at least 2 observations (group {} has {})",
-                group_idx,
-                converted_group.len()
+                group_idx, count as usize
             )));
         }
-        groups.push(converted_group);
+        counts.push(count);
+        means.push(mean);
+        m2s.push(m2);
     }
 
-    // Calculate total number of observations
-    let n_total: usize = groups.iter().map(|group| group.len()).sum();
-
-    // Calculate the grand mean (mean of all observations) — zero-allocation iterator chain
-    let grand_mean = groups
+    let n_total_f = counts.iter().sum::<f64>();
+    let n_total = n_total_f as usize;
+    let grand_mean = counts
         .iter()
-        .flat_map(|group| group.iter().copied())
+        .zip(means.iter())
+        .map(|(&n, &m)| n * m)
         .sum::<f64>()
-        / (n_total as f64);
+        / n_total_f;
 
-    // Calculate group means (parallel when feature enabled)
-    #[cfg(feature = "parallel")]
-    let group_means: Vec<f64> = groups
-        .par_iter()
-        .map(|group| group.iter().sum::<f64>() / (group.len() as f64))
-        .collect();
-    #[cfg(not(feature = "parallel"))]
-    let group_means: Vec<f64> = groups
+    let ss_between: f64 = counts
         .iter()
-        .map(|group| group.iter().sum::<f64>() / (group.len() as f64))
-        .collect();
-
-    // Calculate sum of squares between groups (SSB)
-    let ss_between: f64 = groups
-        .iter()
-        .zip(group_means.iter())
-        .map(|(group, &group_mean)| (group_mean - grand_mean).powi(2) * (group.len() as f64))
-        .sum();
-
-    // Calculate sum of squares within groups (SSW)
-    let ss_within: f64 = groups
-        .iter()
-        .zip(group_means.iter())
-        .map(|(group, &group_mean)| {
-            group
-                .iter()
-                .map(|&value| (value - group_mean).powi(2))
-                .sum::<f64>()
+        .zip(means.iter())
+        .map(|(&n, &m)| {
+            let d = m - grand_mean;
+            d * d * n
         })
         .sum();
+    let ss_within: f64 = m2s.iter().sum();
 
-    // Calculate degrees of freedom
-    let df_between = groups.len() - 1;
-    let df_within = n_total - groups.len();
+    let df_between = n_groups - 1;
+    let df_within = n_total - n_groups;
 
     // Calculate mean squares
     let ms_between = ss_between / (df_between as f64);
