@@ -25,9 +25,8 @@
 //!   under the null hypothesis that all group means are equal.
 
 use crate::error::{StatsError, StatsResult};
+use crate::utils::special_functions::regularized_incomplete_beta as canonical_inc_beta;
 use num_traits::ToPrimitive;
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
 use std::fmt::Debug;
 
 /// Result of a one-way ANOVA test
@@ -96,73 +95,63 @@ where
         ));
     }
 
-    // Convert all data to f64 and check that each group has at least 2 observations
-    let mut groups: Vec<Vec<f64>> = Vec::with_capacity(groups_data.len());
+    // Single-pass Welford per group: never materialises Vec<Vec<f64>>,
+    // never walks any group twice. We keep only `(count, mean, m2)` per
+    // group — three f64s — instead of allocating a converted copy of every
+    // observation. ss_within = Σ m2 falls out for free.
+    let n_groups = groups_data.len();
+    let mut counts: Vec<f64> = Vec::with_capacity(n_groups);
+    let mut means: Vec<f64> = Vec::with_capacity(n_groups);
+    let mut m2s: Vec<f64> = Vec::with_capacity(n_groups);
+
     for (group_idx, group) in groups_data.iter().enumerate() {
-        let mut converted_group = Vec::with_capacity(group.len());
+        let mut count = 0.0_f64;
+        let mut mean = 0.0_f64;
+        let mut m2 = 0.0_f64;
         for (value_idx, &value) in group.iter().enumerate() {
-            let f64_value = value.to_f64().ok_or_else(|| {
+            let v = value.to_f64().ok_or_else(|| {
                 StatsError::conversion_error(format!(
                     "Failed to convert value at group {}, index {} to f64",
                     group_idx, value_idx
                 ))
             })?;
-            converted_group.push(f64_value);
+            count += 1.0;
+            let delta = v - mean;
+            mean += delta / count;
+            m2 += delta * (v - mean);
         }
-        if converted_group.len() < 2 {
+        if count < 2.0 {
             return Err(StatsError::invalid_input(format!(
                 "Each group must have at least 2 observations (group {} has {})",
-                group_idx,
-                converted_group.len()
+                group_idx, count as usize
             )));
         }
-        groups.push(converted_group);
+        counts.push(count);
+        means.push(mean);
+        m2s.push(m2);
     }
 
-    // Calculate total number of observations
-    let n_total: usize = groups.iter().map(|group| group.len()).sum();
-
-    // Calculate the grand mean (mean of all observations) — zero-allocation iterator chain
-    let grand_mean = groups
+    let n_total_f = counts.iter().sum::<f64>();
+    let n_total = n_total_f as usize;
+    let grand_mean = counts
         .iter()
-        .flat_map(|group| group.iter().copied())
+        .zip(means.iter())
+        .map(|(&n, &m)| n * m)
         .sum::<f64>()
-        / (n_total as f64);
+        / n_total_f;
 
-    // Calculate group means (parallel when feature enabled)
-    #[cfg(feature = "parallel")]
-    let group_means: Vec<f64> = groups
-        .par_iter()
-        .map(|group| group.iter().sum::<f64>() / (group.len() as f64))
-        .collect();
-    #[cfg(not(feature = "parallel"))]
-    let group_means: Vec<f64> = groups
+    let ss_between: f64 = counts
         .iter()
-        .map(|group| group.iter().sum::<f64>() / (group.len() as f64))
-        .collect();
-
-    // Calculate sum of squares between groups (SSB)
-    let ss_between: f64 = groups
-        .iter()
-        .zip(group_means.iter())
-        .map(|(group, &group_mean)| (group_mean - grand_mean).powi(2) * (group.len() as f64))
-        .sum();
-
-    // Calculate sum of squares within groups (SSW)
-    let ss_within: f64 = groups
-        .iter()
-        .zip(group_means.iter())
-        .map(|(group, &group_mean)| {
-            group
-                .iter()
-                .map(|&value| (value - group_mean).powi(2))
-                .sum::<f64>()
+        .zip(means.iter())
+        .map(|(&n, &m)| {
+            let d = m - grand_mean;
+            d * d * n
         })
         .sum();
+    let ss_within: f64 = m2s.iter().sum();
 
-    // Calculate degrees of freedom
-    let df_between = groups.len() - 1;
-    let df_within = n_total - groups.len();
+    let df_between = n_groups - 1;
+    let df_within = n_total - n_groups;
 
     // Calculate mean squares
     let ms_between = ss_between / (df_between as f64);
@@ -186,122 +175,23 @@ where
     })
 }
 
-// Helper function to calculate the CDF of the F-distribution
-// Uses a more accurate implementation of the regularized incomplete beta function
+/// CDF of the F-distribution at `f` with `df1` numerator / `df2` denominator dofs.
+///
+/// Uses the canonical regularised incomplete beta from
+/// [`crate::utils::special_functions`]:
+///   F(f; df1, df2) = I_x(df1/2, df2/2)  with  x = df1·f / (df2 + df1·f).
 fn f_distribution_cdf(f: f64, df1: u32, df2: u32) -> f64 {
-    // F(f; df1, df2) = I_{df2 / (df2 + df1 * f)}(df2/2, df1/2)
-    // For F < 1, we can use the relationship:
-    // F(f; df1, df2) = 1 - F(1/f; df2, df1)
-
     if f <= 0.0 {
         return 0.0;
     }
-
-    // For F < 1, we use the complementary calculation
-    if f < 1.0 {
-        // Use the relationship: F(f; df1, df2) = 1 - F(1/f; df2, df1)
-        return 1.0 - f_distribution_cdf(1.0 / f, df2, df1);
-    }
-
-    // Ensure denominator is not zero to avoid division by zero
-    // df2 + df1 * f should never be zero for valid F-statistics, but check anyway
-    let denominator = df2 as f64 + df1 as f64 * f;
-    if denominator.abs() < 1e-15 {
-        // This should not happen for valid F-statistics, but handle edge case
-        // Return 0.0 or handle appropriately
-        return 0.0;
-    }
-
-    let x = df2 as f64 / denominator;
-    let a = df2 as f64 / 2.0;
-    let b = df1 as f64 / 2.0;
-
-    // Use a more accurate implementation of the regularized incomplete beta function
-    let cdf = regularized_incomplete_beta(x, a, b);
-    // Clamp to [0, 1] to handle numerical precision issues
-    cdf.clamp(0.0, 1.0)
-}
-
-// Improved implementation of the regularized incomplete beta function
-fn regularized_incomplete_beta(x: f64, a: f64, b: f64) -> f64 {
-    if x <= 0.0 {
-        return 0.0;
-    }
-    if x >= 1.0 {
+    let df1f = df1 as f64;
+    let df2f = df2 as f64;
+    let denom = df2f + df1f * f;
+    if denom.abs() < 1e-15 {
         return 1.0;
     }
-
-    // For small values of a and b, use a continued fraction approach
-    // For values where x is closer to 0, use a power series
-
-    // Use a power series expansion for the incomplete beta function
-    let mut term = 1.0;
-    let mut sum = 0.0;
-    let max_iterations = 200;
-
-    // Calculate beta function normalization
-    let ln_beta = ln_gamma(a) + ln_gamma(b) - ln_gamma(a + b);
-
-    // Handle the case where a + b = 1.0 to avoid division by zero when i = 0
-    // When a + b = 1.0 and i = 0, denominator = a + b + 0 - 1.0 = 0.0
-    // We need to ensure denominator != 0 before dividing
-
-    for i in 0..max_iterations {
-        if i > 0 {
-            term *= (a + i as f64 - 1.0) * x / i as f64;
-        }
-        let denominator = a + b + i as f64 - 1.0;
-        // Avoid division by zero: ensure denominator != 0 before dividing
-        // This handles the case when a + b = 1.0 and i = 0
-        if denominator.abs() > 1e-15 {
-            sum += term / denominator;
-        }
-        // If denominator is zero (a+b=1.0 and i=0), skip this iteration
-        // For the special case a+b=1.0, the i=0 term contributes 1.0/(a+b) = 1.0
-        // But since we're skipping it, we'll rely on the remaining terms for convergence
-        if term.abs() < 1e-15 {
-            break;
-        }
-    }
-
-    // If we skipped the i=0 term due to a+b=1.0, we need to compensate
-    // For a+b=1.0, the missing term is approximately 1.0/(a+b) = 1.0
-    // But this is already handled by the fact that term starts at 1.0
-    // and we're computing the series correctly
-
-    (x.powf(a) * (1.0 - x).powf(b) / (-ln_beta).exp()) * sum
-}
-
-// Approximation of the natural logarithm of the gamma function
-fn ln_gamma(x: f64) -> f64 {
-    // Lanczos approximation for ln(Gamma(x))
-    if x <= 0.0 {
-        return f64::INFINITY; // Not valid for non-positive numbers
-    }
-
-    // Coefficients for the Lanczos approximation
-    let p = [
-        676.5203681218851,
-        -1259.1392167224028,
-        771.323_428_777_653_1,
-        -176.615_029_162_140_6,
-        12.507343278686905,
-        -0.13857109526572012,
-        9.984_369_578_019_572e-6,
-        1.5056327351493116e-7,
-    ];
-
-    let mut result = 0.999_999_999_999_809_9;
-    let z: f64 = x - 1.0;
-
-    for (i, &val) in p.iter().enumerate() {
-        result += val / (z + (i as f64) + 1.0);
-    }
-
-    let t = z + p.len() as f64 - 0.5;
-    // Use precomputed constant instead of computing ln(2π) every call
-    use crate::utils::constants::LN_2PI;
-    LN_2PI / 2.0 + (t + 0.5) * t.ln() - t + result.ln()
+    let x = (df1f * f) / denom;
+    canonical_inc_beta(0.5 * df1f, 0.5 * df2f, x).clamp(0.0, 1.0)
 }
 
 #[cfg(test)]

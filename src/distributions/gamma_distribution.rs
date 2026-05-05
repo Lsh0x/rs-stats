@@ -78,9 +78,17 @@ impl Gamma {
                 message: "Gamma::fit: all data values must be positive".to_string(),
             });
         }
-        let n = data.len() as f64;
-        let mean = data.iter().sum::<f64>() / n;
-        let log_mean = data.iter().map(|&x| x.ln()).sum::<f64>() / n;
+        // Single-pass: accumulate Σx and Σln(x) in one walk.
+        let mut sum = 0.0_f64;
+        let mut sum_ln = 0.0_f64;
+        let mut count = 0.0_f64;
+        for &x in data {
+            count += 1.0;
+            sum += x;
+            sum_ln += x.ln();
+        }
+        let mean = sum / count;
+        let log_mean = sum_ln / count;
         // s = ln(mean) - mean(ln(x))  (always ≥ 0)
         let s = mean.ln() - log_mean;
         // Choi-Wette approximation for MLE of α

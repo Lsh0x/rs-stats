@@ -97,11 +97,20 @@ impl LogNormal {
                 message: "LogNormal::fit: all data values must be positive".to_string(),
             });
         }
-        let n = data.len() as f64;
-        let log_data: Vec<f64> = data.iter().map(|&x| x.ln()).collect();
-        let mu = log_data.iter().sum::<f64>() / n;
-        let variance = log_data.iter().map(|&y| (y - mu).powi(2)).sum::<f64>() / n;
-        Self::new(mu, variance.sqrt())
+        // Single-pass online estimator on ln(x) — no intermediate Vec.
+        let mut count = 0.0_f64;
+        let mut mean = 0.0_f64;
+        let mut m2 = 0.0_f64;
+        for &x in data {
+            count += 1.0;
+            let y = x.ln();
+            let delta = y - mean;
+            mean += delta / count;
+            let delta2 = y - mean;
+            m2 += delta * delta2;
+        }
+        let variance = m2 / count; // population variance (MLE)
+        Self::new(mean, variance.sqrt())
     }
 }
 

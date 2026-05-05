@@ -17,8 +17,7 @@
 //! uncertainty from estimating the standard deviation.
 
 use crate::error::{StatsError, StatsResult};
-use crate::prob::erf;
-use crate::utils::constants::{LN_2PI, SQRT_2};
+use crate::utils::special_functions::regularized_incomplete_beta;
 use num_traits::ToPrimitive;
 use std::f64;
 use std::fmt::Debug;
@@ -264,15 +263,18 @@ where
         ));
     }
 
-    // Single-pass conversion + Welford for all three streams (data1, data2, differences).
-    // Zero heap allocation: O(1) memory instead of O(n) for the differences Vec.
+    // Single-pass online statistics for all three streams (data1, data2,
+    // differences). Each stream tracks its own running mean explicitly —
+    // the previous (buggy) version used `running_sum / count` as the
+    // pre-update mean, which lags by one step and yields wrong std_devs.
     let n = data1.len() as f64;
-    let mut sum1 = 0.0_f64;
-    let mut sum2 = 0.0_f64;
-    let mut m2_1 = 0.0_f64; // Welford accumulator for data1
-    let mut m2_2 = 0.0_f64; // Welford accumulator for data2
-    let mut diff_mean = 0.0_f64; // Welford mean for differences
-    let mut diff_m2 = 0.0_f64; // Welford M2 for differences
+    let mut count = 0.0_f64;
+    let mut mean1 = 0.0_f64;
+    let mut mean2 = 0.0_f64;
+    let mut m2_1 = 0.0_f64;
+    let mut m2_2 = 0.0_f64;
+    let mut diff_mean = 0.0_f64;
+    let mut diff_m2 = 0.0_f64;
 
     for i in 0..data1.len() {
         let val1 = data1[i].to_f64().ok_or_else(|| {
@@ -288,30 +290,22 @@ where
             ))
         })?;
 
-        let count = (i + 1) as f64;
+        count += 1.0;
 
-        // Welford online variance for data1
-        let delta1 = val1 - sum1 / count.max(1.0);
-        sum1 += val1;
-        let delta1_post = val1 - sum1 / count;
-        m2_1 += delta1 * delta1_post;
+        let delta1 = val1 - mean1;
+        mean1 += delta1 / count;
+        m2_1 += delta1 * (val1 - mean1);
 
-        // Welford online variance for data2
-        let delta2 = val2 - sum2 / count.max(1.0);
-        sum2 += val2;
-        let delta2_post = val2 - sum2 / count;
-        m2_2 += delta2 * delta2_post;
+        let delta2 = val2 - mean2;
+        mean2 += delta2 / count;
+        m2_2 += delta2 * (val2 - mean2);
 
-        // Welford online mean + variance for differences (no Vec needed)
         let d = val1 - val2;
         let delta_d = d - diff_mean;
         diff_mean += delta_d / count;
-        let delta_d2 = d - diff_mean;
-        diff_m2 += delta_d * delta_d2;
+        diff_m2 += delta_d * (d - diff_mean);
     }
 
-    let mean1 = sum1 / n;
-    let mean2 = sum2 / n;
     let std_dev1 = (m2_1 / (n - 1.0)).sqrt();
     let std_dev2 = (m2_2 / (n - 1.0)).sqrt();
 
@@ -396,170 +390,20 @@ where
     Ok(sum_squared_diff / (n - 1.0))
 }
 
-/// Calculates p-value from t-statistic and degrees of freedom
+/// Calculates the two-tailed p-value from a t-statistic and degrees of freedom.
 ///
-/// # Arguments
-/// * `t_stat` - The absolute value of the t-statistic
-/// * `df` - Degrees of freedom
+/// Uses the canonical regularized incomplete beta from
+/// [`crate::utils::special_functions::regularized_incomplete_beta`].
 ///
-/// # Returns
-/// The two-tailed p-value corresponding to the t-statistic and degrees of freedom
+/// For Student's t with `df` degrees of freedom:
+///   p-value = I_x(df/2, 1/2)  with  x = df / (df + t²)
+///
+/// (See e.g. Abramowitz & Stegun, eq. 26.7.4.)
 #[inline]
 fn calculate_p_value(t_stat: f64, df: f64) -> f64 {
-    // For very large degrees of freedom, t-distribution approaches normal distribution
-    if df > 1000.0 {
-        // Use normal approximation for large df
-        let z = t_stat;
-        return 2.0 * (1.0 - standard_normal_cdf(z));
-    }
-
-    // Use Student's t-distribution CDF approximation
-    // This is an implementation of the algorithm from:
-    // Abramowitz and Stegun: Handbook of Mathematical Functions
-    //
-    // The incomplete beta function I_x(a, b) where x = df/(df + t^2) gives us
-    // the cumulative probability P(T ≤ |t|) for the t-distribution.
-    // For a two-tailed test: p-value = 2 * (1 - P(T ≤ |t|))
-
-    let a = df / (df + t_stat * t_stat);
-    let ix = incomplete_beta(0.5 * df, 0.5, a);
-
-    // Two-tailed p-value: clamp to [0.0, 1.0] to handle numerical precision issues
-    (2.0 * (1.0 - ix)).clamp(0.0, 1.0)
-}
-
-/// Standard normal cumulative distribution function
-#[inline]
-fn standard_normal_cdf(x: f64) -> f64 {
-    // Use error function relationship with normal CDF
-    // unwrap is safe here as erf always succeeds for f64 values
-    0.5 * (1.0 + erf(x / SQRT_2).unwrap())
-}
-
-/// Incomplete beta function approximation
-/// Used for calculating the cumulative distribution function of the t-distribution
-#[inline]
-fn incomplete_beta(a: f64, b: f64, x: f64) -> f64 {
-    if x == 0.0 || x == 1.0 {
-        return x;
-    }
-
-    // Use continued fraction approximation for incomplete beta
-    let symmetry_point = x > (a / (a + b));
-
-    // Apply symmetry for more accurate computation when x > a/(a+b)
-    let (a_calc, b_calc, x_calc) = if symmetry_point {
-        (b, a, 1.0 - x)
-    } else {
-        (a, b, x)
-    };
-
-    // Constants for the continued fraction method
-    let max_iterations = 200;
-    let epsilon = 1e-10;
-
-    // Continued fraction expansion using modified Lentz's method
-    let front_factor = x_calc.powf(a_calc) * (1.0 - x_calc).powf(b_calc) / beta(a_calc, b_calc);
-
-    let mut h = 1.0;
-    let mut d = 1.0;
-    let mut result = 0.0;
-
-    for m in 1..max_iterations {
-        let m = m as f64;
-        let m2 = 2.0 * m;
-
-        // Even term
-        let numerator = (m * (b_calc - m) * x_calc) / ((a_calc + m2 - 1.0) * (a_calc + m2));
-
-        d = 1.0 + numerator * d;
-        if d.abs() < epsilon {
-            d = epsilon;
-        }
-        d = 1.0 / d;
-
-        h = 1.0 + numerator / h;
-        if h.abs() < epsilon {
-            h = epsilon;
-        }
-
-        result *= h * d;
-
-        // Odd term
-        let numerator = -((a_calc + m) * (a_calc + b_calc + m) * x_calc)
-            / ((a_calc + m2) * (a_calc + m2 + 1.0));
-
-        d = 1.0 + numerator * d;
-        if d.abs() < epsilon {
-            d = epsilon;
-        }
-        d = 1.0 / d;
-
-        h = 1.0 + numerator / h;
-        if h.abs() < epsilon {
-            h = epsilon;
-        }
-
-        let delta = h * d;
-        result *= delta;
-
-        // Check for convergence
-        if (delta - 1.0).abs() < epsilon {
-            break;
-        }
-    }
-
-    // Apply the front factor
-    result *= front_factor;
-
-    // Return appropriate result based on symmetry
-    if symmetry_point { 1.0 - result } else { result }
-}
-
-/// Beta function B(a, b) = Γ(a) * Γ(b) / Γ(a + b)
-/// where Γ is the gamma function
-#[inline]
-fn beta(a: f64, b: f64) -> f64 {
-    // Use Stirling's approximation for gamma function
-    let log_gamma_a = ln_gamma(a);
-    let log_gamma_b = ln_gamma(b);
-    let log_gamma_ab = ln_gamma(a + b);
-
-    (log_gamma_a + log_gamma_b - log_gamma_ab).exp()
-}
-
-/// Natural logarithm of the gamma function
-/// Using Lanczos approximation for the gamma function
-#[inline]
-fn ln_gamma(x: f64) -> f64 {
-    // Lanczos coefficients
-    let p = [
-        676.5203681218851,
-        -1259.1392167224028,
-        771.323_428_777_653_1,
-        -176.615_029_162_140_6,
-        12.507343278686905,
-        -0.13857109526572012,
-        9.984_369_578_019_572e-6,
-        1.5056327351493116e-7,
-    ];
-
-    if x < 0.5 {
-        // Reflection formula: Γ(1-x) = π / (sin(πx) * Γ(x))
-        // ln(Γ(x)) = ln(π) - ln(sin(πx)) - ln(Γ(1-x))
-        crate::utils::constants::PI.ln()
-            - (crate::utils::constants::PI * x).sin().ln()
-            - ln_gamma(1.0 - x)
-    } else {
-        // Standard Lanczos approximation for x ≥ 0.5
-        let mut sum = p[0];
-        for (i, &value) in p.iter().enumerate().skip(1) {
-            sum += value / (x + i as f64);
-        }
-
-        let t = x + 7.5;
-        (x + 0.5) * t.ln() - t + LN_2PI * 0.5 + sum.ln() / x
-    }
+    let t2 = t_stat * t_stat;
+    let x = df / (df + t2);
+    regularized_incomplete_beta(0.5 * df, 0.5, x).clamp(0.0, 1.0)
 }
 
 #[cfg(test)]

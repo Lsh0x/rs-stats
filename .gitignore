@@ -2,3 +2,6 @@
 
 # Cursor agent state and cache
 .cursor/
+
+# Local cross-validation harness (numpy/scipy)
+/validation/

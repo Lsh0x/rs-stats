@@ -61,56 +61,7 @@ pub fn invert(matrix: &[f64], dim: usize, eps: f64) -> StatsResult<Vec<f64>> {
         }
         aug[r * w + dim + r] = 1.0;
     }
-
-    // Forward elimination with partial pivoting.
-    for col in 0..dim {
-        // Find pivot row.
-        let mut pivot_row = col;
-        let mut pivot_val = aug[col * w + col].abs();
-        for r in (col + 1)..dim {
-            let v = aug[r * w + col].abs();
-            if v > pivot_val {
-                pivot_val = v;
-                pivot_row = r;
-            }
-        }
-        if pivot_val < eps {
-            return Err(StatsError::numerical_error(format!(
-                "linalg::invert: matrix is singular (pivot {} < eps {})",
-                pivot_val, eps
-            )));
-        }
-        if pivot_row != col {
-            for c in 0..w {
-                aug.swap(col * w + c, pivot_row * w + c);
-            }
-        }
-        let inv_pivot = 1.0 / aug[col * w + col];
-        for c in 0..w {
-            aug[col * w + c] *= inv_pivot;
-        }
-        for r in 0..dim {
-            if r == col {
-                continue;
-            }
-            let factor = aug[r * w + col];
-            if factor == 0.0 {
-                continue;
-            }
-            for c in 0..w {
-                aug[r * w + c] -= factor * aug[col * w + c];
-            }
-        }
-    }
-
-    // Extract inverse (right half of augmented matrix).
-    let mut inv = vec![0.0; dim * dim];
-    for r in 0..dim {
-        for c in 0..dim {
-            inv[r * dim + c] = aug[r * w + dim + c];
-        }
-    }
-    Ok(inv)
+    invert_augmented(aug, dim, eps)
 }
 
 /// Invert with Tikhonov (ridge) regularization.
@@ -156,11 +107,70 @@ pub fn invert_with_ridge(matrix: &[f64], dim: usize, ridge_factor: f64) -> Stats
         trace += matrix[i * dim + i];
     }
     let lambda = (trace / dim as f64 / ridge_factor.max(1e-9)).max(1e-12);
-    let mut reg = matrix.to_vec();
-    for i in 0..dim {
-        reg[i * dim + i] += lambda;
+
+    // Build the augmented [A + λI | I] matrix in a single pass — saves one
+    // Vec<f64> of length dim² compared with `matrix.to_vec()` + diagonal patch.
+    let w = 2 * dim;
+    let mut aug = vec![0.0; dim * w];
+    for r in 0..dim {
+        for c in 0..dim {
+            aug[r * w + c] = matrix[r * dim + c];
+        }
+        aug[r * w + r] += lambda;
+        aug[r * w + dim + r] = 1.0;
     }
-    invert(&reg, dim, 1e-9)
+    invert_augmented(aug, dim, 1e-9)
+}
+
+/// Gauss-Jordan elimination on a pre-built `[A | I]` augmented matrix of shape
+/// `dim × (2·dim)`. Shared between [`invert`] and [`invert_with_ridge`].
+fn invert_augmented(mut aug: Vec<f64>, dim: usize, eps: f64) -> StatsResult<Vec<f64>> {
+    let w = 2 * dim;
+    for col in 0..dim {
+        let mut pivot_row = col;
+        let mut pivot_val = aug[col * w + col].abs();
+        for r in (col + 1)..dim {
+            let v = aug[r * w + col].abs();
+            if v > pivot_val {
+                pivot_val = v;
+                pivot_row = r;
+            }
+        }
+        if pivot_val < eps {
+            return Err(StatsError::numerical_error(format!(
+                "linalg::invert: matrix is singular (pivot {} < eps {})",
+                pivot_val, eps
+            )));
+        }
+        if pivot_row != col {
+            for c in 0..w {
+                aug.swap(col * w + c, pivot_row * w + c);
+            }
+        }
+        let inv_pivot = 1.0 / aug[col * w + col];
+        for c in 0..w {
+            aug[col * w + c] *= inv_pivot;
+        }
+        for r in 0..dim {
+            if r == col {
+                continue;
+            }
+            let factor = aug[r * w + col];
+            if factor == 0.0 {
+                continue;
+            }
+            for c in 0..w {
+                aug[r * w + c] -= factor * aug[col * w + c];
+            }
+        }
+    }
+    let mut inv = vec![0.0; dim * dim];
+    for r in 0..dim {
+        for c in 0..dim {
+            inv[r * dim + c] = aug[r * w + dim + c];
+        }
+    }
+    Ok(inv)
 }
 
 /// Mahalanobis-style squared distance `(x-μ)ᵀ · M · (x-μ)`.
