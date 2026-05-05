@@ -75,6 +75,7 @@ use crate::distributions::{
     weibull::Weibull,
 };
 use crate::error::{StatsError, StatsResult};
+use rayon::prelude::*;
 
 // ── Data kind detection ────────────────────────────────────────────────────────
 
@@ -237,9 +238,61 @@ pub struct FitResult {
 
 // ── Continuous fitting ─────────────────────────────────────────────────────────
 
+/// Apply [`Distribution`]-level diagnostics (AIC / BIC / KS) to one fitted
+/// distribution, producing a [`FitResult`]. Returns `None` if any of the
+/// diagnostics fails (non-finite AIC/BIC or fit error).
+fn try_fit_continuous<D: Distribution>(data: &[f64], dist: D) -> Option<FitResult> {
+    let aic = dist.aic(data).ok().filter(|x| x.is_finite())?;
+    let bic = dist.bic(data).ok().filter(|x| x.is_finite())?;
+    let ks = ks_test(data, |x| dist.cdf(x).unwrap_or(0.0));
+    Some(FitResult {
+        name: dist.name().to_string(),
+        aic,
+        bic,
+        ks_statistic: ks.statistic,
+        ks_p_value: ks.p_value,
+    })
+}
+
+/// Per-candidate fit closures. Each fits one distribution end-to-end and
+/// returns a [`FitResult`] (or `None` on failure). Consumed in parallel
+/// by [`fit_all`].
+type ContinuousFitter = fn(&[f64]) -> Option<FitResult>;
+
+const CONTINUOUS_FITTERS: &[ContinuousFitter] = &[
+    |d| Normal::fit(d).ok().and_then(|x| try_fit_continuous(d, x)),
+    |d| {
+        crate::distributions::exponential_distribution::Exponential::fit(d)
+            .ok()
+            .and_then(|x| try_fit_continuous(d, x))
+    },
+    |d| Uniform::fit(d).ok().and_then(|x| try_fit_continuous(d, x)),
+    |d| Gamma::fit(d).ok().and_then(|x| try_fit_continuous(d, x)),
+    |d| {
+        LogNormal::fit(d)
+            .ok()
+            .and_then(|x| try_fit_continuous(d, x))
+    },
+    |d| Weibull::fit(d).ok().and_then(|x| try_fit_continuous(d, x)),
+    |d| Beta::fit(d).ok().and_then(|x| try_fit_continuous(d, x)),
+    |d| StudentT::fit(d).ok().and_then(|x| try_fit_continuous(d, x)),
+    |d| {
+        FDistribution::fit(d)
+            .ok()
+            .and_then(|x| try_fit_continuous(d, x))
+    },
+    |d| {
+        ChiSquared::fit(d)
+            .ok()
+            .and_then(|x| try_fit_continuous(d, x))
+    },
+];
+
 /// Fit all continuous distributions to `data` and return ranked results (by AIC).
 ///
-/// Distributions that fail to fit (e.g. Beta when data are not in (0,1)) are silently skipped.
+/// Each candidate is fit on its own rayon worker (10-way parallelism). The
+/// distribution candidates that fail to fit (e.g. Beta when data are not in
+/// (0,1)) are silently skipped.
 pub fn fit_all(data: &[f64]) -> StatsResult<Vec<FitResult>> {
     if data.is_empty() {
         return Err(StatsError::InvalidInput {
@@ -247,44 +300,10 @@ pub fn fit_all(data: &[f64]) -> StatsResult<Vec<FitResult>> {
         });
     }
 
-    // Pre-allocate KS scratch buffer once; reused across all 10 candidates.
-    let mut ks_buf: Vec<f64> = Vec::with_capacity(data.len());
-    let mut results: Vec<FitResult> = Vec::with_capacity(10);
-
-    macro_rules! try_fit {
-        ($dist_type:ty, $fit_expr:expr) => {
-            if let Ok(dist) = $fit_expr {
-                if let (Ok(aic), Ok(bic)) = (dist.aic(data), dist.bic(data)) {
-                    if aic.is_finite() && bic.is_finite() {
-                        ks_buf.clear();
-                        ks_buf.extend_from_slice(data);
-                        let ks = ks_test_with_scratch(&mut ks_buf, |x| dist.cdf(x).unwrap_or(0.0));
-                        results.push(FitResult {
-                            name: dist.name().to_string(),
-                            aic,
-                            bic,
-                            ks_statistic: ks.statistic,
-                            ks_p_value: ks.p_value,
-                        });
-                    }
-                }
-            }
-        };
-    }
-
-    try_fit!(Normal, Normal::fit(data));
-    try_fit!(
-        Exponential,
-        crate::distributions::exponential_distribution::Exponential::fit(data)
-    );
-    try_fit!(Uniform, Uniform::fit(data));
-    try_fit!(Gamma, Gamma::fit(data));
-    try_fit!(LogNormal, LogNormal::fit(data));
-    try_fit!(Weibull, Weibull::fit(data));
-    try_fit!(Beta, Beta::fit(data));
-    try_fit!(StudentT, StudentT::fit(data));
-    try_fit!(FDistribution, FDistribution::fit(data));
-    try_fit!(ChiSquared, ChiSquared::fit(data));
+    let mut results: Vec<FitResult> = CONTINUOUS_FITTERS
+        .par_iter()
+        .filter_map(|fit| fit(data))
+        .collect();
 
     if results.is_empty() {
         return Err(StatsError::InvalidInput {
@@ -333,6 +352,64 @@ pub struct SkippedFit {
 ///     println!("  Skipped {}: {}", s.name, s.reason);
 /// }
 /// ```
+/// Verbose continuous fitter: returns Ok with a FitResult on success,
+/// Err with a SkippedFit (name + reason) on any failure.
+fn try_fit_verbose<D: Distribution>(
+    name: &'static str,
+    data: &[f64],
+    fit_res: StatsResult<D>,
+) -> Result<FitResult, SkippedFit> {
+    let dist = fit_res.map_err(|e| SkippedFit {
+        name,
+        reason: format!("fit failed: {e}"),
+    })?;
+    let aic = dist
+        .aic(data)
+        .ok()
+        .filter(|x| x.is_finite())
+        .ok_or_else(|| SkippedFit {
+            name,
+            reason: "non-finite AIC (log-likelihood diverged)".to_string(),
+        })?;
+    let bic = dist
+        .bic(data)
+        .ok()
+        .filter(|x| x.is_finite())
+        .ok_or_else(|| SkippedFit {
+            name,
+            reason: "non-finite BIC".to_string(),
+        })?;
+    let ks = ks_test(data, |x| dist.cdf(x).unwrap_or(0.0));
+    Ok(FitResult {
+        name: dist.name().to_string(),
+        aic,
+        bic,
+        ks_statistic: ks.statistic,
+        ks_p_value: ks.p_value,
+    })
+}
+
+type ContinuousVerboseFitter = fn(&[f64]) -> Result<FitResult, SkippedFit>;
+
+const CONTINUOUS_VERBOSE_FITTERS: &[ContinuousVerboseFitter] = &[
+    |d| try_fit_verbose("Normal", d, Normal::fit(d)),
+    |d| {
+        try_fit_verbose(
+            "Exponential",
+            d,
+            crate::distributions::exponential_distribution::Exponential::fit(d),
+        )
+    },
+    |d| try_fit_verbose("Uniform", d, Uniform::fit(d)),
+    |d| try_fit_verbose("Gamma", d, Gamma::fit(d)),
+    |d| try_fit_verbose("LogNormal", d, LogNormal::fit(d)),
+    |d| try_fit_verbose("Weibull", d, Weibull::fit(d)),
+    |d| try_fit_verbose("Beta", d, Beta::fit(d)),
+    |d| try_fit_verbose("StudentT", d, StudentT::fit(d)),
+    |d| try_fit_verbose("FDistribution", d, FDistribution::fit(d)),
+    |d| try_fit_verbose("ChiSquared", d, ChiSquared::fit(d)),
+];
+
 pub fn fit_all_verbose(data: &[f64]) -> StatsResult<(Vec<FitResult>, Vec<SkippedFit>)> {
     if data.is_empty() {
         return Err(StatsError::InvalidInput {
@@ -340,52 +417,21 @@ pub fn fit_all_verbose(data: &[f64]) -> StatsResult<(Vec<FitResult>, Vec<Skipped
         });
     }
 
-    let mut ks_buf: Vec<f64> = Vec::with_capacity(data.len());
-    let mut results: Vec<FitResult> = Vec::with_capacity(10);
-    let mut skipped: Vec<SkippedFit> = Vec::with_capacity(10);
+    let outcomes: Vec<Result<FitResult, SkippedFit>> = CONTINUOUS_VERBOSE_FITTERS
+        .par_iter()
+        .map(|f| f(data))
+        .collect();
 
-    macro_rules! try_fit_v {
-        ($name:literal, $fit_expr:expr) => {
-            match $fit_expr {
-                Err(e) => skipped.push(SkippedFit {
-                    name: $name,
-                    reason: format!("fit failed: {e}"),
-                }),
-                Ok(dist) => match (dist.aic(data), dist.bic(data)) {
-                    (Ok(aic), Ok(bic)) if aic.is_finite() && bic.is_finite() => {
-                        ks_buf.clear();
-                        ks_buf.extend_from_slice(data);
-                        let ks = ks_test_with_scratch(&mut ks_buf, |x| dist.cdf(x).unwrap_or(0.0));
-                        results.push(FitResult {
-                            name: dist.name().to_string(),
-                            aic,
-                            bic,
-                            ks_statistic: ks.statistic,
-                            ks_p_value: ks.p_value,
-                        });
-                    }
-                    _ => skipped.push(SkippedFit {
-                        name: $name,
-                        reason: "non-finite AIC/BIC (log-likelihood diverged)".to_string(),
-                    }),
-                },
-            }
-        };
-    }
-
-    try_fit_v!("Normal", Normal::fit(data));
-    try_fit_v!(
-        "Exponential",
-        crate::distributions::exponential_distribution::Exponential::fit(data)
-    );
-    try_fit_v!("Uniform", Uniform::fit(data));
-    try_fit_v!("Gamma", Gamma::fit(data));
-    try_fit_v!("LogNormal", LogNormal::fit(data));
-    try_fit_v!("Weibull", Weibull::fit(data));
-    try_fit_v!("Beta", Beta::fit(data));
-    try_fit_v!("StudentT", StudentT::fit(data));
-    try_fit_v!("FDistribution", FDistribution::fit(data));
-    try_fit_v!("ChiSquared", ChiSquared::fit(data));
+    let (mut results, skipped): (Vec<FitResult>, Vec<SkippedFit>) =
+        outcomes
+            .into_iter()
+            .fold((Vec::new(), Vec::new()), |(mut ok, mut err), o| {
+                match o {
+                    Ok(r) => ok.push(r),
+                    Err(s) => err.push(s),
+                }
+                (ok, err)
+            });
 
     if results.is_empty() {
         return Err(StatsError::InvalidInput {
@@ -401,6 +447,90 @@ pub fn fit_all_verbose(data: &[f64]) -> StatsResult<(Vec<FitResult>, Vec<Skipped
     Ok((results, skipped))
 }
 
+/// Apply [`DiscreteDistribution`]-level diagnostics (AIC / BIC / KS) to one
+/// fitted distribution.
+fn try_fit_discrete<D: DiscreteDistribution>(
+    data: &[f64],
+    int_data: &[u64],
+    dist: D,
+) -> Option<FitResult> {
+    let aic = dist.aic(int_data).ok().filter(|x| x.is_finite())?;
+    let bic = dist.bic(int_data).ok().filter(|x| x.is_finite())?;
+    let ks = ks_test_discrete(data, |k| dist.cdf(k).unwrap_or(0.0));
+    Some(FitResult {
+        name: dist.name().to_string(),
+        aic,
+        bic,
+        ks_statistic: ks.statistic,
+        ks_p_value: ks.p_value,
+    })
+}
+
+fn try_fit_discrete_verbose<D: DiscreteDistribution>(
+    name: &'static str,
+    data: &[f64],
+    int_data: &[u64],
+    fit_res: StatsResult<D>,
+) -> Result<FitResult, SkippedFit> {
+    let dist = fit_res.map_err(|e| SkippedFit {
+        name,
+        reason: format!("fit failed: {e}"),
+    })?;
+    let aic = dist
+        .aic(int_data)
+        .ok()
+        .filter(|x| x.is_finite())
+        .ok_or_else(|| SkippedFit {
+            name,
+            reason: "non-finite AIC".to_string(),
+        })?;
+    let bic = dist
+        .bic(int_data)
+        .ok()
+        .filter(|x| x.is_finite())
+        .ok_or_else(|| SkippedFit {
+            name,
+            reason: "non-finite BIC".to_string(),
+        })?;
+    let ks = ks_test_discrete(data, |k| dist.cdf(k).unwrap_or(0.0));
+    Ok(FitResult {
+        name: dist.name().to_string(),
+        aic,
+        bic,
+        ks_statistic: ks.statistic,
+        ks_p_value: ks.p_value,
+    })
+}
+
+type DiscreteFitter = fn(&[f64], &[u64]) -> Option<FitResult>;
+type DiscreteVerboseFitter = fn(&[f64], &[u64]) -> Result<FitResult, SkippedFit>;
+
+const DISCRETE_FITTERS: &[DiscreteFitter] = &[
+    |d, i| Poisson::fit(d).ok().and_then(|x| try_fit_discrete(d, i, x)),
+    |d, i| {
+        Geometric::fit(d)
+            .ok()
+            .and_then(|x| try_fit_discrete(d, i, x))
+    },
+    |d, i| {
+        NegativeBinomial::fit(d)
+            .ok()
+            .and_then(|x| try_fit_discrete(d, i, x))
+    },
+    |d, i| {
+        Binomial::fit(d)
+            .ok()
+            .and_then(|x| try_fit_discrete(d, i, x))
+    },
+];
+
+const DISCRETE_VERBOSE_FITTERS: &[DiscreteVerboseFitter] = &[
+    |d, i| try_fit_discrete_verbose("Poisson", d, i, Poisson::fit(d)),
+    |d, i| try_fit_discrete_verbose("Geometric", d, i, Geometric::fit(d)),
+    |d, i| try_fit_discrete_verbose("NegativeBinomial", d, i, NegativeBinomial::fit(d)),
+    |d, i| try_fit_discrete_verbose("Binomial", d, i, Binomial::fit(d)),
+];
+
 /// Like [`fit_all_discrete`] but also reports which distributions were skipped and why.
 pub fn fit_all_discrete_verbose(data: &[f64]) -> StatsResult<(Vec<FitResult>, Vec<SkippedFit>)> {
     if data.is_empty() {
@@ -409,47 +539,23 @@ pub fn fit_all_discrete_verbose(data: &[f64]) -> StatsResult<(Vec<FitResult>, Ve
         });
     }
 
-    let mut int_data: Vec<u64> = Vec::with_capacity(data.len());
-    int_data.extend(data.iter().map(|&x| x.round() as u64));
-    let mut ks_buf: Vec<f64> = Vec::with_capacity(data.len());
-    let mut results: Vec<FitResult> = Vec::with_capacity(4);
-    let mut skipped: Vec<SkippedFit> = Vec::with_capacity(4);
+    let int_data: Vec<u64> = data.iter().map(|&x| x.round() as u64).collect();
 
-    macro_rules! try_fit_disc_v {
-        ($name:literal, $fit_expr:expr) => {
-            match $fit_expr {
-                Err(e) => skipped.push(SkippedFit {
-                    name: $name,
-                    reason: format!("fit failed: {e}"),
-                }),
-                Ok(dist) => match (dist.aic(&int_data), dist.bic(&int_data)) {
-                    (Ok(aic), Ok(bic)) if aic.is_finite() && bic.is_finite() => {
-                        ks_buf.clear();
-                        ks_buf.extend_from_slice(data);
-                        let ks = ks_test_discrete_with_scratch(&mut ks_buf, |k| {
-                            dist.cdf(k).unwrap_or(0.0)
-                        });
-                        results.push(FitResult {
-                            name: dist.name().to_string(),
-                            aic,
-                            bic,
-                            ks_statistic: ks.statistic,
-                            ks_p_value: ks.p_value,
-                        });
-                    }
-                    _ => skipped.push(SkippedFit {
-                        name: $name,
-                        reason: "non-finite AIC/BIC (log-likelihood diverged)".to_string(),
-                    }),
-                },
-            }
-        };
-    }
+    let outcomes: Vec<Result<FitResult, SkippedFit>> = DISCRETE_VERBOSE_FITTERS
+        .par_iter()
+        .map(|f| f(data, &int_data))
+        .collect();
 
-    try_fit_disc_v!("Poisson", Poisson::fit(data));
-    try_fit_disc_v!("Geometric", Geometric::fit(data));
-    try_fit_disc_v!("NegativeBinomial", NegativeBinomial::fit(data));
-    try_fit_disc_v!("Binomial", Binomial::fit(data));
+    let (mut results, skipped): (Vec<FitResult>, Vec<SkippedFit>) =
+        outcomes
+            .into_iter()
+            .fold((Vec::new(), Vec::new()), |(mut ok, mut err), o| {
+                match o {
+                    Ok(r) => ok.push(r),
+                    Err(s) => err.push(s),
+                }
+                (ok, err)
+            });
 
     if results.is_empty() {
         return Err(StatsError::InvalidInput {
@@ -469,7 +575,8 @@ pub fn fit_all_discrete_verbose(data: &[f64]) -> StatsResult<(Vec<FitResult>, Ve
 
 /// Fit all discrete distributions to integer `data` (passed as f64) and return ranked results.
 ///
-/// Skips distributions that cannot be fitted.
+/// Each candidate is fit on its own rayon worker. Distributions that fail
+/// to fit are silently skipped.
 pub fn fit_all_discrete(data: &[f64]) -> StatsResult<Vec<FitResult>> {
     if data.is_empty() {
         return Err(StatsError::InvalidInput {
@@ -477,39 +584,12 @@ pub fn fit_all_discrete(data: &[f64]) -> StatsResult<Vec<FitResult>> {
         });
     }
 
-    // Pre-allocate scratch buffers; reused across all 4 candidates.
-    let mut int_data: Vec<u64> = Vec::with_capacity(data.len());
-    int_data.extend(data.iter().map(|&x| x.round() as u64));
-    let mut ks_buf: Vec<f64> = Vec::with_capacity(data.len());
-    let mut results: Vec<FitResult> = Vec::with_capacity(4);
+    let int_data: Vec<u64> = data.iter().map(|&x| x.round() as u64).collect();
 
-    macro_rules! try_fit_disc {
-        ($fit_expr:expr) => {
-            if let Ok(dist) = $fit_expr {
-                if let (Ok(aic), Ok(bic)) = (dist.aic(&int_data), dist.bic(&int_data)) {
-                    if aic.is_finite() && bic.is_finite() {
-                        ks_buf.clear();
-                        ks_buf.extend_from_slice(data);
-                        let ks = ks_test_discrete_with_scratch(&mut ks_buf, |k| {
-                            dist.cdf(k).unwrap_or(0.0)
-                        });
-                        results.push(FitResult {
-                            name: dist.name().to_string(),
-                            aic,
-                            bic,
-                            ks_statistic: ks.statistic,
-                            ks_p_value: ks.p_value,
-                        });
-                    }
-                }
-            }
-        };
-    }
-
-    try_fit_disc!(Poisson::fit(data));
-    try_fit_disc!(Geometric::fit(data));
-    try_fit_disc!(NegativeBinomial::fit(data));
-    try_fit_disc!(Binomial::fit(data));
+    let mut results: Vec<FitResult> = DISCRETE_FITTERS
+        .par_iter()
+        .filter_map(|f| f(data, &int_data))
+        .collect();
 
     if results.is_empty() {
         return Err(StatsError::InvalidInput {

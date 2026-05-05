@@ -2,7 +2,6 @@
 
 use crate::error::{StatsError, StatsResult};
 use num_traits::{Float, NumCast};
-#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -242,14 +241,7 @@ where
         U: NumCast + Copy + Send + Sync,
         T: Send + Sync,
     {
-        #[cfg(feature = "parallel")]
-        {
-            x_values.par_iter().map(|&x| self.predict(x)).collect()
-        }
-        #[cfg(not(feature = "parallel"))]
-        {
-            x_values.iter().map(|&x| self.predict(x)).collect()
-        }
+        x_values.par_iter().map(|&x| self.predict(x)).collect()
     }
 
     /// Calculate confidence intervals for the regression line

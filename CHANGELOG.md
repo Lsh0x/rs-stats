@@ -1,5 +1,82 @@
 # Changelog
 
+## [v3.0.0](https://github.com/Lsh0x/rs-stats/tree/v3.0.0)
+
+**Breaking changes** — slimmed-down public surface and rayon-default
+parallelism. Internal math is unchanged; users on the trait API
+(`Normal::new(…).pdf(…)`, `auto_fit`, `fit_all`, etc.) need only update
+the version. Users who imported the legacy free functions or `*Config<T>`
+types will need to migrate as described below.
+
+**Removed (breaking):**
+
+- `*Config<T>` types: `NormalConfig`, `PoissonConfig`, `BinomialConfig`,
+  `ExponentialConfig`, `UniformConfig`. Use `Normal::new(μ, σ)` etc. directly.
+- Public free functions: `normal_pdf<T>`, `normal_cdf<T>`,
+  `normal_inverse_cdf<T>`, `poisson::pmf<T>`, `poisson::cdf<T>`,
+  `binom::pmf<T>`, `binom::cdf<T>`, `uniform_{pdf,cdf,inverse_cdf,mean}<T>`,
+  `exponential_{pdf,cdf,inverse_cdf,mean,variance}<T>`. The same maths
+  is reachable via the `Distribution` / `DiscreteDistribution` trait
+  impls on the typed structs (`Normal::new(μ, σ).pdf(x)`).
+- `prob::probability_density`, `prob::cumulative_distrib`,
+  `prob::normal_cumulative_distrib`, `prob::normal_probability_density`
+  (and the corresponding `prob_density` / `cumulative_distrib` /
+  `normal_cumulative_distrib` modules). All redundant with `Normal::pdf` /
+  `Normal::cdf` on the typed struct.
+
+**Migration cheatsheet:**
+
+```text
+v2.x                                              v3.0
+────────────────────────────────────────────────────────────────────────
+normal_pdf(x, μ, σ)                              Normal::new(μ, σ)?.pdf(x)
+normal_cdf(x, μ, σ)                              Normal::new(μ, σ)?.cdf(x)
+normal_inverse_cdf(p, μ, σ)                      Normal::new(μ, σ)?.inverse_cdf(p)
+prob::cumulative_distrib(x, μ, σ)                Normal::new(μ, σ)?.cdf(x)
+prob::probability_density(x, μ, σ)               Normal::new(μ, σ)?.pdf(x)
+poisson::pmf(k, λ)                               Poisson::new(λ)?.pmf(k)
+poisson::cdf(k, λ)                               Poisson::new(λ)?.cdf(k)
+binom::pmf(k, n, p)                              Binomial::new(n, p)?.pmf(k)
+binom::cdf(k, n, p)                              Binomial::new(n, p)?.cdf(k)
+NormalConfig { mean, std_dev }                   Normal { mean, std_dev }
+NormalConfig::new(μ, σ)                          Normal::new(μ, σ)
+PoissonConfig { lambda }                         Poisson { lambda }
+…                                                (same pattern for the
+                                                  4 other Configs)
+```
+
+**Performance:**
+
+- `rayon` is now a default dependency (no longer opt-in via the
+  `parallel` feature). Callers who need single-threaded execution can
+  configure rayon's global thread pool with
+  `rayon::ThreadPoolBuilder::new().num_threads(1).build_global()`.
+- `fit_all`, `fit_all_verbose`, `fit_all_discrete`, `fit_all_discrete_verbose`
+  now run their candidate fits in parallel (10-way / 4-way). Each
+  candidate (Normal::fit, LogNormal::fit, Gamma::fit, …) lands on its
+  own rayon worker.
+- `one_way_anova` walks each group's Welford pass on its own worker.
+- `LinearRegression::predict_many` and decision-tree split search were
+  already conditionally parallel; the cfg gates are now gone, so they
+  always parallelise.
+
+**Internals (non-breaking, but visible to readers):**
+
+- The previous macro-based `try_fit!` registration in `fitting.rs` is
+  replaced by typed `fn` arrays (`CONTINUOUS_FITTERS`,
+  `CONTINUOUS_VERBOSE_FITTERS`, `DISCRETE_FITTERS`,
+  `DISCRETE_VERBOSE_FITTERS`). Cleaner par-iter dispatch, easier to add
+  a new distribution.
+- All math helpers in `normal_distribution.rs`, `poisson_distribution.rs`,
+  `binomial_distribution.rs`, `uniform_distribution.rs`,
+  `exponential_distribution.rs` now take `f64` directly instead of being
+  generic over `T: ToPrimitive`. Validation is centralised in `*::new()`.
+
+**Net:** ~1400 LOC of duplicate API surface deleted. 329 unit + 65 doc +
+35 validation tests still pass.
+
+[Full Changelog](https://github.com/Lsh0x/rs-stats/compare/v2.1.0...v3.0.0)
+
 ## [v2.1.0](https://github.com/Lsh0x/rs-stats/tree/v2.1.0)
 
 **License:** the project is now MIT-licensed (was GPL-3.0).
