@@ -111,6 +111,7 @@ impl Uniform {
 }
 
 impl crate::distributions::traits::Distribution for Uniform {
+    type X = f64;
     fn name(&self) -> &str {
         "Uniform"
     }

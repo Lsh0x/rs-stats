@@ -210,6 +210,7 @@ impl Exponential {
 }
 
 impl crate::distributions::traits::Distribution for Exponential {
+    type X = f64;
     fn name(&self) -> &str {
         "Exponential"
     }

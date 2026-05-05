@@ -259,6 +259,7 @@ impl Normal {
 }
 
 impl Distribution for Normal {
+    type X = f64;
     fn name(&self) -> &str {
         "Normal"
     }
@@ -271,6 +272,20 @@ impl Distribution for Normal {
     fn logpdf(&self, x: f64) -> StatsResult<f64> {
         let z = (x - self.mean) / self.std_dev;
         Ok(-0.5 * z * z - self.std_dev.ln() - 0.5 * (2.0 * std::f64::consts::PI).ln())
+    }
+    /// Closed-form bulk log-likelihood. Lets LLVM autovectorise the
+    /// `Σ z_i²` reduction (no per-point Result-returning closure).
+    ///
+    /// `Σ ln f(xᵢ) = −½ · Σ ((xᵢ−μ)/σ)² − n·(ln σ + ½·ln 2π)`
+    fn log_likelihood_fast(&self, data: &[f64]) -> f64 {
+        let inv_sigma = 1.0 / self.std_dev;
+        let mut sum_sq = 0.0_f64;
+        for &x in data {
+            let z = (x - self.mean) * inv_sigma;
+            sum_sq += z * z;
+        }
+        let n = data.len() as f64;
+        -0.5 * sum_sq - n * (self.std_dev.ln() + 0.5 * (2.0 * std::f64::consts::PI).ln())
     }
     fn cdf(&self, x: f64) -> StatsResult<f64> {
         normal_cdf(x, self.mean, self.std_dev)

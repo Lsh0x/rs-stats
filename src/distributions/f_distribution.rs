@@ -87,6 +87,7 @@ impl FDistribution {
 }
 
 impl Distribution for FDistribution {
+    type X = f64;
     fn name(&self) -> &str {
         "F"
     }

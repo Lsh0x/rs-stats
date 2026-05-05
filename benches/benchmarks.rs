@@ -3,7 +3,7 @@ use criterion::{criterion_group, criterion_main};
 // ── Poisson distribution ──────────────────────────────────────────────────────
 mod poisson {
     use criterion::{BenchmarkId, Criterion, black_box};
-    use rs_stats::DiscreteDistribution;
+    use rs_stats::Distribution;
     use rs_stats::distributions::poisson_distribution::Poisson;
 
     pub fn bench_pmf(c: &mut Criterion) {
@@ -32,7 +32,7 @@ mod poisson {
 // ── Binomial distribution ─────────────────────────────────────────────────────
 mod binomial {
     use criterion::{BenchmarkId, Criterion, black_box};
-    use rs_stats::DiscreteDistribution;
+    use rs_stats::Distribution;
     use rs_stats::distributions::binomial_distribution::Binomial;
 
     pub fn bench_cdf(c: &mut Criterion) {

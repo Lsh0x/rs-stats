@@ -241,7 +241,7 @@ pub struct FitResult {
 /// Apply [`Distribution`]-level diagnostics (AIC / BIC / KS) to one fitted
 /// distribution, producing a [`FitResult`]. Returns `None` if any of the
 /// diagnostics fails (non-finite AIC/BIC or fit error).
-fn try_fit_continuous<D: Distribution>(data: &[f64], dist: D) -> Option<FitResult> {
+fn try_fit_continuous<D: Distribution<X = f64>>(data: &[f64], dist: D) -> Option<FitResult> {
     let aic = dist.aic(data).ok().filter(|x| x.is_finite())?;
     let bic = dist.bic(data).ok().filter(|x| x.is_finite())?;
     let ks = ks_test(data, |x| dist.cdf(x).unwrap_or(0.0));
@@ -354,7 +354,7 @@ pub struct SkippedFit {
 /// ```
 /// Verbose continuous fitter: returns Ok with a FitResult on success,
 /// Err with a SkippedFit (name + reason) on any failure.
-fn try_fit_verbose<D: Distribution>(
+fn try_fit_verbose<D: Distribution<X = f64>>(
     name: &'static str,
     data: &[f64],
     fit_res: StatsResult<D>,

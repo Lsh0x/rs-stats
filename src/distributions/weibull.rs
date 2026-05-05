@@ -118,6 +118,7 @@ impl Weibull {
 }
 
 impl Distribution for Weibull {
+    type X = f64;
     fn name(&self) -> &str {
         "Weibull"
     }

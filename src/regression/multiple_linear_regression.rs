@@ -108,22 +108,22 @@ where
             }
         }
 
-        // Convert input arrays to T type
-        let mut x_cast: Vec<Vec<T>> = Vec::with_capacity(self.n);
+        // Build the augmented design matrix `X' = [1 | X]` directly in
+        // row-major flat storage — n_samples × (p+1) — without going
+        // through an intermediate `Vec<Vec<T>>`. Saves n + 1 allocations
+        // and gives matrix_multiply_transpose contiguous row strides.
+        let m = self.p + 1;
+        let mut augmented_x: Vec<T> = Vec::with_capacity(self.n * m);
         for (row_idx, row) in x_values.iter().enumerate() {
-            let row_cast: StatsResult<Vec<T>> = row
-                .iter()
-                .enumerate()
-                .map(|(col_idx, &x)| {
-                    T::from(x).ok_or_else(|| {
-                        StatsError::conversion_error(format!(
-                            "Failed to cast X value at row {}, column {} to type T",
-                            row_idx, col_idx
-                        ))
-                    })
-                })
-                .collect();
-            x_cast.push(row_cast?);
+            augmented_x.push(T::one()); // intercept column
+            for (col_idx, &x) in row.iter().enumerate() {
+                let cast = T::from(x).ok_or_else(|| {
+                    StatsError::conversion_error(format!(
+                        "Failed to cast X value at row {row_idx}, column {col_idx} to type T"
+                    ))
+                })?;
+                augmented_x.push(cast);
+            }
         }
 
         let y_cast: Vec<T> = y_values
@@ -132,37 +132,22 @@ where
             .map(|(i, &y)| {
                 T::from(y).ok_or_else(|| {
                     StatsError::conversion_error(format!(
-                        "Failed to cast Y value at index {} to type T",
-                        i
+                        "Failed to cast Y value at index {i} to type T"
                     ))
                 })
             })
             .collect::<StatsResult<Vec<T>>>()?;
 
-        // Augment the X matrix with a column of 1s for the intercept
-        let mut augmented_x = Vec::with_capacity(self.n);
-        for row in &x_cast {
-            let mut augmented_row = Vec::with_capacity(self.p + 1);
-            augmented_row.push(T::one()); // Intercept term
-            augmented_row.extend_from_slice(row);
-            augmented_x.push(augmented_row);
-        }
+        // X^T · X — m × m matrix in flat row-major storage.
+        let xt_x = matrix_multiply_transpose_flat::<T>(&augmented_x, self.n, m);
 
-        // Compute X^T * X
-        let xt_x = self.matrix_multiply_transpose(&augmented_x, &augmented_x);
+        // X^T · y — length-m vector.
+        let xt_y = vector_multiply_transpose_flat::<T>(&augmented_x, &y_cast, self.n, m);
 
-        // Compute X^T * y
-        let xt_y = self.vector_multiply_transpose(&augmented_x, &y_cast);
+        // Solve the normal equations (X^T·X) · β = X^T·y.
+        self.coefficients = solve_linear_system_flat::<T>(&xt_x, &xt_y, m)?;
 
-        // Solve the normal equations: (X^T * X) * β = X^T * y for β
-        match self.solve_linear_system(&xt_x, &xt_y) {
-            Ok(solution) => {
-                self.coefficients = solution;
-            }
-            Err(e) => return Err(e),
-        }
-
-        // Calculate fitted values and R²
+        // Compute R² and standard error in a single pass over the rows.
         let n_as_t = T::from(self.n).ok_or_else(|| {
             StatsError::conversion_error(format!("Failed to convert {} to type T", self.n))
         })?;
@@ -172,7 +157,12 @@ where
         let mut ss_residual = T::zero();
 
         for i in 0..self.n {
-            let predicted = self.predict_t(&x_cast[i]);
+            // The features (excluding the intercept column) live at
+            // augmented_x[i*m + 1 .. i*m + m]; predict_t expects exactly
+            // those p values.
+            let row_start = i * m + 1;
+            let row_end = i * m + m;
+            let predicted = self.predict_t(&augmented_x[row_start..row_end]);
             let residual = y_cast[i] - predicted;
 
             ss_residual = ss_residual + (residual * residual);
@@ -405,127 +395,118 @@ where
     pub fn from_json(json: &str) -> Result<Self, String> {
         serde_json::from_str(json).map_err(|e| format!("Failed to deserialize model: {}", e))
     }
+}
 
-    // Helper function: Matrix multiplication where one matrix is transposed: A^T * B
-    // Loop order: k (rows of A) in outer loop for cache locality —
-    // both a[k] and b[k] are contiguous row accesses, avoiding column-stride misses.
-    fn matrix_multiply_transpose(&self, a: &[Vec<T>], b: &[Vec<T>]) -> Vec<Vec<T>> {
-        let a_rows = a.len();
-        let a_cols = if a_rows > 0 { a[0].len() } else { 0 };
-        let b_cols = if !b.is_empty() { b[0].len() } else { 0 };
+// ── Flat row-major linear-algebra helpers ─────────────────────────────────────
 
-        // Result will be a_cols × b_cols
-        let mut result = vec![vec![T::zero(); b_cols]; a_cols];
-
-        // Cache-friendly loop: iterate over shared dimension (k) in the outer loop
-        for k in 0..a_rows {
-            let a_row = &a[k];
-            let b_row = &b[k];
-            for i in 0..a_cols {
-                let a_ki = a_row[i];
-                let result_row = &mut result[i];
-                for j in 0..b_cols {
-                    result_row[j] = result_row[j] + (a_ki * b_row[j]);
-                }
+/// `Aᵀ · A` where `a` is row-major `n_rows × n_cols`. Returns the
+/// `n_cols × n_cols` Gram matrix in row-major flat storage.
+fn matrix_multiply_transpose_flat<T>(a: &[T], n_rows: usize, n_cols: usize) -> Vec<T>
+where
+    T: Float,
+{
+    let mut result = vec![T::zero(); n_cols * n_cols];
+    // Iterate over rows in the outer loop — both reads (a[k*n_cols + ..])
+    // are contiguous, and the inner write avoids column-stride misses.
+    for k in 0..n_rows {
+        let row_off = k * n_cols;
+        for i in 0..n_cols {
+            let a_ki = a[row_off + i];
+            if a_ki == T::zero() {
+                continue;
+            }
+            let dst_off = i * n_cols;
+            for j in 0..n_cols {
+                result[dst_off + j] = result[dst_off + j] + a_ki * a[row_off + j];
             }
         }
+    }
+    result
+}
 
-        result
+/// `Aᵀ · y` where `a` is row-major `n_rows × n_cols`.
+fn vector_multiply_transpose_flat<T>(a: &[T], y: &[T], n_rows: usize, n_cols: usize) -> Vec<T>
+where
+    T: Float,
+{
+    let mut result = vec![T::zero(); n_cols];
+    for k in 0..n_rows {
+        let row_off = k * n_cols;
+        let yk = y[k];
+        for i in 0..n_cols {
+            result[i] = result[i] + a[row_off + i] * yk;
+        }
+    }
+    result
+}
+
+/// Gaussian elimination with partial pivoting on a flat `n × n` matrix
+/// `a` and right-hand-side vector `b` of length `n`. Returns the
+/// solution `x` of `a · x = b`. The augmented buffer is built once.
+fn solve_linear_system_flat<T>(a: &[T], b: &[T], n: usize) -> StatsResult<Vec<T>>
+where
+    T: Float + Debug,
+{
+    if a.len() != n * n || b.len() != n {
+        return Err(StatsError::dimension_mismatch(format!(
+            "Invalid matrix dimensions for linear system solving: A is {n}×{n} ({} elems), b has {} elements",
+            a.len(),
+            b.len()
+        )));
+    }
+    let w = n + 1;
+    let mut aug: Vec<T> = Vec::with_capacity(n * w);
+    for i in 0..n {
+        aug.extend_from_slice(&a[i * n..(i + 1) * n]);
+        aug.push(b[i]);
     }
 
-    // Helper function: Multiply transposed matrix by vector: A^T * y
-    fn vector_multiply_transpose(&self, a: &[Vec<T>], y: &[T]) -> Vec<T> {
-        let a_rows = a.len();
-        let a_cols = if a_rows > 0 { a[0].len() } else { 0 };
+    let epsilon: T = T::from(1e-10).ok_or_else(|| {
+        StatsError::conversion_error("Failed to convert epsilon (1e-10) to type T")
+    })?;
 
-        let mut result = vec![T::zero(); a_cols];
-
-        for (i, result_item) in result.iter_mut().enumerate().take(a_cols) {
-            let mut sum = T::zero();
-            for j in 0..a_rows {
-                sum = sum + (a[j][i] * y[j]);
+    for i in 0..n {
+        // Partial pivot
+        let mut max_row = i;
+        let mut max_val = aug[i * w + i].abs();
+        for j in (i + 1)..n {
+            let abs_val = aug[j * w + i].abs();
+            if abs_val > max_val {
+                max_row = j;
+                max_val = abs_val;
             }
-            *result_item = sum;
+        }
+        if max_val < epsilon {
+            return Err(StatsError::mathematical_error(
+                "Matrix is singular or near-singular, cannot solve linear system",
+            ));
+        }
+        if max_row != i {
+            for c in 0..w {
+                aug.swap(i * w + c, max_row * w + c);
+            }
         }
 
-        result
+        // Eliminate below
+        let pivot = aug[i * w + i];
+        for j in (i + 1)..n {
+            let factor = aug[j * w + i] / pivot;
+            for k in i..w {
+                aug[j * w + k] = aug[j * w + k] - factor * aug[i * w + k];
+            }
+        }
     }
 
-    // Helper function: Solve a system of linear equations using Gaussian elimination
-    fn solve_linear_system(&self, a: &[Vec<T>], b: &[T]) -> StatsResult<Vec<T>> {
-        let n = a.len();
-        if n == 0 || a[0].len() != n || b.len() != n {
-            return Err(StatsError::dimension_mismatch(format!(
-                "Invalid matrix dimensions for linear system solving: A is {}x{}, b has {} elements",
-                n,
-                if n > 0 { a[0].len() } else { 0 },
-                b.len()
-            )));
+    // Back substitution
+    let mut x = vec![T::zero(); n];
+    for i in (0..n).rev() {
+        let mut sum = aug[i * w + n];
+        for j in (i + 1)..n {
+            sum = sum - aug[i * w + j] * x[j];
         }
-
-        // Create augmented matrix [A|b] — allocate once with correct capacity
-        let mut aug: Vec<Vec<T>> = Vec::with_capacity(n);
-        for i in 0..n {
-            let mut row = Vec::with_capacity(n + 1);
-            row.extend_from_slice(&a[i]);
-            row.push(b[i]);
-            aug.push(row);
-        }
-
-        // Gaussian elimination with partial pivoting
-        for i in 0..n {
-            // Find pivot — direct index range, no skip/take overhead
-            let mut max_row = i;
-            let mut max_val = aug[i][i].abs();
-
-            #[allow(clippy::needless_range_loop)]
-            for j in (i + 1)..n {
-                let abs_val = aug[j][i].abs();
-                if abs_val > max_val {
-                    max_row = j;
-                    max_val = abs_val;
-                }
-            }
-
-            let epsilon: T = T::from(1e-10).ok_or_else(|| {
-                StatsError::conversion_error("Failed to convert epsilon (1e-10) to type T")
-            })?;
-            if max_val < epsilon {
-                return Err(StatsError::mathematical_error(
-                    "Matrix is singular or near-singular, cannot solve linear system",
-                ));
-            }
-
-            // Swap rows if needed
-            if max_row != i {
-                aug.swap(i, max_row);
-            }
-
-            // Eliminate below
-            for j in (i + 1)..n {
-                let factor = aug[j][i] / aug[i][i];
-
-                for k in i..(n + 1) {
-                    aug[j][k] = aug[j][k] - (factor * aug[i][k]);
-                }
-            }
-        }
-
-        // Back substitution — direct range indexing
-        let mut x = vec![T::zero(); n];
-        for i in (0..n).rev() {
-            let mut sum = aug[i][n];
-
-            #[allow(clippy::needless_range_loop)]
-            for j in (i + 1)..n {
-                sum = sum - (aug[i][j] * x[j]);
-            }
-
-            x[i] = sum / aug[i][i];
-        }
-
-        Ok(x)
+        x[i] = sum / aug[i * w + i];
     }
+    Ok(x)
 }
 
 #[cfg(test)]

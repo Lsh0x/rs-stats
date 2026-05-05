@@ -87,6 +87,7 @@ impl StudentT {
 }
 
 impl Distribution for StudentT {
+    type X = f64;
     fn name(&self) -> &str {
         "StudentT"
     }

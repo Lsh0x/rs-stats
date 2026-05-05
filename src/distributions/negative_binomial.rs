@@ -27,7 +27,7 @@
 //!
 //! ```rust
 //! use rs_stats::distributions::negative_binomial::NegativeBinomial;
-//! use rs_stats::DiscreteDistribution;
+//! use rs_stats::Distribution;
 //!
 //! // Re-admissions data across 20 patients — variance >> mean → overdispersed
 //! let admissions = vec![
@@ -39,7 +39,6 @@
 //! println!("P(0 re-admissions) = {:.1}%", nb.pmf(0).unwrap() * 100.0);
 //! ```
 
-use crate::distributions::traits::DiscreteDistribution;
 use crate::error::{StatsError, StatsResult};
 use crate::utils::special_functions::ln_gamma;
 use serde::{Deserialize, Serialize};
@@ -49,7 +48,7 @@ use serde::{Deserialize, Serialize};
 /// # Examples
 /// ```
 /// use rs_stats::distributions::negative_binomial::NegativeBinomial;
-/// use rs_stats::distributions::traits::DiscreteDistribution;
+/// use rs_stats::distributions::traits::Distribution;
 ///
 /// let nb = NegativeBinomial::new(5.0, 0.5).unwrap();
 /// assert!((nb.mean() - 5.0).abs() < 1e-10);
@@ -109,7 +108,8 @@ impl NegativeBinomial {
     }
 }
 
-impl DiscreteDistribution for NegativeBinomial {
+impl crate::distributions::traits::Distribution for NegativeBinomial {
+    type X = u64;
     fn name(&self) -> &str {
         "NegativeBinomial"
     }
@@ -117,11 +117,11 @@ impl DiscreteDistribution for NegativeBinomial {
         2
     }
 
-    fn pmf(&self, k: u64) -> StatsResult<f64> {
+    fn pdf(&self, k: u64) -> StatsResult<f64> {
         Ok(self.logpmf(k)?.exp())
     }
 
-    fn logpmf(&self, k: u64) -> StatsResult<f64> {
+    fn logpdf(&self, k: u64) -> StatsResult<f64> {
         let kf = k as f64;
         // log C(k+r-1, k) = ln_gamma(k+r) - ln_gamma(r) - ln_gamma(k+1)
         let log_binom = ln_gamma(kf + self.r) - ln_gamma(self.r) - ln_gamma(kf + 1.0);
@@ -141,6 +141,10 @@ impl DiscreteDistribution for NegativeBinomial {
         Ok(sum.clamp(0.0, 1.0))
     }
 
+    fn inverse_cdf(&self, p: f64) -> StatsResult<u64> {
+        crate::distributions::traits::discrete_inverse_cdf_search(p, |k| self.cdf(k))
+    }
+
     fn mean(&self) -> f64 {
         self.r * (1.0 - self.p) / self.p
     }
@@ -153,6 +157,7 @@ impl DiscreteDistribution for NegativeBinomial {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::distributions::traits::Distribution;
 
     #[test]
     fn test_neg_binom_mean_variance() {

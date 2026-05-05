@@ -103,6 +103,7 @@ impl Gamma {
 }
 
 impl Distribution for Gamma {
+    type X = f64;
     fn name(&self) -> &str {
         "Gamma"
     }

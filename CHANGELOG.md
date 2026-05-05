@@ -60,6 +60,52 @@ PoissonConfig { lambda }                         Poisson { lambda }
   already conditionally parallel; the cfg gates are now gone, so they
   always parallelise.
 
+**Trait merge (breaking):**
+
+- `Distribution` and `DiscreteDistribution` are now a single
+  [`Distribution`] trait parameterised by an associated support type
+  `X` (`f64` for continuous, `u64` for discrete). `Box<dyn Distribution>`
+  becomes `Box<dyn Distribution<X = f64>>` (or `… X = u64 …`).
+- `DiscreteDistribution` is kept as a back-compat blanket alias
+  (`pub trait DiscreteDistribution: Distribution<X = u64>`) so existing
+  imports keep working — `pmf` / `logpmf` likewise survive as default
+  trait methods that delegate to `pdf` / `logpdf`.
+- `fit_all*` and `fit_all_discrete*` use one shared registration
+  pattern internally. Adding a new distribution = one line in the
+  fitter array.
+- `Distribution::log_likelihood_fast(&self, &[X]) -> f64` — new
+  infallible bulk log-likelihood. Out-of-support points contribute
+  `f64::NEG_INFINITY` (scipy convention). Default impl walks `logpdf`
+  in a loop; `Normal` overrides with a closed-form
+  `−½ · Σ ((xᵢ−μ)/σ)²` reduction that LLVM can autovectorise.
+
+**Variance / std-dev (breaking name additions):**
+
+- New: `prob::variance_population` / `prob::variance_sample` and
+  `prob::std_dev_population` / `prob::std_dev_sample`. Match the numpy
+  / scipy naming exactly:
+  - `*_population` ↔ `numpy.var(data, ddof=0)`
+  - `*_sample` ↔ `numpy.var(data, ddof=1)` / `pandas.Series.var()`
+- `prob::variance` and `prob::std_dev` keep their v2.x behaviour
+  (population) and are now documented aliases.
+
+**Performance:**
+
+- `MultipleLinearRegression` — internal storage is now flat row-major
+  `Vec<T>` instead of `Vec<Vec<T>>`. The augmented design matrix is
+  built directly from the input rows, no intermediate `Vec<Vec<T>>`
+  copy. New flat-friendly helpers `matrix_multiply_transpose_flat` /
+  `vector_multiply_transpose_flat` / `solve_linear_system_flat`.
+  Reduces n+1 heap allocations to one and keeps inner loops
+  contiguous for autovec.
+- `DecisionTree::find_best_split` rewritten to use a single
+  sort-then-prefix-slice strategy: per (node, feature) we now sort
+  indices once and walk thresholds with prefix / suffix views of the
+  sorted vector. The previous code rebuilt `left_indices` /
+  `right_indices` `Vec`s for every threshold — O(features × thresholds)
+  fresh allocations per node. v3.0 materialises the index vectors only
+  for the **best** split, dropping inner-loop allocations to zero.
+
 **Internals (non-breaking, but visible to readers):**
 
 - The previous macro-based `try_fit!` registration in `fitting.rs` is
@@ -72,7 +118,7 @@ PoissonConfig { lambda }                         Poisson { lambda }
   `exponential_distribution.rs` now take `f64` directly instead of being
   generic over `T: ToPrimitive`. Validation is centralised in `*::new()`.
 
-**Net:** ~1400 LOC of duplicate API surface deleted. 329 unit + 65 doc +
+**Net:** ~1400 LOC of duplicate API surface deleted. 330 unit + 68 doc +
 35 validation tests still pass.
 
 [Full Changelog](https://github.com/Lsh0x/rs-stats/compare/v2.1.0...v3.0.0)

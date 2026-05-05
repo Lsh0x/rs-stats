@@ -28,7 +28,7 @@
 //!
 //! ```rust
 //! use rs_stats::distributions::poisson_distribution::Poisson;
-//! use rs_stats::DiscreteDistribution;
+//! use rs_stats::Distribution;
 //!
 //! // Hospital-acquired infections (HAI): historical rate λ = 2.3 per ward/month
 //! let hai = Poisson::new(2.3).unwrap();
@@ -130,7 +130,7 @@ fn cdf(k: u64, lambda: f64) -> StatsResult<f64> {
 /// # Examples
 /// ```
 /// use rs_stats::distributions::poisson_distribution::Poisson;
-/// use rs_stats::distributions::traits::DiscreteDistribution;
+/// use rs_stats::distributions::traits::Distribution;
 ///
 /// let p = Poisson::new(3.0).unwrap();
 /// assert!((p.mean() - 3.0).abs() < 1e-10);
@@ -164,23 +164,27 @@ impl Poisson {
     }
 }
 
-impl crate::distributions::traits::DiscreteDistribution for Poisson {
+impl crate::distributions::traits::Distribution for Poisson {
+    type X = u64;
     fn name(&self) -> &str {
         "Poisson"
     }
     fn num_params(&self) -> usize {
         1
     }
-    fn pmf(&self, k: u64) -> StatsResult<f64> {
+    fn pdf(&self, k: u64) -> StatsResult<f64> {
         pmf(k, self.lambda)
     }
-    fn logpmf(&self, k: u64) -> StatsResult<f64> {
+    fn logpdf(&self, k: u64) -> StatsResult<f64> {
         // ln P(k) = k*ln(λ) - λ - ln(k!)
         let ln_fact = ln_factorial(k);
         Ok((k as f64) * self.lambda.ln() - self.lambda - ln_fact)
     }
     fn cdf(&self, k: u64) -> StatsResult<f64> {
         cdf(k, self.lambda)
+    }
+    fn inverse_cdf(&self, p: f64) -> StatsResult<u64> {
+        crate::distributions::traits::discrete_inverse_cdf_search(p, |k| self.cdf(k))
     }
     fn mean(&self) -> f64 {
         self.lambda

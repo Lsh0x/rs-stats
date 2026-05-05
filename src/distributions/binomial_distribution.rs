@@ -165,7 +165,7 @@ fn combination(n: u64, k: u64) -> StatsResult<f64> {
 /// # Examples
 /// ```
 /// use rs_stats::distributions::binomial_distribution::Binomial;
-/// use rs_stats::distributions::traits::DiscreteDistribution;
+/// use rs_stats::distributions::traits::Distribution;
 ///
 /// let b = Binomial::new(10, 0.5).unwrap();
 /// assert!((b.mean() - 5.0).abs() < 1e-10);
@@ -212,20 +212,21 @@ impl Binomial {
     }
 }
 
-impl crate::distributions::traits::DiscreteDistribution for Binomial {
+impl crate::distributions::traits::Distribution for Binomial {
+    type X = u64;
     fn name(&self) -> &str {
         "Binomial"
     }
     fn num_params(&self) -> usize {
         2
     }
-    fn pmf(&self, k: u64) -> StatsResult<f64> {
+    fn pdf(&self, k: u64) -> StatsResult<f64> {
         pmf(k, self.n, self.p)
     }
     /// Log-space PMF for numerical stability with large n or k.
     ///
     /// ln P(X=k) = ln Γ(n+1) − ln Γ(k+1) − ln Γ(n−k+1) + k·ln(p) + (n−k)·ln(1−p)
-    fn logpmf(&self, k: u64) -> StatsResult<f64> {
+    fn logpdf(&self, k: u64) -> StatsResult<f64> {
         let n = self.n;
         if k > n {
             return Ok(f64::NEG_INFINITY);
@@ -247,6 +248,9 @@ impl crate::distributions::traits::DiscreteDistribution for Binomial {
     }
     fn cdf(&self, k: u64) -> StatsResult<f64> {
         cdf(k, self.n, self.p)
+    }
+    fn inverse_cdf(&self, p: f64) -> StatsResult<u64> {
+        crate::distributions::traits::discrete_inverse_cdf_search(p, |k| self.cdf(k))
     }
     fn mean(&self) -> f64 {
         self.n as f64 * self.p
