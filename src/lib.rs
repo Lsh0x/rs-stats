@@ -76,7 +76,9 @@
 //!
 //! ## Trait-Based Polymorphism
 //!
-//! Use `Box<dyn Distribution>` to work with distributions at runtime:
+//! Use `Box<dyn Distribution<X = …>>` to work with distributions at
+//! runtime. The associated type pins the support to either `f64`
+//! (continuous) or `u64` (discrete).
 //!
 //! ```rust
 //! use rs_stats::Distribution;
@@ -85,8 +87,8 @@
 //!     lognormal::LogNormal,
 //! };
 //!
-//! // Choose the distribution based on data characteristics
-//! fn best_model(skewed: bool) -> Box<dyn Distribution> {
+//! // Choose the distribution based on data characteristics.
+//! fn best_model(skewed: bool) -> Box<dyn Distribution<X = f64>> {
 //!     if skewed {
 //!         Box::new(LogNormal::new(1.0, 0.5).unwrap())
 //!     } else {

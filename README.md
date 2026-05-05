@@ -2,8 +2,8 @@
 
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.1.0-green.svg)](https://crates.io/crates/rs-stats)
-[![Tests](https://img.shields.io/badge/tests-368%20passing-brightgreen.svg)](https://github.com/lsh0x/rs-stats/actions)
+[![Version](https://img.shields.io/badge/version-3.0.0-green.svg)](https://crates.io/crates/rs-stats)
+[![Tests](https://img.shields.io/badge/tests-329%20passing-brightgreen.svg)](https://github.com/lsh0x/rs-stats/actions)
 [![CI](https://github.com/lsh0x/rs-stats/workflows/CI/badge.svg)](https://github.com/lsh0x/rs-stats/actions)
 [![Docs](https://docs.rs/rs-stats/badge.svg)](https://docs.rs/rs-stats)
 [![Crates.io](https://img.shields.io/crates/v/rs-stats.svg)](https://crates.io/crates/rs-stats)

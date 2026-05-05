@@ -59,6 +59,7 @@ impl ChiSquared {
 }
 
 impl Distribution for ChiSquared {
+    type X = f64;
     fn name(&self) -> &str {
         "ChiSquared"
     }

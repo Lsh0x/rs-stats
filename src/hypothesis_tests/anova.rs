@@ -27,6 +27,7 @@
 use crate::error::{StatsError, StatsResult};
 use crate::utils::special_functions::regularized_incomplete_beta as canonical_inc_beta;
 use num_traits::ToPrimitive;
+use rayon::prelude::*;
 use std::fmt::Debug;
 
 /// Result of a one-way ANOVA test
@@ -86,7 +87,7 @@ pub struct AnovaResult {
 /// ```
 pub fn one_way_anova<T>(groups_data: &[&[T]]) -> StatsResult<AnovaResult>
 where
-    T: ToPrimitive + Copy + Debug,
+    T: ToPrimitive + Copy + Debug + Send + Sync,
 {
     // Check if we have at least 2 groups
     if groups_data.len() < 2 {
@@ -95,39 +96,46 @@ where
         ));
     }
 
-    // Single-pass Welford per group: never materialises Vec<Vec<f64>>,
-    // never walks any group twice. We keep only `(count, mean, m2)` per
-    // group — three f64s — instead of allocating a converted copy of every
-    // observation. ss_within = Σ m2 falls out for free.
+    // Per-group Welford in parallel: each group lands on its own rayon
+    // worker and emits its `(count, mean, m2)` triple. ss_within = Σ m2
+    // falls out without a second pass over the data.
     let n_groups = groups_data.len();
+    let triples: Vec<Result<(f64, f64, f64), StatsError>> = groups_data
+        .par_iter()
+        .enumerate()
+        .map(|(group_idx, group)| {
+            let mut count = 0.0_f64;
+            let mut mean = 0.0_f64;
+            let mut m2 = 0.0_f64;
+            for (value_idx, &value) in group.iter().enumerate() {
+                let v = value.to_f64().ok_or_else(|| {
+                    StatsError::conversion_error(format!(
+                        "Failed to convert value at group {}, index {} to f64",
+                        group_idx, value_idx
+                    ))
+                })?;
+                count += 1.0;
+                let delta = v - mean;
+                mean += delta / count;
+                m2 += delta * (v - mean);
+            }
+            if count < 2.0 {
+                return Err(StatsError::invalid_input(format!(
+                    "Each group must have at least 2 observations (group {} has {})",
+                    group_idx, count as usize
+                )));
+            }
+            Ok((count, mean, m2))
+        })
+        .collect();
+
     let mut counts: Vec<f64> = Vec::with_capacity(n_groups);
     let mut means: Vec<f64> = Vec::with_capacity(n_groups);
     let mut m2s: Vec<f64> = Vec::with_capacity(n_groups);
-
-    for (group_idx, group) in groups_data.iter().enumerate() {
-        let mut count = 0.0_f64;
-        let mut mean = 0.0_f64;
-        let mut m2 = 0.0_f64;
-        for (value_idx, &value) in group.iter().enumerate() {
-            let v = value.to_f64().ok_or_else(|| {
-                StatsError::conversion_error(format!(
-                    "Failed to convert value at group {}, index {} to f64",
-                    group_idx, value_idx
-                ))
-            })?;
-            count += 1.0;
-            let delta = v - mean;
-            mean += delta / count;
-            m2 += delta * (v - mean);
-        }
-        if count < 2.0 {
-            return Err(StatsError::invalid_input(format!(
-                "Each group must have at least 2 observations (group {} has {})",
-                group_idx, count as usize
-            )));
-        }
-        counts.push(count);
-        means.push(mean);
+    for triple in triples {
+        let (c, m, m2) = triple?;
+        counts.push(c);
+        means.push(m);
         m2s.push(m2);
     }
 

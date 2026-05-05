@@ -1,7 +1,6 @@
 use crate::error::{StatsError, StatsResult};
 use num_traits::cast::AsPrimitive;
 use num_traits::{Float, FromPrimitive, NumCast, ToPrimitive};
-#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -276,7 +275,15 @@ where
         Ok(node_idx)
     }
 
-    /// Find the best split for the given samples
+    /// Find the best split for the given samples.
+    ///
+    /// Per (node, feature) cost is dominated by one O(n log n) sort plus
+    /// one O(n) walk of candidate thresholds. The previous implementation
+    /// rebuilt `left_indices` / `right_indices` as fresh `Vec`s for every
+    /// candidate threshold (an inner loop of size O(unique values)),
+    /// which produced O(features × thresholds) per-node allocations. Now
+    /// we sort once and use prefix / suffix slices of the sorted index
+    /// vector — only the **best** split's index vectors are materialised.
     fn find_best_split<D>(
         &self,
         features: &[Vec<D>],
@@ -284,133 +291,87 @@ where
         indices: &[usize],
     ) -> (usize, D, Vec<usize>, Vec<usize>)
     where
-        D: Clone + PartialOrd + NumCast + ToPrimitive + AsPrimitive<F> + Send + Sync,
+        D: Clone + Copy + PartialOrd + NumCast + ToPrimitive + AsPrimitive<F> + Send + Sync,
     {
         let n_features = features[0].len();
 
-        // Initialize with worst possible impurity
         let mut best_impurity = F::infinity();
         let mut best_feature = 0;
         let mut best_threshold = features[indices[0]][0];
-        let mut best_left = Vec::new();
-        let mut best_right = Vec::new();
+        let mut best_left: Vec<usize> = Vec::new();
+        let mut best_right: Vec<usize> = Vec::new();
 
-        // Check all features (parallel when 'parallel' feature is enabled)
-        #[cfg(feature = "parallel")]
-        let iter = (0..n_features).into_par_iter();
-        #[cfg(not(feature = "parallel"))]
-        let iter = 0..n_features;
-
-        let results: Vec<_> = iter
+        // One par_iter over features; each task does its own sort. The
+        // closure returns the per-feature best split (or None) — no
+        // shared scratch between tasks.
+        let results: Vec<_> = (0..n_features)
+            .into_par_iter()
             .filter_map(|feature_idx| {
-                // Get all unique values for this feature
-                let mut feature_values: Vec<(usize, D)> = indices
-                    .iter()
-                    .map(|&idx| (idx, features[idx][feature_idx]))
-                    .collect();
-
-                // Sort values by feature value
-                feature_values.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
-
-                // Extract unique values
-                let mut values: Vec<D> = Vec::new();
-                let mut prev_val: Option<&D> = None;
-
-                for (_, val) in &feature_values {
-                    if prev_val.is_none()
-                        || prev_val
-                            .unwrap()
-                            .partial_cmp(val)
-                            .unwrap_or(Ordering::Equal)
-                            != Ordering::Equal
-                    {
-                        values.push(*val);
-                        prev_val = Some(val);
-                    }
-                }
-
-                // If there's only one unique value, we can't split on this feature
-                if values.len() <= 1 {
+                // Sort the node's indices by this feature's value (stable
+                // ordering on ties is fine; we skip across ties below).
+                let mut sorted_indices: Vec<usize> = indices.to_vec();
+                sorted_indices.sort_by(|&a, &b| {
+                    features[a][feature_idx]
+                        .partial_cmp(&features[b][feature_idx])
+                        .unwrap_or(Ordering::Equal)
+                });
+                let n = sorted_indices.len();
+                if n < 2 {
                     return None;
                 }
 
-                // Try all possible thresholds between consecutive values
+                let two = F::from(2.0)?;
+
+                // Walk candidate split positions. A split at `split_pos`
+                // means left = sorted_indices[..split_pos],
+                // right = sorted_indices[split_pos..]. Only positions
+                // between two distinct feature values are candidates.
                 let mut feature_best_impurity = F::infinity();
-                let mut feature_best_threshold = values[0];
-                let mut feature_best_left = Vec::new();
-                let mut feature_best_right = Vec::new();
+                let mut feature_best_split_pos: Option<usize> = None;
+                let mut feature_best_threshold = features[sorted_indices[0]][feature_idx];
 
-                for i in 0..values.len() - 1 {
-                    // Convert to F for calculations
-                    let val1: F = values[i].as_();
-                    let val2: F = values[i + 1].as_();
-
-                    // Find the midpoint
-                    let two = match F::from(2.0) {
-                        Some(t) => t,
-                        None => continue, // Skip this threshold if conversion fails
-                    };
-                    let mid_value = (val1 + val2) / two;
-
-                    // Convert the midpoint back to D type
-                    let threshold = match NumCast::from(mid_value) {
-                        Some(t) => t,
-                        None => continue, // Skip this threshold if conversion fails
-                    };
-
-                    // Split the samples based on the threshold
-                    let mut left_indices = Vec::new();
-                    let mut right_indices = Vec::new();
-
-                    for &idx in indices {
-                        let feature_value = &features[idx][feature_idx];
-                        if feature_value
-                            .partial_cmp(&threshold)
-                            .unwrap_or(Ordering::Equal)
-                            != Ordering::Greater
-                        {
-                            left_indices.push(idx);
-                        } else {
-                            right_indices.push(idx);
-                        }
+                for split_pos in 1..n {
+                    let i_prev = sorted_indices[split_pos - 1];
+                    let i_curr = sorted_indices[split_pos];
+                    let v_prev = features[i_prev][feature_idx];
+                    let v_curr = features[i_curr][feature_idx];
+                    if v_prev.partial_cmp(&v_curr).unwrap_or(Ordering::Equal) == Ordering::Equal {
+                        continue; // tied feature value; threshold can't separate these
                     }
-
-                    // Skip if the split doesn't satisfy min_samples_leaf
-                    if left_indices.len() < self.min_samples_leaf
-                        || right_indices.len() < self.min_samples_leaf
-                    {
+                    let left = &sorted_indices[..split_pos];
+                    let right = &sorted_indices[split_pos..];
+                    if left.len() < self.min_samples_leaf || right.len() < self.min_samples_leaf {
                         continue;
                     }
-
-                    // Calculate the impurity of the split
-                    let impurity =
-                        self.calculate_split_impurity(target, &left_indices, &right_indices);
-
-                    // Update the best split for this feature
+                    let impurity = self.calculate_split_impurity(target, left, right);
                     if impurity < feature_best_impurity {
+                        let v1: F = v_prev.as_();
+                        let v2: F = v_curr.as_();
+                        let mid = (v1 + v2) / two;
+                        let threshold: D = match NumCast::from(mid) {
+                            Some(t) => t,
+                            None => continue,
+                        };
                         feature_best_impurity = impurity;
+                        feature_best_split_pos = Some(split_pos);
                         feature_best_threshold = threshold;
-                        feature_best_left = left_indices;
-                        feature_best_right = right_indices;
                     }
                 }
 
-                // If we found a valid split for this feature
-                if !feature_best_left.is_empty() && !feature_best_right.is_empty() {
-                    Some((
+                // Materialise the best split's index vectors only once.
+                feature_best_split_pos.map(|split_pos| {
+                    let (left, right) = sorted_indices.split_at(split_pos);
+                    (
                         feature_idx,
                         feature_best_impurity,
                         feature_best_threshold,
-                        feature_best_left,
-                        feature_best_right,
-                    ))
-                } else {
-                    None
-                }
+                        left.to_vec(),
+                        right.to_vec(),
+                    )
+                })
             })
             .collect();
 
-        // Find the best feature
         for (feature_idx, impurity, threshold, left, right) in results {
             if impurity < best_impurity {
                 best_impurity = impurity;

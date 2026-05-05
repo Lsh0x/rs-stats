@@ -20,7 +20,7 @@
 //!
 //! ```rust
 //! use rs_stats::distributions::geometric::Geometric;
-//! use rs_stats::DiscreteDistribution;
+//! use rs_stats::Distribution;
 //!
 //! // P(detecting a polyp per colonoscopy session) = 0.18
 //! let screening = Geometric::new(0.18).unwrap();
@@ -28,7 +28,6 @@
 //! println!("P(detected ≤ 3)       = {:.1}%", screening.cdf(3).unwrap() * 100.0);
 //! ```
 
-use crate::distributions::traits::DiscreteDistribution;
 use crate::error::{StatsError, StatsResult};
 use serde::{Deserialize, Serialize};
 
@@ -37,7 +36,7 @@ use serde::{Deserialize, Serialize};
 /// # Examples
 /// ```
 /// use rs_stats::distributions::geometric::Geometric;
-/// use rs_stats::distributions::traits::DiscreteDistribution;
+/// use rs_stats::distributions::traits::Distribution;
 ///
 /// let g = Geometric::new(0.25).unwrap();
 /// assert!((g.mean() - 4.0).abs() < 1e-10);
@@ -82,7 +81,8 @@ impl Geometric {
     }
 }
 
-impl DiscreteDistribution for Geometric {
+impl crate::distributions::traits::Distribution for Geometric {
+    type X = u64;
     fn name(&self) -> &str {
         "Geometric"
     }
@@ -90,7 +90,7 @@ impl DiscreteDistribution for Geometric {
         1
     }
 
-    fn pmf(&self, k: u64) -> StatsResult<f64> {
+    fn pdf(&self, k: u64) -> StatsResult<f64> {
         if k == 0 {
             return Ok(0.0);
         }
@@ -98,7 +98,7 @@ impl DiscreteDistribution for Geometric {
         Ok(self.logpmf(k)?.exp())
     }
 
-    fn logpmf(&self, k: u64) -> StatsResult<f64> {
+    fn logpdf(&self, k: u64) -> StatsResult<f64> {
         if k == 0 {
             return Ok(f64::NEG_INFINITY);
         }
@@ -147,6 +147,7 @@ impl DiscreteDistribution for Geometric {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::distributions::traits::Distribution;
 
     #[test]
     fn test_geometric_mean_variance() {

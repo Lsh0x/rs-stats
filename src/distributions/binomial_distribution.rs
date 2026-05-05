@@ -27,64 +27,8 @@
 
 use crate::error::{StatsError, StatsResult};
 use crate::utils::special_functions::ln_gamma;
-use num_traits::ToPrimitive;
-use serde::{Deserialize, Serialize};
-
-/// Configuration for the Binomial distribution.
-///
-/// # Fields
-/// * `n` - The number of trials (must be positive)
-/// * `p` - The probability of success (must be between 0 and 1)
-///
-/// # Examples
-/// ```
-/// use rs_stats::distributions::binomial_distribution::BinomialConfig;
-///
-/// let config = BinomialConfig { n: 10, p: 0.5 };
-/// assert!(config.n > 0);
-/// assert!(config.p >= 0.0 && config.p <= 1.0);
-/// ```
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct BinomialConfig<T>
-where
-    T: ToPrimitive,
-{
-    /// The number of trials.
-    pub n: u64,
-    /// The probability of success in a single trial.
-    pub p: T,
-}
-
-impl<T> BinomialConfig<T>
-where
-    T: ToPrimitive,
-{
-    /// Creates a new BinomialConfig with validation
-    ///
-    /// # Arguments
-    /// * `n` - The number of trials
-    /// * `p` - The probability of success
-    ///
-    /// # Returns
-    /// `Some(BinomialConfig)` if parameters are valid, `None` otherwise
-    pub fn new(n: u64, p: T) -> StatsResult<Self> {
-        let p_64 = p.to_f64().ok_or_else(|| StatsError::ConversionError {
-            message: "BinomialConfig::new: Failed to convert p to f64".to_string(),
-        })?;
-
-        if n == 0 {
-            return Err(StatsError::InvalidInput {
-                message: "BinomialConfig::new: n must be positive".to_string(),
-            });
-        }
-        if !((0.0..=1.0).contains(&p_64)) {
-            return Err(StatsError::InvalidInput {
-                message: "BinomialConfig::new: p must be between 0 and 1".to_string(),
-            });
-        }
-        Ok(Self { n, p })
-    }
-}
+// Private math helpers; the public API is the [`Binomial`] struct's
+// [`DiscreteDistribution`] impl below.
 
 /// Probability mass function (PMF) for the Binomial distribution.
 ///
@@ -106,62 +50,29 @@ where
 /// - k > n
 /// - Type conversion to f64 fails
 ///
-/// # Examples
-/// ```
-/// use rs_stats::distributions::binomial_distribution::pmf;
-///
-/// // Calculate probability of 3 successes in 10 trials with p=0.5
-/// let prob = pmf(3, 10, 0.5).unwrap();
-/// assert!((prob - 0.1171875).abs() < 1e-10);
-/// ```
 #[inline]
-pub fn pmf<T>(k: u64, n: u64, p: T) -> StatsResult<f64>
-where
-    T: ToPrimitive,
-{
-    let p_64 = p.to_f64().ok_or_else(|| StatsError::ConversionError {
-        message: "binomial_distribution::pmf: Failed to convert p to f64".to_string(),
-    })?;
+fn pmf(k: u64, n: u64, p: f64) -> StatsResult<f64> {
     if n == 0 {
         return Err(StatsError::InvalidInput {
-            message: "binomial_distribution::pmf: n must be positive".to_string(),
+            message: "binomial::pmf: n must be positive".to_string(),
         });
     }
-    if !((0.0..=1.0).contains(&p_64)) {
+    if !((0.0..=1.0).contains(&p)) {
         return Err(StatsError::InvalidInput {
-            message: "binomial_distribution::pmf: p must be between 0 and 1".to_string(),
+            message: "binomial::pmf: p must be between 0 and 1".to_string(),
         });
     }
     let combinations = combination(n, k)?;
-
-    // Use log-space calculation to avoid:
-    // 1. Casting u64 to i32 (information loss)
-    // 2. Numerical underflow/overflow with large exponents
-    // 3. Better numerical stability
-    // Formula: p^k * (1-p)^(n-k) = exp(k * ln(p) + (n-k) * ln(1-p))
-
-    // Handle edge cases explicitly for correctness
-    if p_64 == 0.0 {
-        // If p = 0, then p^k = 0 for k > 0, and 1 for k = 0
+    if p == 0.0 {
         return Ok(if k == 0 { combinations } else { 0.0 });
     }
-    if p_64 == 1.0 {
-        // If p = 1, then (1-p)^(n-k) = 0 for k < n, and 1 for k = n
+    if p == 1.0 {
         return Ok(if k == n { combinations } else { 0.0 });
     }
-
-    // Convert to f64 (no information loss for reasonable values)
     let k_f64 = k as f64;
     let n_minus_k_f64 = (n - k) as f64;
-
-    // Calculate in log space: k * ln(p) + (n-k) * ln(1-p)
-    // Both p and (1-p) are guaranteed to be in (0, 1) here
-    let log_prob = k_f64 * p_64.ln() + n_minus_k_f64 * (1.0 - p_64).ln();
-
-    // Convert back from log space
-    let prob = log_prob.exp();
-
-    Ok(combinations * prob)
+    let log_prob = k_f64 * p.ln() + n_minus_k_f64 * (1.0 - p).ln();
+    Ok(combinations * log_prob.exp())
 }
 
 /// Cumulative distribution function (CDF) for the Binomial distribution.
@@ -184,16 +95,8 @@ where
 /// - k > n
 /// - Type conversion to f64 fails
 ///
-/// # Examples
-/// ```
-/// use rs_stats::distributions::binomial_distribution::cdf;
-///
-/// // Calculate probability of 3 or fewer successes in 10 trials with p=0.5
-/// let prob = cdf(3, 10, 0.5).unwrap();
-/// assert!((prob - 0.171875).abs() < 1e-10);
-/// ```
 #[inline]
-pub fn cdf(k: u64, n: u64, p: f64) -> StatsResult<f64> {
+fn cdf(k: u64, n: u64, p: f64) -> StatsResult<f64> {
     if n == 0 {
         return Err(StatsError::InvalidInput {
             message: "binomial_distribution::cdf: n must be positive".to_string(),
@@ -262,7 +165,7 @@ fn combination(n: u64, k: u64) -> StatsResult<f64> {
 /// # Examples
 /// ```
 /// use rs_stats::distributions::binomial_distribution::Binomial;
-/// use rs_stats::distributions::traits::DiscreteDistribution;
+/// use rs_stats::distributions::traits::Distribution;
 ///
 /// let b = Binomial::new(10, 0.5).unwrap();
 /// assert!((b.mean() - 5.0).abs() < 1e-10);
@@ -309,20 +212,21 @@ impl Binomial {
     }
 }
 
-impl crate::distributions::traits::DiscreteDistribution for Binomial {
+impl crate::distributions::traits::Distribution for Binomial {
+    type X = u64;
     fn name(&self) -> &str {
         "Binomial"
     }
     fn num_params(&self) -> usize {
         2
     }
-    fn pmf(&self, k: u64) -> StatsResult<f64> {
+    fn pdf(&self, k: u64) -> StatsResult<f64> {
         pmf(k, self.n, self.p)
     }
     /// Log-space PMF for numerical stability with large n or k.
     ///
     /// ln P(X=k) = ln Γ(n+1) − ln Γ(k+1) − ln Γ(n−k+1) + k·ln(p) + (n−k)·ln(1−p)
-    fn logpmf(&self, k: u64) -> StatsResult<f64> {
+    fn logpdf(&self, k: u64) -> StatsResult<f64> {
         let n = self.n;
         if k > n {
             return Ok(f64::NEG_INFINITY);
@@ -344,6 +248,9 @@ impl crate::distributions::traits::DiscreteDistribution for Binomial {
     }
     fn cdf(&self, k: u64) -> StatsResult<f64> {
         cdf(k, self.n, self.p)
+    }
+    fn inverse_cdf(&self, p: f64) -> StatsResult<u64> {
+        crate::distributions::traits::discrete_inverse_cdf_search(p, |k| self.cdf(k))
     }
     fn mean(&self) -> f64 {
         self.n as f64 * self.p
@@ -437,56 +344,6 @@ mod tests {
                 // Error is acceptable for very large values (numerical precision limits)
             }
         }
-    }
-
-    #[test]
-    fn test_binomial_config_new_valid() {
-        let config = BinomialConfig::new(10, 0.5);
-        assert!(config.is_ok());
-        let config = config.unwrap();
-        assert_eq!(config.n, 10);
-    }
-
-    #[test]
-    fn test_binomial_config_new_n_zero() {
-        let result = BinomialConfig::new(0, 0.5);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            StatsError::InvalidInput { .. }
-        ));
-    }
-
-    #[test]
-    fn test_binomial_config_new_p_out_of_range_negative() {
-        let result = BinomialConfig::new(10, -0.1);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            StatsError::InvalidInput { .. }
-        ));
-    }
-
-    #[test]
-    fn test_binomial_config_new_p_out_of_range_above_one() {
-        let result = BinomialConfig::new(10, 1.1);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            StatsError::InvalidInput { .. }
-        ));
-    }
-
-    #[test]
-    fn test_binomial_config_new_p_zero() {
-        let config = BinomialConfig::new(10, 0.0);
-        assert!(config.is_ok());
-    }
-
-    #[test]
-    fn test_binomial_config_new_p_one() {
-        let config = BinomialConfig::new(10, 1.0);
-        assert!(config.is_ok());
     }
 
     #[test]
@@ -586,15 +443,6 @@ mod tests {
         // C(n, 0) = 1
         let result = combination(10, 0).unwrap();
         assert_eq!(result, 1.0);
-    }
-
-    #[test]
-    fn test_binomial_config_new_n_one() {
-        // Test edge case: n = 1 (minimum valid value)
-        let config = BinomialConfig::new(1, 0.5);
-        assert!(config.is_ok());
-        let config = config.unwrap();
-        assert_eq!(config.n, 1);
     }
 
     #[test]

@@ -3,12 +3,15 @@ use criterion::{criterion_group, criterion_main};
 // ── Poisson distribution ──────────────────────────────────────────────────────
 mod poisson {
     use criterion::{BenchmarkId, Criterion, black_box};
+    use rs_stats::Distribution;
+    use rs_stats::distributions::poisson_distribution::Poisson;
 
     pub fn bench_pmf(c: &mut Criterion) {
         let mut group = c.benchmark_group("poisson_pmf");
+        let p = Poisson::new(10.0).unwrap();
         for k in [5, 50, 200, 1000] {
             group.bench_with_input(BenchmarkId::from_parameter(k), &k, |b, &k| {
-                b.iter(|| rs_stats::distributions::poisson_distribution::pmf(black_box(k), 10.0));
+                b.iter(|| p.pmf(black_box(k)));
             });
         }
         group.finish();
@@ -16,9 +19,10 @@ mod poisson {
 
     pub fn bench_cdf(c: &mut Criterion) {
         let mut group = c.benchmark_group("poisson_cdf");
+        let p = Poisson::new(10.0).unwrap();
         for k in [5, 50, 200, 1000] {
             group.bench_with_input(BenchmarkId::from_parameter(k), &k, |b, &k| {
-                b.iter(|| rs_stats::distributions::poisson_distribution::cdf(black_box(k), 10.0));
+                b.iter(|| p.cdf(black_box(k)));
             });
         }
         group.finish();
@@ -28,21 +32,18 @@ mod poisson {
 // ── Binomial distribution ─────────────────────────────────────────────────────
 mod binomial {
     use criterion::{BenchmarkId, Criterion, black_box};
+    use rs_stats::Distribution;
+    use rs_stats::distributions::binomial_distribution::Binomial;
 
     pub fn bench_cdf(c: &mut Criterion) {
         let mut group = c.benchmark_group("binomial_cdf");
         for (n, k) in [(20, 10), (100, 50), (500, 250)] {
+            let dist = Binomial::new(n, 0.5).unwrap();
             group.bench_with_input(
                 BenchmarkId::new("n_k", format!("{}_{}", n, k)),
-                &(n, k),
-                |b, &(n, k)| {
-                    b.iter(|| {
-                        rs_stats::distributions::binomial_distribution::cdf(
-                            black_box(k),
-                            black_box(n),
-                            0.5,
-                        )
-                    });
+                &k,
+                |b, &k| {
+                    b.iter(|| dist.cdf(black_box(k)));
                 },
             );
         }
@@ -52,17 +53,12 @@ mod binomial {
     pub fn bench_pmf(c: &mut Criterion) {
         let mut group = c.benchmark_group("binomial_pmf");
         for (n, k) in [(20, 10), (100, 50), (500, 250)] {
+            let dist = Binomial::new(n, 0.5).unwrap();
             group.bench_with_input(
                 BenchmarkId::new("n_k", format!("{}_{}", n, k)),
-                &(n, k),
-                |b, &(n, k)| {
-                    b.iter(|| {
-                        rs_stats::distributions::binomial_distribution::pmf(
-                            black_box(k),
-                            black_box(n),
-                            0.5,
-                        )
-                    });
+                &k,
+                |b, &k| {
+                    b.iter(|| dist.pmf(black_box(k)));
                 },
             );
         }

@@ -106,6 +106,7 @@ impl Beta {
 }
 
 impl Distribution for Beta {
+    type X = f64;
     fn name(&self) -> &str {
         "Beta"
     }

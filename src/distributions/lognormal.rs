@@ -115,6 +115,7 @@ impl LogNormal {
 }
 
 impl Distribution for LogNormal {
+    type X = f64;
     fn name(&self) -> &str {
         "LogNormal"
     }

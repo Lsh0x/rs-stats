@@ -1,87 +1,136 @@
 //! # Variance Calculation
 //!
-//! This module provides functions for calculating the variance of a dataset.
+//! Population and sample variance over numeric slices, single-pass online
+//! (Welford 1962) — never walks `data` twice and never allocates.
 //!
-//! The variance is a measure of how spread out the numbers in a data set are.
-//! It is calculated as the average of the squared differences from the mean.
+//! ## Convention
 //!
-//! ## Supported Types
-//! The variance function accepts any numeric type that implements `num_traits::ToPrimitive`,
-//! including:
-//! - Primitive integers (i8, i16, i32, i64, u8, u16, u32, u64)
-//! - Floating point numbers (f32, f64)
-//! - Big integers (BigInt, BigUint)
-//! - Any custom type that implements ToPrimitive
+//! `rs-stats` follows the explicit-naming convention from numpy and scipy:
+//!
+//! - [`variance`] / [`variance_population`] — divide by `n` (population
+//!   variance, **MLE** estimator). Equivalent to `numpy.var(data)` /
+//!   `numpy.var(data, ddof=0)`.
+//! - [`variance_sample`] — divide by `n - 1` (sample variance,
+//!   Bessel-corrected unbiased estimator). Equivalent to
+//!   `numpy.var(data, ddof=1)` / `pandas.Series.var()`.
+//!
+//! [`variance`] and [`variance_population`] are the same function — the
+//! shorter name is kept because it matches the previous (v2.x) behaviour
+//! and is what every distribution's [`Distribution::variance`] reports.
+//! When in doubt, prefer the explicit name.
+//!
+//! [`Distribution::variance`]: crate::distributions::traits::Distribution::variance
 
 use crate::error::{StatsError, StatsResult};
 use num_traits::ToPrimitive;
 use std::fmt::Debug;
 
-/// Calculate the variance of a dataset.
+/// Population variance (divide by `n`, MLE).
 ///
-/// The variance is a measure of how spread out the numbers in a data set are.
-/// It is calculated as the average of the squared differences from the mean.
+/// Same as `numpy.var(data)` / `numpy.var(data, ddof=0)`.
 ///
 /// # Arguments
-/// * `data` - A slice of numeric values implementing `ToPrimitive`
-///
-/// # Returns
-/// * `StatsResult<f64>` - The variance as a `f64`, or an error if the input is invalid
+/// * `data` - A slice of numeric values implementing `ToPrimitive`.
 ///
 /// # Errors
-/// Returns `StatsError::EmptyData` if the input slice is empty.
-/// Returns `StatsError::ConversionError` if any value cannot be converted to f64.
+/// * [`StatsError::EmptyData`] if `data` is empty.
+/// * [`StatsError::ConversionError`] if a value cannot be converted to `f64`.
+///
+/// # Examples
+/// ```
+/// use rs_stats::prob::variance_population;
+/// let v = variance_population(&[1.0, 2.0, 3.0, 4.0, 5.0]).unwrap();
+/// assert!((v - 2.0).abs() < 1e-12); // Σ(xᵢ−μ)² / n = 10/5
+/// ```
+#[inline]
+pub fn variance_population<T>(data: &[T]) -> StatsResult<f64>
+where
+    T: ToPrimitive + Debug,
+{
+    let (n, _, m2) = welford_pass(data, "prob::variance_population")?;
+    Ok(m2 / n)
+}
+
+/// Sample variance (divide by `n - 1`, Bessel-corrected unbiased estimator).
+///
+/// Same as `numpy.var(data, ddof=1)` / `pandas.Series.var()`.
+///
+/// # Errors
+/// * [`StatsError::EmptyData`] if `data` is empty.
+/// * [`StatsError::InvalidInput`] if `data.len() < 2` (sample variance is
+///   undefined for n = 1).
+/// * [`StatsError::ConversionError`] if a value cannot be converted to `f64`.
+///
+/// # Examples
+/// ```
+/// use rs_stats::prob::variance_sample;
+/// let v = variance_sample(&[1.0, 2.0, 3.0, 4.0, 5.0]).unwrap();
+/// assert!((v - 2.5).abs() < 1e-12); // Σ(xᵢ−μ)² / (n−1) = 10/4
+/// ```
+#[inline]
+pub fn variance_sample<T>(data: &[T]) -> StatsResult<f64>
+where
+    T: ToPrimitive + Debug,
+{
+    let (n, _, m2) = welford_pass(data, "prob::variance_sample")?;
+    if n < 2.0 {
+        return Err(StatsError::invalid_input(
+            "prob::variance_sample: need at least 2 observations for sample variance",
+        ));
+    }
+    Ok(m2 / (n - 1.0))
+}
+
+/// Population variance — alias for [`variance_population`].
+///
+/// Kept under the short name for ergonomics and v2.x source-compatibility;
+/// every [`Distribution::variance`] in this crate reports the same
+/// (population) quantity. Use [`variance_sample`] when you need the
+/// Bessel-corrected estimator.
+///
+/// [`Distribution::variance`]: crate::distributions::traits::Distribution::variance
 ///
 /// # Examples
 /// ```
 /// use rs_stats::prob::variance;
-///
-/// // Calculate variance of integers
-/// let int_data = [1, 2, 3, 4, 5];
-/// let var = variance(&int_data)?;
-/// println!("Variance of integers: {}", var);
-///
-/// // Calculate variance of floats
-/// let float_data = [1.0, 2.5, 3.0, 4.5, 5.0];
-/// let var = variance(&float_data)?;
-/// println!("Variance of floats: {}", var);
-///
-/// // Handle empty input
-/// let empty_data: &[i32] = &[];
-/// assert!(variance(empty_data).is_err());
-/// # Ok::<(), rs_stats::StatsError>(())
+/// let v = variance(&[1.0, 2.0, 3.0, 4.0, 5.0]).unwrap();
+/// assert!((v - 2.0).abs() < 1e-12);
 /// ```
 #[inline]
 pub fn variance<T>(data: &[T]) -> StatsResult<f64>
 where
     T: ToPrimitive + Debug,
 {
+    variance_population(data)
+}
+
+/// Single-pass Welford pass: returns `(n, mean, m2)` over `data`,
+/// converting each element to f64 with the supplied error context.
+#[inline]
+fn welford_pass<T>(data: &[T], ctx: &str) -> StatsResult<(f64, f64, f64)>
+where
+    T: ToPrimitive + Debug,
+{
     if data.is_empty() {
-        return Err(StatsError::empty_data(
-            "prob::variance: Cannot calculate variance of empty dataset",
-        ));
+        return Err(StatsError::empty_data(format!(
+            "{ctx}: cannot compute variance of empty dataset"
+        )));
     }
-
-    let mut mean = 0.0;
-    let mut m2 = 0.0;
-    let mut n = 0.0;
-
+    let mut n = 0.0_f64;
+    let mut mean = 0.0_f64;
+    let mut m2 = 0.0_f64;
     for (i, x) in data.iter().enumerate() {
         let value = x.to_f64().ok_or_else(|| {
             StatsError::conversion_error(format!(
-                "prob::variance: Failed to convert value at index {} to f64",
-                i
+                "{ctx}: failed to convert value at index {i} to f64"
             ))
         })?;
-
         n += 1.0;
         let delta = value - mean;
         mean += delta / n;
-        let delta2 = value - mean;
-        m2 += delta * delta2;
+        m2 += delta * (value - mean);
     }
-
-    Ok(m2 / n)
+    Ok((n, mean, m2))
 }
 
 #[cfg(test)]
@@ -89,48 +138,57 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_variance_integers() {
-        let data = [1, 2, 3, 4, 5];
-        let variance = variance(&data).unwrap();
-        assert!(!variance.is_nan());
-    }
-
-    #[test]
-    fn test_variance_floats() {
-        let data = [1.0, 2.0, 3.0, 4.0, 5.0];
-        let variance = variance(&data).unwrap();
-        assert!(!variance.is_nan());
-    }
-
-    #[test]
-    fn test_variance_mixed_floats() {
+    fn test_population_matches_legacy_alias() {
         let data = [1.0, 2.5, 3.0, 4.5, 5.0];
-        let variance = variance(&data).unwrap();
-        assert!(!variance.is_nan());
+        assert_eq!(
+            variance(&data).unwrap(),
+            variance_population(&data).unwrap()
+        );
     }
 
     #[test]
-    fn test_variance_single_value() {
+    fn test_population_known_value() {
+        // Mean = 3, Σ(xᵢ−μ)² = 10, n = 5 → 10/5 = 2
+        let data = [1.0, 2.0, 3.0, 4.0, 5.0];
+        assert!((variance_population(&data).unwrap() - 2.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_sample_known_value() {
+        // Same numerator, n - 1 = 4 → 10/4 = 2.5
+        let data = [1.0, 2.0, 3.0, 4.0, 5.0];
+        assert!((variance_sample(&data).unwrap() - 2.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn test_population_single_value_is_zero() {
         let data = [5];
-        let variance = variance(&data).unwrap();
-        assert_eq!(variance, 0.0);
+        assert_eq!(variance_population(&data).unwrap(), 0.0);
     }
 
     #[test]
-    fn test_variance_empty_slice() {
-        let data: &[f64] = &[];
-        let variance = variance(data);
-        assert!(variance.is_err());
+    fn test_sample_single_value_errors() {
+        let data = [5];
         assert!(matches!(
-            variance.unwrap_err(),
-            StatsError::EmptyData { .. }
+            variance_sample(&data),
+            Err(StatsError::InvalidInput { .. })
         ));
     }
 
     #[test]
-    fn test_variance_identical_values() {
+    fn test_empty_errors() {
+        let data: &[f64] = &[];
+        assert!(matches!(variance(data), Err(StatsError::EmptyData { .. })));
+        assert!(matches!(
+            variance_sample(data),
+            Err(StatsError::EmptyData { .. })
+        ));
+    }
+
+    #[test]
+    fn test_identical_values_zero_variance() {
         let data = [2.0; 10];
-        let variance = variance(&data).unwrap();
-        assert_eq!(variance, 0.0);
+        assert_eq!(variance_population(&data).unwrap(), 0.0);
+        assert_eq!(variance_sample(&data).unwrap(), 0.0);
     }
 }
