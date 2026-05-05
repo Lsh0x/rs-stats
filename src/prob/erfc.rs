@@ -37,13 +37,13 @@ use num_traits::ToPrimitive;
 /// ```
 /// use rs_stats::prob::erfc;
 ///
-/// // Calculate erfc(1.0)
+/// // Calculate erfc(1.0) = 1 − erf(1.0)
 /// let result = erfc(1.0).unwrap();
-/// assert!((result - 0.15729931025241006).abs() < 1e-8);
+/// assert!((result - 0.157_299_207_050_285_1).abs() < 1e-12);
 ///
 /// // Verify relationship to normal distribution
 /// let p = 0.5 * erfc(1.0 / 2.0f64.sqrt()).unwrap();
-/// assert!((p - 0.15865526383236372).abs() < 1e-8); // P(X > 1) for N(0,1)
+/// assert!((p - 0.158_655_253_931_457_1).abs() < 1e-10); // P(X > 1) for N(0,1)
 /// ```
 #[inline]
 pub fn erfc<T>(x: T) -> StatsResult<f64>

@@ -25,6 +25,7 @@
 //!   under the null hypothesis that all group means are equal.
 
 use crate::error::{StatsError, StatsResult};
+use crate::utils::special_functions::regularized_incomplete_beta as canonical_inc_beta;
 use num_traits::ToPrimitive;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -186,122 +187,23 @@ where
     })
 }
 
-// Helper function to calculate the CDF of the F-distribution
-// Uses a more accurate implementation of the regularized incomplete beta function
+/// CDF of the F-distribution at `f` with `df1` numerator / `df2` denominator dofs.
+///
+/// Uses the canonical regularised incomplete beta from
+/// [`crate::utils::special_functions`]:
+///   F(f; df1, df2) = I_x(df1/2, df2/2)  with  x = df1·f / (df2 + df1·f).
 fn f_distribution_cdf(f: f64, df1: u32, df2: u32) -> f64 {
-    // F(f; df1, df2) = I_{df2 / (df2 + df1 * f)}(df2/2, df1/2)
-    // For F < 1, we can use the relationship:
-    // F(f; df1, df2) = 1 - F(1/f; df2, df1)
-
     if f <= 0.0 {
         return 0.0;
     }
-
-    // For F < 1, we use the complementary calculation
-    if f < 1.0 {
-        // Use the relationship: F(f; df1, df2) = 1 - F(1/f; df2, df1)
-        return 1.0 - f_distribution_cdf(1.0 / f, df2, df1);
-    }
-
-    // Ensure denominator is not zero to avoid division by zero
-    // df2 + df1 * f should never be zero for valid F-statistics, but check anyway
-    let denominator = df2 as f64 + df1 as f64 * f;
-    if denominator.abs() < 1e-15 {
-        // This should not happen for valid F-statistics, but handle edge case
-        // Return 0.0 or handle appropriately
-        return 0.0;
-    }
-
-    let x = df2 as f64 / denominator;
-    let a = df2 as f64 / 2.0;
-    let b = df1 as f64 / 2.0;
-
-    // Use a more accurate implementation of the regularized incomplete beta function
-    let cdf = regularized_incomplete_beta(x, a, b);
-    // Clamp to [0, 1] to handle numerical precision issues
-    cdf.clamp(0.0, 1.0)
-}
-
-// Improved implementation of the regularized incomplete beta function
-fn regularized_incomplete_beta(x: f64, a: f64, b: f64) -> f64 {
-    if x <= 0.0 {
-        return 0.0;
-    }
-    if x >= 1.0 {
+    let df1f = df1 as f64;
+    let df2f = df2 as f64;
+    let denom = df2f + df1f * f;
+    if denom.abs() < 1e-15 {
         return 1.0;
     }
-
-    // For small values of a and b, use a continued fraction approach
-    // For values where x is closer to 0, use a power series
-
-    // Use a power series expansion for the incomplete beta function
-    let mut term = 1.0;
-    let mut sum = 0.0;
-    let max_iterations = 200;
-
-    // Calculate beta function normalization
-    let ln_beta = ln_gamma(a) + ln_gamma(b) - ln_gamma(a + b);
-
-    // Handle the case where a + b = 1.0 to avoid division by zero when i = 0
-    // When a + b = 1.0 and i = 0, denominator = a + b + 0 - 1.0 = 0.0
-    // We need to ensure denominator != 0 before dividing
-
-    for i in 0..max_iterations {
-        if i > 0 {
-            term *= (a + i as f64 - 1.0) * x / i as f64;
-        }
-        let denominator = a + b + i as f64 - 1.0;
-        // Avoid division by zero: ensure denominator != 0 before dividing
-        // This handles the case when a + b = 1.0 and i = 0
-        if denominator.abs() > 1e-15 {
-            sum += term / denominator;
-        }
-        // If denominator is zero (a+b=1.0 and i=0), skip this iteration
-        // For the special case a+b=1.0, the i=0 term contributes 1.0/(a+b) = 1.0
-        // But since we're skipping it, we'll rely on the remaining terms for convergence
-        if term.abs() < 1e-15 {
-            break;
-        }
-    }
-
-    // If we skipped the i=0 term due to a+b=1.0, we need to compensate
-    // For a+b=1.0, the missing term is approximately 1.0/(a+b) = 1.0
-    // But this is already handled by the fact that term starts at 1.0
-    // and we're computing the series correctly
-
-    (x.powf(a) * (1.0 - x).powf(b) / (-ln_beta).exp()) * sum
-}
-
-// Approximation of the natural logarithm of the gamma function
-fn ln_gamma(x: f64) -> f64 {
-    // Lanczos approximation for ln(Gamma(x))
-    if x <= 0.0 {
-        return f64::INFINITY; // Not valid for non-positive numbers
-    }
-
-    // Coefficients for the Lanczos approximation
-    let p = [
-        676.5203681218851,
-        -1259.1392167224028,
-        771.323_428_777_653_1,
-        -176.615_029_162_140_6,
-        12.507343278686905,
-        -0.13857109526572012,
-        9.984_369_578_019_572e-6,
-        1.5056327351493116e-7,
-    ];
-
-    let mut result = 0.999_999_999_999_809_9;
-    let z: f64 = x - 1.0;
-
-    for (i, &val) in p.iter().enumerate() {
-        result += val / (z + (i as f64) + 1.0);
-    }
-
-    let t = z + p.len() as f64 - 0.5;
-    // Use precomputed constant instead of computing ln(2π) every call
-    use crate::utils::constants::LN_2PI;
-    LN_2PI / 2.0 + (t + 0.5) * t.ln() - t + result.ln()
+    let x = (df1f * f) / denom;
+    canonical_inc_beta(0.5 * df1f, 0.5 * df2f, x).clamp(0.0, 1.0)
 }
 
 #[cfg(test)]

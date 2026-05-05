@@ -18,10 +18,24 @@
 //! The resulting statistic follows a chi-square distribution with degrees of freedom based on the particular test.
 
 use crate::error::{StatsError, StatsResult};
-use crate::prob::erf;
-use crate::utils::constants::SQRT_2;
+use crate::utils::special_functions::regularized_incomplete_gamma;
 use num_traits::ToPrimitive;
 use std::fmt::Debug;
+
+/// Right-tail (survival) probability of the χ² distribution at `chi_sq` with `df` dofs.
+///
+/// Uses the canonical regularised incomplete gamma:
+///   P(χ²_df ≥ x) = 1 − P(df/2, x/2)
+#[inline]
+fn chi_square_sf(chi_sq: f64, df: usize) -> f64 {
+    if df == 0 {
+        return 1.0;
+    }
+    if chi_sq <= 0.0 {
+        return 1.0;
+    }
+    (1.0 - regularized_incomplete_gamma(df as f64 / 2.0, chi_sq / 2.0)).clamp(0.0, 1.0)
+}
 
 /// Performs a chi-square goodness of fit test, which determines if a sample matches a population distribution.
 ///
@@ -112,21 +126,9 @@ where
         chi_square += (diff * diff) / exp;
     }
 
-    // Calculate p-value using the chi-square distribution
-    // This is an approximation using Wilson-Hilferty transformation
-    let p_value = if degrees_of_freedom > 0 {
-        let mut z = (chi_square / degrees_of_freedom as f64).powf(1.0 / 3.0)
-            - (1.0 - 2.0 / (9.0 * degrees_of_freedom as f64));
-        z /= (2.0 / (9.0 * degrees_of_freedom as f64)).sqrt();
+    let p_value = chi_square_sf(chi_square, degrees_of_freedom);
 
-        // Standard normal CDF approximation
-        0.5 * (1.0 + erf(z / SQRT_2)?)
-    } else {
-        1.0 // If df = 0, return p-value of 1.0
-    };
-
-    // Return the chi-square statistic, degrees of freedom, and p-value
-    Ok((chi_square, degrees_of_freedom, 1.0 - p_value))
+    Ok((chi_square, degrees_of_freedom, p_value))
 }
 
 /// Performs a chi-square test of independence, which determines if there is a significant relationship
@@ -258,21 +260,9 @@ where
     // Calculate degrees of freedom
     let degrees_of_freedom = (row_count - 1) * (col_count - 1);
 
-    // Calculate p-value using the chi-square distribution
-    // This is an approximation using Wilson-Hilferty transformation
-    let p_value = if degrees_of_freedom > 0 {
-        let mut z = (chi_square / degrees_of_freedom as f64).powf(1.0 / 3.0)
-            - (1.0 - 2.0 / (9.0 * degrees_of_freedom as f64));
-        z /= (2.0 / (9.0 * degrees_of_freedom as f64)).sqrt();
+    let p_value = chi_square_sf(chi_square, degrees_of_freedom);
 
-        // Standard normal CDF approximation
-        0.5 * (1.0 + erf(z / SQRT_2)?)
-    } else {
-        1.0 // If df = 0, return p-value of 1.0
-    };
-
-    // Return the chi-square statistic, degrees of freedom, and p-value
-    Ok((chi_square, degrees_of_freedom, 1.0 - p_value))
+    Ok((chi_square, degrees_of_freedom, p_value))
 }
 
 #[cfg(test)]
@@ -442,11 +432,9 @@ mod tests {
             statistic, 0.0,
             "Chi-square statistic should be 0 when observed equals expected"
         );
-        // When df == 0, p-value should be 1.0 (as per the code)
-        assert_eq!(
-            p_value, 0.0,
-            "p-value should be 0.0 when df == 0 (1.0 - 1.0)"
-        );
+        // df == 0 is the trivial single-category case: no evidence to
+        // reject the null, so the survival function returns p = 1.0.
+        assert_eq!(p_value, 1.0, "p-value should be 1.0 when df == 0");
     }
 
     #[test]

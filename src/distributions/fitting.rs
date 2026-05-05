@@ -122,19 +122,31 @@ pub struct KsResult {
 ///
 /// Uses the Kolmogorov distribution for the p-value approximation.
 pub fn ks_test(data: &[f64], cdf: impl Fn(f64) -> f64) -> KsResult {
-    let n = data.len();
+    let mut buf = Vec::with_capacity(data.len());
+    buf.extend_from_slice(data);
+    ks_test_with_scratch(&mut buf, cdf)
+}
+
+/// Zero-allocation variant of [`ks_test`] — sorts the caller-provided
+/// buffer in place and uses it as the working copy.
+///
+/// `scratch` must already contain the data to test (the function does not
+/// copy from anywhere). This lets callers reuse one buffer across many KS
+/// evaluations: see [`fit_all`] which fits 10 candidates from a single
+/// `&[f64]` input.
+pub fn ks_test_with_scratch(scratch: &mut [f64], cdf: impl Fn(f64) -> f64) -> KsResult {
+    let n = scratch.len();
     if n == 0 {
         return KsResult {
             statistic: 0.0,
             p_value: 1.0,
         };
     }
-    let mut sorted = data.to_vec();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    scratch.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
     let nf = n as f64;
     let mut d = 0.0_f64;
-    for (i, &x) in sorted.iter().enumerate() {
+    for (i, &x) in scratch.iter().enumerate() {
         let f = cdf(x);
         let upper = (i + 1) as f64 / nf;
         let lower = i as f64 / nf;
@@ -151,19 +163,28 @@ pub fn ks_test(data: &[f64], cdf: impl Fn(f64) -> f64) -> KsResult {
 
 /// KS test for discrete distributions (uses PMF-based CDF on integer grid).
 pub fn ks_test_discrete(data: &[f64], cdf: impl Fn(u64) -> f64) -> KsResult {
-    let n = data.len();
+    let mut buf = Vec::with_capacity(data.len());
+    buf.extend_from_slice(data);
+    ks_test_discrete_with_scratch(&mut buf, cdf)
+}
+
+/// Zero-allocation variant of [`ks_test_discrete`].
+pub fn ks_test_discrete_with_scratch(
+    scratch: &mut [f64],
+    cdf: impl Fn(u64) -> f64,
+) -> KsResult {
+    let n = scratch.len();
     if n == 0 {
         return KsResult {
             statistic: 0.0,
             p_value: 1.0,
         };
     }
-    let mut sorted = data.to_vec();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    scratch.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
     let nf = n as f64;
     let mut d = 0.0_f64;
-    for (i, &x) in sorted.iter().enumerate() {
+    for (i, &x) in scratch.iter().enumerate() {
         let k = x.round() as u64;
         let f = cdf(k);
         let upper = (i + 1) as f64 / nf;
@@ -229,14 +250,20 @@ pub fn fit_all(data: &[f64]) -> StatsResult<Vec<FitResult>> {
         });
     }
 
-    let mut results: Vec<FitResult> = Vec::new();
+    // Pre-allocate KS scratch buffer once; reused across all 10 candidates.
+    let mut ks_buf: Vec<f64> = Vec::with_capacity(data.len());
+    let mut results: Vec<FitResult> = Vec::with_capacity(10);
 
     macro_rules! try_fit {
         ($dist_type:ty, $fit_expr:expr) => {
             if let Ok(dist) = $fit_expr {
                 if let (Ok(aic), Ok(bic)) = (dist.aic(data), dist.bic(data)) {
                     if aic.is_finite() && bic.is_finite() {
-                        let ks = ks_test(data, |x| dist.cdf(x).unwrap_or(0.0));
+                        ks_buf.clear();
+                        ks_buf.extend_from_slice(data);
+                        let ks = ks_test_with_scratch(&mut ks_buf, |x| {
+                            dist.cdf(x).unwrap_or(0.0)
+                        });
                         results.push(FitResult {
                             name: dist.name().to_string(),
                             aic,
@@ -318,8 +345,9 @@ pub fn fit_all_verbose(data: &[f64]) -> StatsResult<(Vec<FitResult>, Vec<Skipped
         });
     }
 
-    let mut results: Vec<FitResult> = Vec::new();
-    let mut skipped: Vec<SkippedFit> = Vec::new();
+    let mut ks_buf: Vec<f64> = Vec::with_capacity(data.len());
+    let mut results: Vec<FitResult> = Vec::with_capacity(10);
+    let mut skipped: Vec<SkippedFit> = Vec::with_capacity(10);
 
     macro_rules! try_fit_v {
         ($name:literal, $fit_expr:expr) => {
@@ -330,7 +358,11 @@ pub fn fit_all_verbose(data: &[f64]) -> StatsResult<(Vec<FitResult>, Vec<Skipped
                 }),
                 Ok(dist) => match (dist.aic(data), dist.bic(data)) {
                     (Ok(aic), Ok(bic)) if aic.is_finite() && bic.is_finite() => {
-                        let ks = ks_test(data, |x| dist.cdf(x).unwrap_or(0.0));
+                        ks_buf.clear();
+                        ks_buf.extend_from_slice(data);
+                        let ks = ks_test_with_scratch(&mut ks_buf, |x| {
+                            dist.cdf(x).unwrap_or(0.0)
+                        });
                         results.push(FitResult {
                             name: dist.name().to_string(),
                             aic,
@@ -384,9 +416,11 @@ pub fn fit_all_discrete_verbose(data: &[f64]) -> StatsResult<(Vec<FitResult>, Ve
         });
     }
 
-    let int_data: Vec<u64> = data.iter().map(|&x| x.round() as u64).collect();
-    let mut results: Vec<FitResult> = Vec::new();
-    let mut skipped: Vec<SkippedFit> = Vec::new();
+    let mut int_data: Vec<u64> = Vec::with_capacity(data.len());
+    int_data.extend(data.iter().map(|&x| x.round() as u64));
+    let mut ks_buf: Vec<f64> = Vec::with_capacity(data.len());
+    let mut results: Vec<FitResult> = Vec::with_capacity(4);
+    let mut skipped: Vec<SkippedFit> = Vec::with_capacity(4);
 
     macro_rules! try_fit_disc_v {
         ($name:literal, $fit_expr:expr) => {
@@ -397,7 +431,11 @@ pub fn fit_all_discrete_verbose(data: &[f64]) -> StatsResult<(Vec<FitResult>, Ve
                 }),
                 Ok(dist) => match (dist.aic(&int_data), dist.bic(&int_data)) {
                     (Ok(aic), Ok(bic)) if aic.is_finite() && bic.is_finite() => {
-                        let ks = ks_test_discrete(data, |k| dist.cdf(k).unwrap_or(0.0));
+                        ks_buf.clear();
+                        ks_buf.extend_from_slice(data);
+                        let ks = ks_test_discrete_with_scratch(&mut ks_buf, |k| {
+                            dist.cdf(k).unwrap_or(0.0)
+                        });
                         results.push(FitResult {
                             name: dist.name().to_string(),
                             aic,
@@ -446,17 +484,22 @@ pub fn fit_all_discrete(data: &[f64]) -> StatsResult<Vec<FitResult>> {
         });
     }
 
-    // Convert to u64 for discrete distributions
-    let int_data: Vec<u64> = data.iter().map(|&x| x.round() as u64).collect();
-
-    let mut results: Vec<FitResult> = Vec::new();
+    // Pre-allocate scratch buffers; reused across all 4 candidates.
+    let mut int_data: Vec<u64> = Vec::with_capacity(data.len());
+    int_data.extend(data.iter().map(|&x| x.round() as u64));
+    let mut ks_buf: Vec<f64> = Vec::with_capacity(data.len());
+    let mut results: Vec<FitResult> = Vec::with_capacity(4);
 
     macro_rules! try_fit_disc {
         ($fit_expr:expr) => {
             if let Ok(dist) = $fit_expr {
                 if let (Ok(aic), Ok(bic)) = (dist.aic(&int_data), dist.bic(&int_data)) {
                     if aic.is_finite() && bic.is_finite() {
-                        let ks = ks_test_discrete(data, |k| dist.cdf(k).unwrap_or(0.0));
+                        ks_buf.clear();
+                        ks_buf.extend_from_slice(data);
+                        let ks = ks_test_discrete_with_scratch(&mut ks_buf, |k| {
+                            dist.cdf(k).unwrap_or(0.0)
+                        });
                         results.push(FitResult {
                             name: dist.name().to_string(),
                             aic,

@@ -265,22 +265,11 @@ where
         return Ok(f64::INFINITY);
     }
 
-    // Use a simple and reliable implementation based on the Rational Approximation
-    // by Peter J. Acklam
+    // Acklam's rational approximation for the inverse standard normal CDF
+    // (https://web.archive.org/web/20151030215612/http://home.online.no/~pjacklam/notes/invnorm/),
+    // accurate to ~1.15 × 10⁻⁹ over the entire support.
 
-    // Convert to standard normal calculation
-    let q = if p_64 <= 0.5 { p_64 } else { 1.0 - p_64 };
-
-    // Avoid numerical issues at boundaries
-    if q <= 0.0 {
-        return if p_64 <= 0.5 {
-            Ok(f64::NEG_INFINITY)
-        } else {
-            Ok(f64::INFINITY)
-        };
-    }
-
-    // Coefficients for central region (small |z|)
+    // Coefficients — central region (|p − 0.5| ≤ 0.47575)
     let a = [
         -3.969_683_028_665_376e1,
         2.209_460_984_245_205e2,
@@ -289,7 +278,6 @@ where
         -3.066_479_806_614_716e1,
         2.506_628_277_459_239,
     ];
-
     let b = [
         -5.447_609_879_822_406e1,
         1.615_858_368_580_409e2,
@@ -298,54 +286,47 @@ where
         -1.328_068_155_288_572e1,
         1.0,
     ];
+    // Coefficients — tail region
+    let c = [
+        -7.784_894_002_430_293e-3,
+        -3.223_964_580_411_365e-1,
+        -2.400_758_277_161_838,
+        -2.549_732_539_343_734,
+        4.374_664_141_464_968,
+        2.938_163_982_698_783,
+    ];
+    let d = [
+        7.784_695_709_041_462e-3,
+        3.224_671_290_700_398e-1,
+        2.445_134_137_142_996,
+        3.754_408_661_907_416,
+    ];
 
-    // Compute rational approximation
-    let r = q - 0.5;
+    const P_LOW: f64 = 0.02425;
+    const P_HIGH: f64 = 1.0 - P_LOW;
 
-    let z = if q > 0.02425 && q < 0.97575 {
-        // Central region
-        let r2 = r * r;
-        let num = ((((a[0] * r2 + a[1]) * r2 + a[2]) * r2 + a[3]) * r2 + a[4]) * r2 + a[5];
-        let den = ((((b[0] * r2 + b[1]) * r2 + b[2]) * r2 + b[3]) * r2 + b[4]) * r2 + b[5];
-        r * num / den
+    let z = if p_64 < P_LOW {
+        // Lower tail
+        let q = (-2.0 * p_64.ln()).sqrt();
+        let num = ((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5];
+        let den = (((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0;
+        num / den
+    } else if p_64 > P_HIGH {
+        // Upper tail
+        let q = (-2.0 * (1.0 - p_64).ln()).sqrt();
+        let num = ((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5];
+        let den = (((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0;
+        -num / den
     } else {
-        // Tail region
-        let s = if r < 0.0 { q } else { 1.0 - q };
-        let t = (-2.0 * s.ln()).sqrt();
-
-        // Rational approximation for tail
-        let c = [
-            -7.784_894_002_430_293e-3,
-            -3.223_964_580_411_365e-1,
-            -2.400_758_277_161_838,
-            -2.549_732_539_343_734,
-            4.374_664_141_464_968,
-            2.938_163_982_698_783,
-        ];
-
-        let d = [
-            7.784_695_709_041_462e-3,
-            3.224_671_290_700_398e-1,
-            2.445_134_137_142_996,
-            3.754_408_661_907_416,
-            1.0,
-        ];
-
-        let num = ((((c[0] * t + c[1]) * t + c[2]) * t + c[3]) * t + c[4]) * t + c[5];
-        let den = (((d[0] * t + d[1]) * t + d[2]) * t + d[3]) * t + d[4];
-        if r < 0.0 {
-            -t - num / den
-        } else {
-            t - num / den
-        }
+        // Central region
+        let q = p_64 - 0.5;
+        let r = q * q;
+        let num = ((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5];
+        let den = ((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + b[5];
+        q * num / den
     };
 
-    // If p > 0.5, we need to flip the sign of z
-    let final_z = if p_64 > 0.5 { -z } else { z };
-
-    let result = mean + std_dev * final_z;
-    // Convert from standard normal to the specified distribution
-    Ok(result)
+    Ok(mean + std_dev * z)
 }
 
 // ── Typed struct + Distribution impl ──────────────────────────────────────────

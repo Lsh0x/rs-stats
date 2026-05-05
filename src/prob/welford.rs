@@ -329,13 +329,37 @@ impl WelfordVector {
     /// # Errors
     /// Returns [`StatsError::EmptyData`] if `count() < 2`.
     pub fn variance(&self) -> StatsResult<Vec<f64>> {
+        let mut out = vec![0.0; self.m2.len()];
+        self.variance_into(&mut out)?;
+        Ok(out)
+    }
+
+    /// Zero-allocation variant of [`variance`](Self::variance).
+    ///
+    /// Writes the per-axis sample variance into `out` (length must equal `dim()`).
+    /// Hoist `out` out of any per-call hot loop.
+    ///
+    /// # Errors
+    /// * [`StatsError::EmptyData`] if `count() < 2`.
+    /// * [`StatsError::InvalidInput`] if `out.len() != dim()`.
+    pub fn variance_into(&self, out: &mut [f64]) -> StatsResult<()> {
         if self.n < 2 {
             return Err(StatsError::empty_data(
                 "WelfordVector::variance: need at least 2 observations",
             ));
         }
+        if out.len() != self.m2.len() {
+            return Err(StatsError::invalid_input(format!(
+                "WelfordVector::variance_into: out len {} != dim {}",
+                out.len(),
+                self.m2.len()
+            )));
+        }
         let denom = (self.n - 1) as f64;
-        Ok(self.m2.iter().map(|m| m / denom).collect())
+        for (o, m) in out.iter_mut().zip(self.m2.iter()) {
+            *o = m / denom;
+        }
+        Ok(())
     }
 
     /// Per-axis sample standard deviation.
@@ -343,7 +367,21 @@ impl WelfordVector {
     /// # Errors
     /// Returns [`StatsError::EmptyData`] if `count() < 2`.
     pub fn std_dev(&self) -> StatsResult<Vec<f64>> {
-        Ok(self.variance()?.into_iter().map(f64::sqrt).collect())
+        let mut out = vec![0.0; self.m2.len()];
+        self.std_dev_into(&mut out)?;
+        Ok(out)
+    }
+
+    /// Zero-allocation variant of [`std_dev`](Self::std_dev).
+    ///
+    /// # Errors
+    /// Same as [`variance_into`](Self::variance_into).
+    pub fn std_dev_into(&self, out: &mut [f64]) -> StatsResult<()> {
+        self.variance_into(out)?;
+        for o in out.iter_mut() {
+            *o = o.sqrt();
+        }
+        Ok(())
     }
 }
 

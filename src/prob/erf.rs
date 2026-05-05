@@ -15,10 +15,14 @@
 //! - erf(-∞) = -1
 //!
 //! ## Implementation Details
-//! Uses Abramowitz and Stegun formula 7.1.26 for approximation
-//! with maximum error of 1.5 × 10⁻⁷
+//! Computed via the regularised lower incomplete gamma function:
+//!   erf(x) = sign(x) · P(1/2, x²)
+//! This delegates to [`crate::utils::special_functions::regularized_incomplete_gamma`]
+//! and is accurate to ~1e-12 across the real line — substantially better
+//! than the previous Abramowitz-Stegun 7.1.26 approximation (max error 1.5e-7).
 
 use crate::error::{StatsError, StatsResult};
+use crate::utils::special_functions::regularized_incomplete_gamma;
 use num_traits::ToPrimitive;
 
 /// Calculate the error function (erf) of a value
@@ -39,10 +43,10 @@ use num_traits::ToPrimitive;
 /// // Calculate erf(1.0)
 /// let x: f64 = 1.0;
 /// let result = erf(x).unwrap();
-/// assert!((result - 0.8427006897475899).abs() < 1e-8);
+/// assert!((result - 0.842_700_792_949_714_9).abs() < 1e-12);
 ///
 /// // Verify symmetry property
-/// assert!((erf(x).unwrap() + erf(-x).unwrap()).abs() < 1e-8);
+/// assert!((erf(x).unwrap() + erf(-x).unwrap()).abs() < 1e-12);
 /// ```
 #[inline]
 pub fn erf<T>(x: T) -> StatsResult<f64>
@@ -52,27 +56,18 @@ where
     let x = x.to_f64().ok_or_else(|| StatsError::ConversionError {
         message: "prob::erf: Failed to convert x to f64".to_string(),
     })?;
-    // Special case: return exactly 0.0 when x is 0.0
     if x == 0.0 {
         return Ok(0.0);
     }
-
-    let sign = if x < 0.0 { -1.0 } else { 1.0 };
-    let x = x.abs();
-
-    // Constants for the approximation
-    let a1 = 0.254829592;
-    let a2 = -0.284496736;
-    let a3 = 1.421413741;
-    let a4 = -1.453152027;
-    let a5 = 1.061405429;
-    let p = 0.3275911;
-
-    // Abramowitz and Stegun formula 7.1.26
-    let t = 1.0 / (1.0 + p * x);
-    let y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * (-x * x).exp();
-
-    Ok(sign * y)
+    if x.is_nan() {
+        return Ok(f64::NAN);
+    }
+    if x.is_infinite() {
+        return Ok(if x > 0.0 { 1.0 } else { -1.0 });
+    }
+    let sign = x.signum();
+    // erf(x) = sign(x) · P(1/2, x²) via the canonical incomplete gamma.
+    Ok(sign * regularized_incomplete_gamma(0.5, x * x))
 }
 
 #[cfg(test)]
