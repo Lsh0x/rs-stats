@@ -266,12 +266,56 @@ mod fitting {
     }
 }
 
+// ── Decision tree ─────────────────────────────────────────────────────────────
+mod tree {
+    use criterion::{BenchmarkId, Criterion, black_box};
+    use rs_stats::regression::decision_tree::{DecisionTree, SplitCriterion, TreeType};
+
+    pub fn bench_tree_fit(c: &mut Criterion) {
+        let mut group = c.benchmark_group("tree_fit");
+        group.sample_size(10);
+        for n in [500_usize, 2000] {
+            let features: Vec<Vec<i32>> = (0..n)
+                .map(|i| (0..6).map(|f| ((i * 37 + f * 101) % 997) as i32).collect())
+                .collect();
+            let target_reg: Vec<i32> = (0..n).map(|i| ((i * 53) % 211) as i32).collect();
+            group.bench_with_input(BenchmarkId::new("mse", n), &n, |b, _| {
+                b.iter(|| {
+                    let mut t = DecisionTree::<i32, f64>::new(
+                        TreeType::Regression,
+                        SplitCriterion::Mse,
+                        8,
+                        4,
+                        2,
+                    );
+                    t.fit(black_box(&features), black_box(&target_reg)).unwrap();
+                });
+            });
+            let target_cls: Vec<i32> = (0..n).map(|i| ((i * 7) % 5) as i32).collect();
+            group.bench_with_input(BenchmarkId::new("gini", n), &n, |b, _| {
+                b.iter(|| {
+                    let mut t = DecisionTree::<i32, f64>::new(
+                        TreeType::Classification,
+                        SplitCriterion::Gini,
+                        8,
+                        4,
+                        2,
+                    );
+                    t.fit(black_box(&features), black_box(&target_cls)).unwrap();
+                });
+            });
+        }
+        group.finish();
+    }
+}
+
 criterion_group!(
     benches,
     poisson::bench_pmf,
     poisson::bench_cdf,
     fitting::bench_fit_all,
     fitting::bench_student_log_likelihood,
+    tree::bench_tree_fit,
     binomial::bench_cdf,
     binomial::bench_pmf,
     hypothesis::bench_paired_t_test,
