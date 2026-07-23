@@ -87,7 +87,9 @@ impl Distribution for ChiSquared {
             return Ok(f64::NEG_INFINITY);
         }
         let k = self.k;
-        Ok((k / 2.0 - 1.0) * x.ln() - x / 2.0 - (k / 2.0) * std::f64::consts::LN_2
+        Ok((k / 2.0 - 1.0) * x.ln()
+            - x / 2.0
+            - (k / 2.0) * std::f64::consts::LN_2
             - ln_gamma(k / 2.0))
     }
 
@@ -120,10 +122,12 @@ impl Distribution for ChiSquared {
         if x <= 0.0 {
             return Ok(1.0);
         }
-        Ok(crate::utils::special_functions::regularized_incomplete_gamma_upper(
-            self.k / 2.0,
-            x / 2.0,
-        ))
+        Ok(
+            crate::utils::special_functions::regularized_incomplete_gamma_upper(
+                self.k / 2.0,
+                x / 2.0,
+            ),
+        )
     }
 
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {

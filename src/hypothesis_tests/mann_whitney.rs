@@ -98,8 +98,7 @@ where
         i = j;
     }
     let nf = n as f64;
-    let sigma_sq =
-        (n1 * n2) as f64 / 12.0 * ((nf + 1.0) - tie_term / (nf * (nf - 1.0)));
+    let sigma_sq = (n1 * n2) as f64 / 12.0 * ((nf + 1.0) - tie_term / (nf * (nf - 1.0)));
     if sigma_sq <= 0.0 {
         return Err(StatsError::invalid_input(
             "mann_whitney_u: all pooled values are identical; the test is undefined",

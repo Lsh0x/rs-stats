@@ -164,10 +164,12 @@ impl Distribution for Gamma {
         if x <= 0.0 {
             return Ok(1.0);
         }
-        Ok(crate::utils::special_functions::regularized_incomplete_gamma_upper(
-            self.alpha,
-            self.beta * x,
-        ))
+        Ok(
+            crate::utils::special_functions::regularized_incomplete_gamma_upper(
+                self.alpha,
+                self.beta * x,
+            ),
+        )
     }
 
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {

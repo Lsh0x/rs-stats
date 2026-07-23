@@ -304,8 +304,9 @@ where
         use crate::distributions::traits::Distribution as _;
         let df = (self.n - 2) as f64;
         let t_crit = StudentT::new(0.0, 1.0, df)?.inverse_cdf(0.5 * (1.0 + confidence_level))?;
-        let t_crit: T = T::from(t_crit)
-            .ok_or_else(|| StatsError::conversion_error("Failed to convert t quantile to type T"))?;
+        let t_crit: T = T::from(t_crit).ok_or_else(|| {
+            StatsError::conversion_error("Failed to convert t quantile to type T")
+        })?;
 
         // SE of the estimate at x: s·√(extra + 1/n + (x−x̄)²/Sxx).
         // The band widens away from x̄ — a constant ±t·s is neither a CI of
@@ -391,7 +392,6 @@ where
         let r = self.r_squared.sqrt();
         Ok(if self.slope >= T::zero() { r } else { -r })
     }
-
 }
 
 /// Model persistence — requires the `serde` feature.

@@ -254,11 +254,9 @@ where
                         dff / (dff + t * t),
                     )
                     .clamp(0.0, 1.0);
-                    self.coefficient_std_errors.push(
-                        T::from(se).ok_or_else(|| {
-                            StatsError::conversion_error("Failed to convert SE to type T")
-                        })?,
-                    );
+                    self.coefficient_std_errors.push(T::from(se).ok_or_else(|| {
+                        StatsError::conversion_error("Failed to convert SE to type T")
+                    })?);
                     self.t_statistics.push(T::from(t).ok_or_else(|| {
                         StatsError::conversion_error("Failed to convert t to type T")
                     })?);
@@ -401,7 +399,6 @@ where
     {
         x_values.iter().map(|x| self.predict(x)).collect()
     }
-
 }
 
 /// Model persistence — requires the `serde` feature.

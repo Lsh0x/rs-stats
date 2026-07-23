@@ -158,15 +158,11 @@ impl crate::distributions::traits::Distribution for NegativeBinomial {
         // Closed form: P(X ≤ k) = I_p(r, k+1), the regularized incomplete
         // beta. O(1) instead of the previous O(k) PMF sum (3 ln_gamma + exp
         // per term) — which also made inverse_cdf O(k log k).
-        Ok(
-            regularized_incomplete_beta(self.r, k as f64 + 1.0, self.p).clamp(0.0, 1.0),
-        )
+        Ok(regularized_incomplete_beta(self.r, k as f64 + 1.0, self.p).clamp(0.0, 1.0))
     }
     /// Exact tail via `1 − I_p(r, k+1) = I_{1−p}(k+1, r)`.
     fn sf(&self, k: u64) -> StatsResult<f64> {
-        Ok(
-            regularized_incomplete_beta(k as f64 + 1.0, self.r, 1.0 - self.p).clamp(0.0, 1.0),
-        )
+        Ok(regularized_incomplete_beta(k as f64 + 1.0, self.r, 1.0 - self.p).clamp(0.0, 1.0))
     }
 
     fn inverse_cdf(&self, p: f64) -> StatsResult<u64> {

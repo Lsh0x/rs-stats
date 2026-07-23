@@ -342,9 +342,7 @@ where
                 .iter()
                 .map(|&i| {
                     classes
-                        .binary_search_by(|c| {
-                            c.partial_cmp(&target[i]).unwrap_or(Ordering::Equal)
-                        })
+                        .binary_search_by(|c| c.partial_cmp(&target[i]).unwrap_or(Ordering::Equal))
                         .unwrap_or(0)
                 })
                 .collect();
@@ -469,10 +467,14 @@ where
 
                 // Materialise the best split's global index vectors only once.
                 feature_best_split_pos.map(|split_pos| {
-                    let left: Vec<usize> =
-                        pairs[..split_pos].iter().map(|&(_, p)| indices[p]).collect();
-                    let right: Vec<usize> =
-                        pairs[split_pos..].iter().map(|&(_, p)| indices[p]).collect();
+                    let left: Vec<usize> = pairs[..split_pos]
+                        .iter()
+                        .map(|&(_, p)| indices[p])
+                        .collect();
+                    let right: Vec<usize> = pairs[split_pos..]
+                        .iter()
+                        .map(|&(_, p)| indices[p])
+                        .collect();
                     (
                         feature_idx,
                         feature_best_impurity,
@@ -540,8 +542,7 @@ where
         scratch.extend_from_slice(ys);
         let n = scratch.len();
         let mid = n / 2;
-        scratch
-            .select_nth_unstable_by(mid, |a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+        scratch.select_nth_unstable_by(mid, |a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
         let median = if n % 2 == 1 {
             scratch[mid]
         } else {
@@ -586,7 +587,11 @@ where
     /// class for a set of samples. Sort + run-length encode: only needs
     /// `PartialOrd` on `T`, unlike the previous HashMap (`Eq + Hash`),
     /// which made `DecisionTree<f64, _>` impossible.
-    fn calculate_class_distribution(&self, target: &[T], indices: &[usize]) -> (T, Vec<(T, usize)>) {
+    fn calculate_class_distribution(
+        &self,
+        target: &[T],
+        indices: &[usize],
+    ) -> (T, Vec<(T, usize)>) {
         let mut values: Vec<T> = indices.iter().map(|&idx| target[idx]).collect();
         values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
 
@@ -1486,7 +1491,13 @@ mod tests {
             DecisionTree::<f64, f64>::new(TreeType::Regression, SplitCriterion::Mse, 4, 2, 1);
         let features: Vec<Vec<f64>> = (0..40).map(|i| vec![i as f64]).collect();
         let target: Vec<f64> = (0..40)
-            .map(|i| if i < 20 { 1.0 + (i % 3) as f64 * 0.01 } else { 10.0 })
+            .map(|i| {
+                if i < 20 {
+                    1.0 + (i % 3) as f64 * 0.01
+                } else {
+                    10.0
+                }
+            })
             .collect();
         tree.fit(&features, &target).unwrap();
 
@@ -1505,7 +1516,10 @@ mod tests {
         let target = vec![1.0, 2.0, 3.0, 4.0, 100.0];
         tree.fit(&features, &target).unwrap();
         let pred = tree.predict(&vec![vec![2.0]]).unwrap()[0];
-        assert!((pred - 3.0).abs() < 1e-12, "MAE leaf = {pred} (median is 3, mean is 22)");
+        assert!(
+            (pred - 3.0).abs() < 1e-12,
+            "MAE leaf = {pred} (median is 3, mean is 22)"
+        );
     }
 
     #[test]
@@ -1513,7 +1527,13 @@ mod tests {
         // The incremental SSE sweep must select the same split as an
         // explicit brute-force evaluation.
         let features: Vec<Vec<f64>> = vec![
-            vec![1.0], vec![2.0], vec![3.0], vec![4.0], vec![10.0], vec![11.0], vec![12.0],
+            vec![1.0],
+            vec![2.0],
+            vec![3.0],
+            vec![4.0],
+            vec![10.0],
+            vec![11.0],
+            vec![12.0],
         ];
         let target = vec![5.0, 5.1, 4.9, 5.0, 20.0, 20.2, 19.8];
         let mut tree =

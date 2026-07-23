@@ -45,12 +45,16 @@ where
         .iter()
         .map(|v| v.to_f64())
         .collect::<Option<Vec<f64>>>()
-        .ok_or_else(|| StatsError::conversion_error(format!("{caller}: x not convertible to f64")))?;
+        .ok_or_else(|| {
+            StatsError::conversion_error(format!("{caller}: x not convertible to f64"))
+        })?;
     let yf = y
         .iter()
         .map(|v| v.to_f64())
         .collect::<Option<Vec<f64>>>()
-        .ok_or_else(|| StatsError::conversion_error(format!("{caller}: y not convertible to f64")))?;
+        .ok_or_else(|| {
+            StatsError::conversion_error(format!("{caller}: y not convertible to f64"))
+        })?;
     Ok((xf, yf))
 }
 

@@ -210,7 +210,7 @@ pub fn ks_test_discrete_presorted(sorted: &[f64], cdf: impl Fn(u64) -> f64) -> K
 }
 
 /// Approximate p-value of the Kolmogorov distribution at `x`.
-fn kolmogorov_p(x: f64) -> f64 {
+pub(crate) fn kolmogorov_p(x: f64) -> f64 {
     if x <= 0.0 {
         return 1.0;
     }
@@ -283,10 +283,7 @@ fn ll_diagnostics_discrete<D: Distribution<X = u64>>(dist: &D, data: &[u64]) -> 
 /// distribution, producing a [`FitResult`]. Returns `None` if any of the
 /// diagnostics fails (non-finite log-likelihood or fit error).
 /// `sorted` must be `data` sorted ascending (shared across candidates).
-fn try_fit_continuous<D: Distribution<X = f64>>(
-    sorted: &[f64],
-    dist: D,
-) -> Option<FitResult> {
+fn try_fit_continuous<D: Distribution<X = f64>>(sorted: &[f64], dist: D) -> Option<FitResult> {
     let (aic, bic) = ll_diagnostics(&dist, sorted)?;
     let ks = ks_test_presorted(sorted, |x| dist.cdf(x).unwrap_or(0.0));
     Some(FitResult {

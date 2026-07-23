@@ -135,7 +135,6 @@ fn cdf(k: u64, n: u64, p: f64) -> StatsResult<f64> {
     Ok(regularized_incomplete_beta((n - k) as f64, (k + 1) as f64, 1.0 - p).clamp(0.0, 1.0))
 }
 
-
 // ── Typed struct + DiscreteDistribution impl ───────────────────────────────────
 
 /// Binomial distribution Binomial(n, p) as a typed struct.
@@ -410,7 +409,11 @@ mod tests {
     fn test_binomial_pmf_large_n_no_nan() {
         // n ≈ 1030 used to overflow C(n, k) to inf in linear space,
         // producing pmf = inf·exp(−large) = NaN. Log-space keeps it finite.
-        for (n, p, k) in [(1030_u64, 0.5_f64, 515_u64), (1500, 0.3, 450), (5000, 0.5, 2500)] {
+        for (n, p, k) in [
+            (1030_u64, 0.5_f64, 515_u64),
+            (1500, 0.3, 450),
+            (5000, 0.5, 2500),
+        ] {
             let v = pmf(k, n, p).unwrap();
             assert!(v.is_finite() && v > 0.0, "pmf({k}, {n}, {p}) = {v}");
             // Consistent with the log-space trait path.
@@ -451,5 +454,4 @@ mod tests {
             StatsError::InvalidInput { .. }
         ));
     }
-
 }
