@@ -33,7 +33,7 @@ where
     pub p: usize,
     /// Standard error of each coefficient (intercept first):
     /// `SE(βⱼ) = s·√[(XᵀX)⁻¹]ⱼⱼ`. Empty if `n ≤ p + 1` or `XᵀX` is singular.
-    /// `#[serde(default)]` keeps pre-v3.1 saved models loadable.
+    /// `#[serde(default)]` keeps pre-v4.0 saved models loadable.
     #[cfg_attr(feature = "serde", serde(default))]
     pub coefficient_std_errors: Vec<T>,
     /// t-statistic of each coefficient (`βⱼ / SE(βⱼ)`, intercept first).

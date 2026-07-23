@@ -64,7 +64,7 @@ where
 /// Standard error of the mean using the **population** standard deviation
 /// (ddof = 0).
 ///
-/// This was the (undocumented) behaviour of [`std_err`] before v3.1; prefer
+/// This was the (undocumented) behaviour of [`std_err`] before v4.0; prefer
 /// [`std_err`] unless you specifically have the full population.
 #[inline]
 pub fn std_err_population<T>(data: &[T]) -> StatsResult<f64>

@@ -216,7 +216,7 @@ impl Welford {
 
     /// Population variance `M2 / n`. Returns `0.0` for an empty estimator.
     #[deprecated(
-        since = "3.1.0",
+        since = "4.0.0",
         note = "renamed to `variance_population` for symmetry with `prob::variance_population`"
     )]
     #[inline]

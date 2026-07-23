@@ -32,7 +32,7 @@ where
     /// Number of data points used for regression
     pub n: usize,
     /// Mean of the fitted X values (needed for confidence intervals).
-    /// `serde(default)` keeps pre-v3.1 saved models loadable.
+    /// `serde(default)` keeps pre-v4.0 saved models loadable.
     #[cfg_attr(feature = "serde", serde(default))]
     pub x_mean: T,
     /// Sum of squared deviations of X around its mean, `Σ(xᵢ−x̄)²`.
@@ -290,7 +290,7 @@ where
         }
         if self.sum_xx <= T::zero() {
             return Err(StatsError::invalid_input(
-                "Model was fitted without X dispersion info (pre-v3.1 saved model?); refit before computing intervals",
+                "Model was fitted without X dispersion info (pre-v4.0 saved model?); refit before computing intervals",
             ));
         }
 

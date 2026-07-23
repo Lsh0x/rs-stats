@@ -229,7 +229,7 @@ impl Normal {
     /// Creates a `Normal` distribution with validation.
     pub fn new(mean: f64, std_dev: f64) -> StatsResult<Self> {
         // Non-finite parameters (NaN, ±inf) silently produced NaN
-        // pdf/cdf values before v3.1 — reject them up front.
+        // pdf/cdf values before v4.0 — reject them up front.
         if !mean.is_finite() || !std_dev.is_finite() {
             return Err(StatsError::InvalidInput {
                 message: "Normal::new: parameters must be finite".to_string(),
@@ -288,9 +288,20 @@ impl Distribution for Normal {
     ///
     /// `Σ ln f(xᵢ) = −½ · Σ ((xᵢ−μ)/σ)² − n·(ln σ + ½·ln 2π)`
     fn log_likelihood_fast(&self, data: &[f64]) -> f64 {
+        // Pure-arithmetic kernel: four independent accumulators break the
+        // FP-add dependency chain so the loop pipelines/vectorises (see
+        // prob::average for the rationale).
         let inv_sigma = 1.0 / self.std_dev;
-        let mut sum_sq = 0.0_f64;
-        for &x in data {
+        let mut acc = [0.0_f64; 4];
+        let mut chunks = data.chunks_exact(4);
+        for chunk in chunks.by_ref() {
+            for lane in 0..4 {
+                let z = (chunk[lane] - self.mean) * inv_sigma;
+                acc[lane] += z * z;
+            }
+        }
+        let mut sum_sq = (acc[0] + acc[1]) + (acc[2] + acc[3]);
+        for &x in chunks.remainder() {
             let z = (x - self.mean) * inv_sigma;
             sum_sq += z * z;
         }

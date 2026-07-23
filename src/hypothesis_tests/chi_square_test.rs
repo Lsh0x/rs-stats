@@ -44,7 +44,7 @@ fn chi_square_sf(chi_sq: f64, df: usize) -> f64 {
 
 /// Result of a chi-square test.
 ///
-/// Replaces the pre-v3.1 positional `(statistic, df, p_value)` tuple —
+/// Replaces the pre-v4.0 positional `(statistic, df, p_value)` tuple —
 /// named fields, consistent with [`TTestResult`](crate::hypothesis_tests::t_test::TTestResult)
 /// and [`AnovaResult`](crate::hypothesis_tests::anova::AnovaResult).
 #[derive(Debug, Clone, Copy)]

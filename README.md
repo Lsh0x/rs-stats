@@ -12,7 +12,7 @@
 
 ```toml
 [dependencies]
-rs-stats = "3.1"
+rs-stats = "4"
 ```
 
 ---
@@ -209,19 +209,29 @@ println!("mean = {}, sample var = {}", w.mean(), w.variance_sample()?);
 
 ```toml
 # Minimal build: just the math, two dependencies (num-traits, rand).
-rs-stats = { version = "3.1", default-features = false }
+rs-stats = { version = "4", default-features = false }
 ```
 
 ## Performance notes
 
-Measured with criterion on the v3.1 refactors (vs v3.0):
+Measured with criterion on the v4.0 refactors (vs v3.0):
 
 | Path | Change |
 |---|---|
+| `erf` / `erfc` / `Normal::cdf` | iterative incomplete gamma → Cody rational approximations: **−69% to −88%** (~2–6 ns/call, ~1 ulp) |
 | `Poisson::cdf`, `NegativeBinomial::cdf` | O(k) sums → **O(1)** closed forms (−99.5% at k = 1000) |
 | `fit_all` | one shared sort + single log-likelihood pass: **−24%** (n = 10⁴) to **−75%** (n = 50) |
 | `StudentT::log_likelihood` (n = 10⁴) | normalization constants hoisted: **−90%** |
 | Decision-tree fit | incremental split sweep: **4–25× faster**, more on larger nodes |
+
+Hot reduction loops use multiple independent accumulators so they pipeline
+and auto-vectorise without `-ffast-math`. For an extra free boost in *your*
+binary, allow the compiler to use your CPU's full instruction set
+(AVX2/FMA/NEON):
+
+```bash
+RUSTFLAGS="-C target-cpu=native" cargo build --release
+```
 
 ## Error handling
 
@@ -236,7 +246,7 @@ match Normal::new(0.0, f64::NAN) {
 }
 ```
 
-## What's new in 3.1
+## What's new in 4.0
 
 - `sample()` / `sample_n()` and exact `sf()` on all distributions
 - Pearson / Spearman correlation with significance tests
@@ -247,6 +257,7 @@ match Normal::new(0.0, f64::NAN) {
 - `describe()` / `quantile()` descriptive helpers
 - Decision trees with `f64` targets, incremental splits, median MAE
 - Deep-tail correctness fixes across quantiles, `erfc`, large-n binomials
+- Cody rational `erf`/`erfc` (~1 ulp, up to 8× faster `Normal::cdf`)
 - Cargo features `parallel` / `serde`; leaner dependency tree
 
 Breaking changes: χ² tests now return `ChiSquareResult` (named fields), `std_err` uses the sample convention (`std_err_population` keeps the old one), Exponential's out-of-support behaviour is aligned with the other distributions, and degenerate inputs that used to return NaN/∞ now return errors.

@@ -34,7 +34,7 @@ impl FDistribution {
     /// Creates an `F(d1, d2)` distribution.
     pub fn new(d1: f64, d2: f64) -> StatsResult<Self> {
         // Non-finite parameters (NaN, ±inf) silently produced NaN
-        // pdf/cdf values before v3.1 — reject them up front.
+        // pdf/cdf values before v4.0 — reject them up front.
         if !d1.is_finite() || !d2.is_finite() {
             return Err(StatsError::InvalidInput {
                 message: "FDistribution::new: parameters must be finite".to_string(),

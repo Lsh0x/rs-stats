@@ -535,7 +535,7 @@ where
 
     /// Sum of |y − median(ys)| — the MAE numerator. The median (not the
     /// mean) is the MAE minimiser; centring on the mean, as done before
-    /// v3.1, computed a different quantity ("mean absolute deviation
+    /// v4.0, computed a different quantity ("mean absolute deviation
     /// around the mean") under the MAE name.
     fn sum_abs_dev_median(ys: &[F], scratch: &mut Vec<F>) -> F {
         scratch.clear();
@@ -739,7 +739,7 @@ where
     ///
     /// Returns one entry per input feature seen at fit time (unused features
     /// get 0). Deriving the count from the first split node — as done before
-    /// v3.1 — panicked whenever a deeper node split on a higher feature index.
+    /// v4.0 — panicked whenever a deeper node split on a higher feature index.
     pub fn feature_importances(&self) -> Vec<F> {
         if self.nodes.is_empty() {
             return Vec::new();
@@ -1484,7 +1484,7 @@ mod tests {
 
     #[test]
     fn test_f64_regression_target_compiles_and_fits() {
-        // The headline of the v3.1 tree refactor: f64 targets no longer
+        // The headline of the v4.0 tree refactor: f64 targets no longer
         // need a wrapper type (the old `Eq + Hash` bound made
         // `DecisionTree<f64, f64>` a compile error).
         let mut tree =
@@ -1550,7 +1550,7 @@ mod tests {
     #[test]
     fn test_feature_importances_deep_split_on_higher_feature() {
         // Regression test: the root splits on feature 0, a deeper node
-        // splits on feature 1. Pre-v3.1 the feature count was derived from
+        // splits on feature 1. Pre-v4.0 the feature count was derived from
         // the FIRST split node (→ len 1) and indexing feature 1 panicked.
         let mut tree =
             DecisionTree::<i32, f64>::new(TreeType::Classification, SplitCriterion::Gini, 5, 2, 1);

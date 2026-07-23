@@ -58,7 +58,7 @@ impl Gamma {
     /// Creates a `Gamma(α, β)` distribution.
     pub fn new(alpha: f64, beta: f64) -> StatsResult<Self> {
         // Non-finite parameters (NaN, ±inf) silently produced NaN
-        // pdf/cdf values before v3.1 — reject them up front.
+        // pdf/cdf values before v4.0 — reject them up front.
         if !alpha.is_finite() || !beta.is_finite() {
             return Err(StatsError::InvalidInput {
                 message: "Gamma::new: parameters must be finite".to_string(),

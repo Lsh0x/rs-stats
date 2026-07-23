@@ -50,7 +50,7 @@ use crate::error::{StatsError, StatsResult};
 #[inline]
 fn exponential_pdf(x: f64, lambda: f64) -> StatsResult<f64> {
     // Out-of-support x returns 0 density (like every other continuous
-    // distribution here) — pre-v3.1 this was an error, which made
+    // distribution here) — pre-v4.0 this was an error, which made
     // Exponential the only candidate to abort fit_all's log_likelihood
     // on a single negative point.
     if x < 0.0 {
@@ -89,7 +89,7 @@ fn exponential_pdf(x: f64, lambda: f64) -> StatsResult<f64> {
 #[inline]
 fn exponential_cdf(x: f64, lambda: f64) -> StatsResult<f64> {
     // Out-of-support: F(x) = 0 for x < 0 (aligned with the other
-    // continuous distributions; was an error before v3.1).
+    // continuous distributions; was an error before v4.0).
     if x < 0.0 {
         return Ok(0.0);
     }
@@ -192,7 +192,7 @@ impl Exponential {
     /// Creates an `Exponential` distribution with validation.
     pub fn new(lambda: f64) -> StatsResult<Self> {
         // Non-finite parameters (NaN, ±inf) silently produced NaN
-        // pdf/cdf values before v3.1 — reject them up front.
+        // pdf/cdf values before v4.0 — reject them up front.
         if !lambda.is_finite() {
             return Err(StatsError::InvalidInput {
                 message: "Exponential::new: parameters must be finite".to_string(),

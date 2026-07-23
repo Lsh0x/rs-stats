@@ -60,17 +60,33 @@ where
         ));
     }
 
-    let mut sum = 0.0;
-
-    for (i, x) in data.iter().enumerate() {
-        let v = x.to_f64().ok_or_else(|| {
+    // Four independent accumulators: a single `sum += v` is a loop-carried
+    // dependency that caps the loop at one FP add per ~4 cycles and blocks
+    // vectorisation (FP addition is not associative, so LLVM cannot split
+    // the chain itself). Four lanes let the adds pipeline/vectorise; the
+    // summation-order change moves the result by at most a few ulp.
+    let mut acc = [0.0_f64; 4];
+    let mut chunks = data.chunks_exact(4);
+    let mut idx = 0usize;
+    let conv = |x: &T, i: usize| {
+        x.to_f64().ok_or_else(|| {
             StatsError::conversion_error(format!(
                 "prob::average: Failed to convert value at index {} to f64",
                 i
             ))
-        })?;
-
-        sum += v;
+        })
+    };
+    for chunk in chunks.by_ref() {
+        acc[0] += conv(&chunk[0], idx)?;
+        acc[1] += conv(&chunk[1], idx + 1)?;
+        acc[2] += conv(&chunk[2], idx + 2)?;
+        acc[3] += conv(&chunk[3], idx + 3)?;
+        idx += 4;
+    }
+    let mut sum = (acc[0] + acc[1]) + (acc[2] + acc[3]);
+    for x in chunks.remainder() {
+        sum += conv(x, idx)?;
+        idx += 1;
     }
 
     Ok(sum / data.len() as f64)
