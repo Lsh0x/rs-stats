@@ -133,6 +133,7 @@ fn cdf(k: u64, lambda: f64) -> StatsResult<f64> {
 /// assert!((p.mean() - 3.0).abs() < 1e-10);
 /// ```
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Poisson {
     /// Rate parameter λ > 0
     pub lambda: f64,
@@ -141,6 +142,13 @@ pub struct Poisson {
 impl Poisson {
     /// Creates a `Poisson` distribution with validation.
     pub fn new(lambda: f64) -> StatsResult<Self> {
+        // Non-finite parameters (NaN, ±inf) silently produced NaN
+        // pdf/cdf values before v3.1 — reject them up front.
+        if !lambda.is_finite() {
+            return Err(StatsError::InvalidInput {
+                message: "Poisson::new: parameters must be finite".to_string(),
+            });
+        }
         if lambda <= 0.0 {
             return Err(StatsError::InvalidInput {
                 message: "Poisson::new: lambda must be positive".to_string(),

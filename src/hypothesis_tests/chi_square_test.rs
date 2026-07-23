@@ -18,7 +18,6 @@
 //! The resulting statistic follows a chi-square distribution with degrees of freedom based on the particular test.
 
 use crate::error::{StatsError, StatsResult};
-use crate::utils::special_functions::regularized_incomplete_gamma;
 use num_traits::ToPrimitive;
 use std::fmt::Debug;
 
@@ -34,7 +33,29 @@ fn chi_square_sf(chi_sq: f64, df: usize) -> f64 {
     if chi_sq <= 0.0 {
         return 1.0;
     }
-    (1.0 - regularized_incomplete_gamma(df as f64 / 2.0, chi_sq / 2.0)).clamp(0.0, 1.0)
+    // Upper incomplete gamma directly: keeps relative precision for tiny
+    // tail p-values where 1 − P collapses to 0.
+    crate::utils::special_functions::regularized_incomplete_gamma_upper(
+        df as f64 / 2.0,
+        chi_sq / 2.0,
+    )
+    .clamp(0.0, 1.0)
+}
+
+/// Result of a chi-square test.
+///
+/// Replaces the pre-v3.1 positional `(statistic, df, p_value)` tuple —
+/// named fields, consistent with [`TTestResult`](crate::hypothesis_tests::t_test::TTestResult)
+/// and [`AnovaResult`](crate::hypothesis_tests::anova::AnovaResult).
+#[derive(Debug, Clone, Copy)]
+pub struct ChiSquareResult {
+    /// The χ² statistic.
+    pub statistic: f64,
+    /// Degrees of freedom.
+    pub degrees_of_freedom: usize,
+    /// p-value: `P(χ²_df ≥ statistic)` under H₀ — compare it to your
+    /// significance level α (reject H₀ when `p_value < α`).
+    pub p_value: f64,
 }
 
 /// Performs a chi-square goodness of fit test, which determines if a sample matches a population distribution.
@@ -47,10 +68,9 @@ fn chi_square_sf(chi_sq: f64, df: usize) -> f64 {
 /// * `expected` - A slice containing the expected frequencies for each category
 ///
 /// # Returns
-/// `StatsResult<(f64, usize, f64)>` containing:
-/// * The chi-square statistic
-/// * The degrees of freedom
-/// * The p-value (if the statistic is less than this value, the null hypothesis cannot be rejected)
+/// A [`ChiSquareResult`] with the χ² statistic, the degrees of freedom and
+/// the p-value (`P(χ²_df ≥ statistic)` under H₀; reject H₀ when
+/// `p_value < α`).
 ///
 /// # Errors
 /// * Returns `StatsError::EmptyData` if the slices are empty
@@ -66,16 +86,16 @@ fn chi_square_sf(chi_sq: f64, df: usize) -> f64 {
 /// let observed = vec![89, 105, 97, 99, 110, 100]; // Outcomes of 600 die rolls
 /// let expected = vec![100.0, 100.0, 100.0, 100.0, 100.0, 100.0]; // Expected frequencies for a fair die
 ///
-/// let (statistic, df, p_value) = chi_square_goodness_of_fit(&observed, &expected)?;
-/// println!("Chi-square statistic: {}", statistic);
-/// println!("Degrees of freedom: {}", df);
-/// println!("P-value: {}", p_value);
+/// let res = chi_square_goodness_of_fit(&observed, &expected)?;
+/// println!("Chi-square statistic: {}", res.statistic);
+/// println!("Degrees of freedom: {}", res.degrees_of_freedom);
+/// println!("P-value: {}", res.p_value);
 /// # Ok::<(), rs_stats::StatsError>(())
 /// ```
 pub fn chi_square_goodness_of_fit<T, U>(
     observed: &[T],
     expected: &[U],
-) -> StatsResult<(f64, usize, f64)>
+) -> StatsResult<ChiSquareResult>
 where
     T: ToPrimitive + Debug + Copy,
     U: ToPrimitive + Debug + Copy,
@@ -128,7 +148,11 @@ where
 
     let p_value = chi_square_sf(chi_square, degrees_of_freedom);
 
-    Ok((chi_square, degrees_of_freedom, p_value))
+    Ok(ChiSquareResult {
+        statistic: chi_square,
+        degrees_of_freedom,
+        p_value,
+    })
 }
 
 /// Performs a chi-square test of independence, which determines if there is a significant relationship
@@ -140,10 +164,9 @@ where
 /// * `observed_matrix` - A 2D vector representing the contingency table of observed frequencies
 ///
 /// # Returns
-/// `StatsResult<(f64, usize, f64)>` containing:
-/// * The chi-square statistic
-/// * The degrees of freedom
-/// * The p-value (if the statistic is less than this value, the null hypothesis cannot be rejected)
+/// A [`ChiSquareResult`] with the χ² statistic, the degrees of freedom and
+/// the p-value (`P(χ²_df ≥ statistic)` under H₀; reject H₀ when
+/// `p_value < α`).
 ///
 /// # Errors
 /// * Returns `StatsError::EmptyData` if the matrix is empty
@@ -161,13 +184,13 @@ where
 ///     vec![40, 180],  // Smokers: [No cancer, Cancer]
 /// ];
 ///
-/// let (statistic, df, p_value) = chi_square_independence(&observed)?;
-/// println!("Chi-square statistic: {}", statistic);
-/// println!("Degrees of freedom: {}", df);
-/// println!("P-value: {}", p_value);
+/// let res = chi_square_independence(&observed)?;
+/// println!("Chi-square statistic: {}", res.statistic);
+/// println!("Degrees of freedom: {}", res.degrees_of_freedom);
+/// println!("P-value: {}", res.p_value);
 /// # Ok::<(), rs_stats::StatsError>(())
 /// ```
-pub fn chi_square_independence<T>(observed_matrix: &[Vec<T>]) -> StatsResult<(f64, usize, f64)>
+pub fn chi_square_independence<T>(observed_matrix: &[Vec<T>]) -> StatsResult<ChiSquareResult>
 where
     T: ToPrimitive + Debug + Copy,
 {
@@ -270,7 +293,11 @@ where
 
     let p_value = chi_square_sf(chi_square, degrees_of_freedom);
 
-    Ok((chi_square, degrees_of_freedom, p_value))
+    Ok(ChiSquareResult {
+        statistic: chi_square,
+        degrees_of_freedom,
+        p_value,
+    })
 }
 
 #[cfg(test)]
@@ -283,7 +310,8 @@ mod tests {
         let observed = vec![24, 20, 18, 22, 15, 21]; // 120 rolls
         let expected = vec![20.0, 20.0, 20.0, 20.0, 20.0, 20.0]; // Equal probability for each face
 
-        let (statistic, df, _) = chi_square_goodness_of_fit(&observed, &expected).unwrap();
+        let r = chi_square_goodness_of_fit(&observed, &expected).unwrap();
+        let (statistic, df) = (r.statistic, r.degrees_of_freedom);
 
         // Verify that degrees of freedom is correct
         assert_eq!(df, 5, "Degrees of freedom should be 5");
@@ -305,7 +333,8 @@ mod tests {
         let observed = vec![10, 15, 25];
         let expected = vec![16.6667, 16.6667, 16.6667]; // Equal probability over 3 categories for 50 trials
 
-        let (statistic, df, _) = chi_square_goodness_of_fit(&observed, &expected).unwrap();
+        let r = chi_square_goodness_of_fit(&observed, &expected).unwrap();
+        let (statistic, df) = (r.statistic, r.degrees_of_freedom);
 
         assert_eq!(df, 2, "Degrees of freedom should be 2");
 
@@ -331,7 +360,8 @@ mod tests {
         // Female     |    60    |    40    |
         let observed = vec![vec![45, 55], vec![60, 40]];
 
-        let (statistic, df, _) = chi_square_independence(&observed).unwrap();
+        let r = chi_square_independence(&observed).unwrap();
+        let (statistic, df) = (r.statistic, r.degrees_of_freedom);
 
         assert_eq!(df, 1, "Degrees of freedom should be 1");
 
@@ -361,7 +391,8 @@ mod tests {
         // Testing a 3x3 contingency table
         let observed = vec![vec![30, 25, 15], vec![35, 40, 30], vec![20, 30, 25]];
 
-        let (statistic, df, _) = chi_square_independence(&observed).unwrap();
+        let r = chi_square_independence(&observed).unwrap();
+        let (statistic, df) = (r.statistic, r.degrees_of_freedom);
 
         assert_eq!(df, 4, "Degrees of freedom should be 4");
 
@@ -433,7 +464,8 @@ mod tests {
         let observed = vec![10];
         let expected = vec![10.0];
 
-        let (statistic, df, p_value) = chi_square_goodness_of_fit(&observed, &expected).unwrap();
+        let r = chi_square_goodness_of_fit(&observed, &expected).unwrap();
+        let (statistic, df, p_value) = (r.statistic, r.degrees_of_freedom, r.p_value);
 
         assert_eq!(df, 0, "Degrees of freedom should be 0 for single category");
         assert_eq!(

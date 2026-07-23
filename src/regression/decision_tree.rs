@@ -1,6 +1,7 @@
 use crate::error::{StatsError, StatsResult};
 use num_traits::cast::AsPrimitive;
 use num_traits::{Float, FromPrimitive, NumCast, ToPrimitive};
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::cmp::Ordering;
 use std::fmt::{self, Debug};
@@ -353,8 +354,11 @@ where
         };
 
         // One par_iter over features; each task owns its sort + sweep.
-        let results: Vec<_> = (0..n_features)
-            .into_par_iter()
+        #[cfg(feature = "parallel")]
+        let feature_iter = (0..n_features).into_par_iter();
+        #[cfg(not(feature = "parallel"))]
+        let feature_iter = 0..n_features;
+        let results: Vec<_> = feature_iter
             .filter_map(|feature_idx| {
                 // Contiguous (value, position) pairs: one cache-friendly
                 // sort instead of comparator-driven double indirection

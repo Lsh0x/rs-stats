@@ -27,6 +27,7 @@
 use crate::error::{StatsError, StatsResult};
 use crate::utils::special_functions::regularized_incomplete_beta as canonical_inc_beta;
 use num_traits::ToPrimitive;
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::fmt::Debug;
 
@@ -110,8 +111,11 @@ where
     // worker and emits its `(count, mean, m2)` triple. ss_within = Σ m2
     // falls out without a second pass over the data.
     let n_groups = groups_data.len();
-    let triples: Vec<Result<(f64, f64, f64), StatsError>> = groups_data
-        .par_iter()
+    #[cfg(feature = "parallel")]
+    let groups_iter = groups_data.par_iter();
+    #[cfg(not(feature = "parallel"))]
+    let groups_iter = groups_data.iter();
+    let triples: Vec<Result<(f64, f64, f64), StatsError>> = groups_iter
         .enumerate()
         .map(|(group_idx, group)| {
             let mut count = 0.0_f64;

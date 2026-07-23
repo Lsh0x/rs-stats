@@ -23,6 +23,7 @@ use crate::utils::special_functions::{bisect_inverse_cdf, ln_gamma, regularized_
 /// assert_eq!(c.variance(), 8.0);
 /// ```
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ChiSquared {
     /// Degrees of freedom k > 0
     pub k: f64,
@@ -31,6 +32,13 @@ pub struct ChiSquared {
 impl ChiSquared {
     /// Creates a `χ²(k)` distribution.
     pub fn new(k: f64) -> StatsResult<Self> {
+        // Non-finite parameters (NaN, ±inf) silently produced NaN
+        // pdf/cdf values before v3.1 — reject them up front.
+        if !k.is_finite() {
+            return Err(StatsError::InvalidInput {
+                message: "ChiSquared::new: parameters must be finite".to_string(),
+            });
+        }
         if k <= 0.0 {
             return Err(StatsError::InvalidInput {
                 message: "ChiSquared::new: k must be positive".to_string(),

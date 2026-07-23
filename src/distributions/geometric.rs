@@ -29,6 +29,7 @@
 //! ```
 
 use crate::error::{StatsError, StatsResult};
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 /// Geometric distribution Geometric(p).
@@ -41,7 +42,8 @@ use serde::{Deserialize, Serialize};
 /// let g = Geometric::new(0.25).unwrap();
 /// assert!((g.mean() - 4.0).abs() < 1e-10);
 /// ```
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Geometric {
     /// Success probability p ∈ (0, 1]
     pub p: f64,

@@ -22,6 +22,7 @@ use crate::utils::special_functions::{bisect_inverse_cdf, ln_beta, regularized_i
 /// assert!((f.mean() - 10.0 / 8.0).abs() < 1e-10);
 /// ```
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FDistribution {
     /// Numerator degrees of freedom d1 > 0
     pub d1: f64,
@@ -32,6 +33,13 @@ pub struct FDistribution {
 impl FDistribution {
     /// Creates an `F(d1, d2)` distribution.
     pub fn new(d1: f64, d2: f64) -> StatsResult<Self> {
+        // Non-finite parameters (NaN, ±inf) silently produced NaN
+        // pdf/cdf values before v3.1 — reject them up front.
+        if !d1.is_finite() || !d2.is_finite() {
+            return Err(StatsError::InvalidInput {
+                message: "FDistribution::new: parameters must be finite".to_string(),
+            });
+        }
         if d1 <= 0.0 || d2 <= 0.0 {
             return Err(StatsError::InvalidInput {
                 message: "FDistribution::new: d1 and d2 must be positive".to_string(),

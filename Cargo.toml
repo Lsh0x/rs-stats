@@ -1,6 +1,6 @@
 [package]
 name = "rs-stats"
-version = "3.0.0"
+version = "3.1.0"
 authors = ["LSH <github@lsh.tech>"]
 edition = "2024"
 description = "Statistics library in rust"
@@ -8,21 +8,25 @@ license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
-num = "0.4.3"
 num-traits = "0.2.19"
 rand = "0.8.5"
-rand_chacha = "0.3.1"
-serde_json = "1.0"
-bincode = "1.3"
-rayon = "1.8"
-thiserror = "1.0"
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = { version = "1.0", optional = true }
+bincode = { version = "1.3", optional = true }
+rayon = { version = "1.8", optional = true }
 
 [features]
-# (rayon is always linked; for single-threaded execution callers can
-#  configure rayon's global thread pool with num_threads(1).)
+default = ["parallel", "serde"]
+# Rayon-backed parallelism for fit_all, decision trees, ANOVA and bulk
+# prediction. Without it, everything runs sequentially (same results).
+parallel = ["dep:rayon"]
+# Serialization: serde derives on models/distributions + save/load helpers
+# (JSON via serde_json, binary via bincode).
+serde = ["dep:serde", "dep:serde_json", "dep:bincode"]
 
 [dev-dependencies]
+rand_chacha = "0.3.1"
 tempfile = "3.3"
 criterion = { version = "0.5", features = ["html_reports"] }
 

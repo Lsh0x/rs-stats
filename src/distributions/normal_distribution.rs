@@ -217,6 +217,7 @@ pub(crate) fn normal_inverse_cdf(p: f64, mean: f64, std_dev: f64) -> StatsResult
 /// assert!((n.pdf(0.0).unwrap() - 0.398_942_280_401_4).abs() < 1e-10);
 /// ```
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Normal {
     /// Mean μ
     pub mean: f64,
@@ -227,6 +228,13 @@ pub struct Normal {
 impl Normal {
     /// Creates a `Normal` distribution with validation.
     pub fn new(mean: f64, std_dev: f64) -> StatsResult<Self> {
+        // Non-finite parameters (NaN, ±inf) silently produced NaN
+        // pdf/cdf values before v3.1 — reject them up front.
+        if !mean.is_finite() || !std_dev.is_finite() {
+            return Err(StatsError::InvalidInput {
+                message: "Normal::new: parameters must be finite".to_string(),
+            });
+        }
         if std_dev <= 0.0 || std_dev.is_nan() || mean.is_nan() {
             return Err(StatsError::InvalidInput {
                 message: "Normal::new: std_dev must be positive and parameters must be finite"

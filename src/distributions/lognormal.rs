@@ -65,6 +65,7 @@ use crate::error::{StatsError, StatsResult};
 /// assert!((ln.mean() - 0.5_f64.exp()).abs() < 1e-10);
 /// ```
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LogNormal {
     /// Location (mean of ln X) μ
     pub mu: f64,
@@ -75,6 +76,13 @@ pub struct LogNormal {
 impl LogNormal {
     /// Creates a `LogNormal(μ, σ)` distribution.
     pub fn new(mu: f64, sigma: f64) -> StatsResult<Self> {
+        // Non-finite parameters (NaN, ±inf) silently produced NaN
+        // pdf/cdf values before v3.1 — reject them up front.
+        if !mu.is_finite() || !sigma.is_finite() {
+            return Err(StatsError::InvalidInput {
+                message: "LogNormal::new: parameters must be finite".to_string(),
+            });
+        }
         if sigma <= 0.0 {
             return Err(StatsError::InvalidInput {
                 message: "LogNormal::new: sigma must be positive".to_string(),

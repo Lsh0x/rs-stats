@@ -75,6 +75,7 @@ use crate::distributions::{
     weibull::Weibull,
 };
 use crate::error::{StatsError, StatsResult};
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
 // ── Data kind detection ────────────────────────────────────────────────────────
@@ -250,6 +251,7 @@ pub struct FitResult {
 
 /// Below this many data points the rayon dispatch overhead (task setup +
 /// pool wake-up) exceeds the cost of fitting all candidates sequentially.
+#[cfg(feature = "parallel")]
 const PAR_THRESHOLD: usize = 1000;
 
 /// Compute AIC and BIC from a **single** log-likelihood pass.
@@ -349,17 +351,23 @@ pub fn fit_all(data: &[f64]) -> StatsResult<Vec<FitResult>> {
     let mut sorted = data.to_vec();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-    let mut results: Vec<FitResult> = if data.len() < PAR_THRESHOLD {
-        CONTINUOUS_FITTERS
-            .iter()
-            .filter_map(|fit| fit(data, &sorted))
-            .collect()
-    } else {
+    #[cfg(feature = "parallel")]
+    let mut results: Vec<FitResult> = if data.len() >= PAR_THRESHOLD {
         CONTINUOUS_FITTERS
             .par_iter()
             .filter_map(|fit| fit(data, &sorted))
             .collect()
+    } else {
+        CONTINUOUS_FITTERS
+            .iter()
+            .filter_map(|fit| fit(data, &sorted))
+            .collect()
     };
+    #[cfg(not(feature = "parallel"))]
+    let mut results: Vec<FitResult> = CONTINUOUS_FITTERS
+        .iter()
+        .filter_map(|fit| fit(data, &sorted))
+        .collect();
 
     if results.is_empty() {
         return Err(StatsError::InvalidInput {
@@ -464,17 +472,23 @@ pub fn fit_all_verbose(data: &[f64]) -> StatsResult<(Vec<FitResult>, Vec<Skipped
     let mut sorted = data.to_vec();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-    let outcomes: Vec<Result<FitResult, SkippedFit>> = if data.len() < PAR_THRESHOLD {
-        CONTINUOUS_VERBOSE_FITTERS
-            .iter()
-            .map(|f| f(data, &sorted))
-            .collect()
-    } else {
+    #[cfg(feature = "parallel")]
+    let outcomes: Vec<Result<FitResult, SkippedFit>> = if data.len() >= PAR_THRESHOLD {
         CONTINUOUS_VERBOSE_FITTERS
             .par_iter()
             .map(|f| f(data, &sorted))
             .collect()
+    } else {
+        CONTINUOUS_VERBOSE_FITTERS
+            .iter()
+            .map(|f| f(data, &sorted))
+            .collect()
     };
+    #[cfg(not(feature = "parallel"))]
+    let outcomes: Vec<Result<FitResult, SkippedFit>> = CONTINUOUS_VERBOSE_FITTERS
+        .iter()
+        .map(|f| f(data, &sorted))
+        .collect();
 
     let (mut results, skipped): (Vec<FitResult>, Vec<SkippedFit>) =
         outcomes
@@ -586,17 +600,23 @@ pub fn fit_all_discrete_verbose(data: &[f64]) -> StatsResult<(Vec<FitResult>, Ve
     let mut sorted = data.to_vec();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-    let outcomes: Vec<Result<FitResult, SkippedFit>> = if data.len() < PAR_THRESHOLD {
-        DISCRETE_VERBOSE_FITTERS
-            .iter()
-            .map(|f| f(data, &sorted, &int_data))
-            .collect()
-    } else {
+    #[cfg(feature = "parallel")]
+    let outcomes: Vec<Result<FitResult, SkippedFit>> = if data.len() >= PAR_THRESHOLD {
         DISCRETE_VERBOSE_FITTERS
             .par_iter()
             .map(|f| f(data, &sorted, &int_data))
             .collect()
+    } else {
+        DISCRETE_VERBOSE_FITTERS
+            .iter()
+            .map(|f| f(data, &sorted, &int_data))
+            .collect()
     };
+    #[cfg(not(feature = "parallel"))]
+    let outcomes: Vec<Result<FitResult, SkippedFit>> = DISCRETE_VERBOSE_FITTERS
+        .iter()
+        .map(|f| f(data, &sorted, &int_data))
+        .collect();
 
     let (mut results, skipped): (Vec<FitResult>, Vec<SkippedFit>) =
         outcomes
@@ -640,17 +660,23 @@ pub fn fit_all_discrete(data: &[f64]) -> StatsResult<Vec<FitResult>> {
     let mut sorted = data.to_vec();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-    let mut results: Vec<FitResult> = if data.len() < PAR_THRESHOLD {
-        DISCRETE_FITTERS
-            .iter()
-            .filter_map(|f| f(data, &sorted, &int_data))
-            .collect()
-    } else {
+    #[cfg(feature = "parallel")]
+    let mut results: Vec<FitResult> = if data.len() >= PAR_THRESHOLD {
         DISCRETE_FITTERS
             .par_iter()
             .filter_map(|f| f(data, &sorted, &int_data))
             .collect()
+    } else {
+        DISCRETE_FITTERS
+            .iter()
+            .filter_map(|f| f(data, &sorted, &int_data))
+            .collect()
     };
+    #[cfg(not(feature = "parallel"))]
+    let mut results: Vec<FitResult> = DISCRETE_FITTERS
+        .iter()
+        .filter_map(|f| f(data, &sorted, &int_data))
+        .collect();
 
     if results.is_empty() {
         return Err(StatsError::InvalidInput {

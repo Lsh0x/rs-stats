@@ -23,6 +23,7 @@ use std::f64::consts::PI;
 /// assert_eq!(t.mean(), 0.0);
 /// ```
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StudentT {
     /// Location μ
     pub mu: f64,
@@ -35,6 +36,13 @@ pub struct StudentT {
 impl StudentT {
     /// Creates a `StudentT(μ, σ, ν)` distribution.
     pub fn new(mu: f64, sigma: f64, nu: f64) -> StatsResult<Self> {
+        // Non-finite parameters (NaN, ±inf) silently produced NaN
+        // pdf/cdf values before v3.1 — reject them up front.
+        if !mu.is_finite() || !sigma.is_finite() || !nu.is_finite() {
+            return Err(StatsError::InvalidInput {
+                message: "StudentT::new: parameters must be finite".to_string(),
+            });
+        }
         if sigma <= 0.0 || nu <= 0.0 {
             return Err(StatsError::InvalidInput {
                 message: "StudentT::new: sigma and nu must be positive".to_string(),

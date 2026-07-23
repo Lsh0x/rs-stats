@@ -46,6 +46,7 @@ use crate::utils::special_functions::{bisect_inverse_cdf, ln_gamma, regularized_
 /// assert!((g.mean() - 2.0).abs() < 1e-10);
 /// ```
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Gamma {
     /// Shape parameter α > 0
     pub alpha: f64,
@@ -56,6 +57,13 @@ pub struct Gamma {
 impl Gamma {
     /// Creates a `Gamma(α, β)` distribution.
     pub fn new(alpha: f64, beta: f64) -> StatsResult<Self> {
+        // Non-finite parameters (NaN, ±inf) silently produced NaN
+        // pdf/cdf values before v3.1 — reject them up front.
+        if !alpha.is_finite() || !beta.is_finite() {
+            return Err(StatsError::InvalidInput {
+                message: "Gamma::new: parameters must be finite".to_string(),
+            });
+        }
         if alpha <= 0.0 || beta <= 0.0 {
             return Err(StatsError::InvalidInput {
                 message: "Gamma::new: alpha and beta must be positive".to_string(),

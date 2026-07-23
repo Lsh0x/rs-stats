@@ -2,17 +2,22 @@
 
 use crate::error::{StatsError, StatsResult};
 use num_traits::{Float, NumCast};
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
+#[cfg(feature = "serde")]
 use std::fs::File;
+#[cfg(feature = "serde")]
 use std::io::{self};
+#[cfg(feature = "serde")]
 use std::path::Path;
 
 /// Multiple linear regression model that fits a hyperplane to multivariate data points.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct MultipleLinearRegression<T = f64>
 where
-    T: Float + Debug + Default + Serialize,
+    T: Float + Debug + Default,
 {
     /// Regression coefficients, including intercept as the first element
     pub coefficients: Vec<T>,
@@ -29,25 +34,25 @@ where
     /// Standard error of each coefficient (intercept first):
     /// `SE(βⱼ) = s·√[(XᵀX)⁻¹]ⱼⱼ`. Empty if `n ≤ p + 1` or `XᵀX` is singular.
     /// `#[serde(default)]` keeps pre-v3.1 saved models loadable.
-    #[serde(default)]
+    #[cfg_attr(feature = "serde", serde(default))]
     pub coefficient_std_errors: Vec<T>,
     /// t-statistic of each coefficient (`βⱼ / SE(βⱼ)`, intercept first).
-    #[serde(default)]
+    #[cfg_attr(feature = "serde", serde(default))]
     pub t_statistics: Vec<T>,
     /// Two-sided p-value of each coefficient (Student-t, `n − p − 1` df).
-    #[serde(default)]
+    #[cfg_attr(feature = "serde", serde(default))]
     pub p_values: Vec<f64>,
     /// Global F-statistic of the regression (H₀: all slopes are zero).
-    #[serde(default)]
+    #[cfg_attr(feature = "serde", serde(default))]
     pub f_statistic: f64,
     /// p-value of the global F-test.
-    #[serde(default)]
+    #[cfg_attr(feature = "serde", serde(default))]
     pub f_p_value: f64,
 }
 
 impl<T> Default for MultipleLinearRegression<T>
 where
-    T: Float + Debug + Default + NumCast + Serialize + for<'de> Deserialize<'de>,
+    T: Float + Debug + Default + NumCast,
 {
     fn default() -> Self {
         Self::new()
@@ -56,7 +61,7 @@ where
 
 impl<T> MultipleLinearRegression<T>
 where
-    T: Float + Debug + Default + NumCast + Serialize + for<'de> Deserialize<'de>,
+    T: Float + Debug + Default + NumCast,
 {
     /// Create a new multiple linear regression model without fitting any data
     pub fn new() -> Self {
@@ -397,6 +402,14 @@ where
         x_values.iter().map(|x| self.predict(x)).collect()
     }
 
+}
+
+/// Model persistence — requires the `serde` feature.
+#[cfg(feature = "serde")]
+impl<T> MultipleLinearRegression<T>
+where
+    T: Float + Debug + Default + NumCast + Serialize + for<'de> Deserialize<'de>,
+{
     /// Save the model to a file
     ///
     /// # Arguments
@@ -585,6 +598,7 @@ where
 mod tests {
     use super::*;
     use crate::utils::approx_equal;
+    #[cfg(feature = "serde")]
     use tempfile::tempdir;
 
     #[test]
@@ -686,6 +700,7 @@ mod tests {
         assert!(approx_equal(predictions[1], 23.0, Some(1e-6)));
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_save_load_json() {
         // Create a temporary directory
@@ -727,6 +742,7 @@ mod tests {
         assert_eq!(loaded.p, model.p);
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_save_load_binary() {
         // Create a temporary directory
@@ -768,6 +784,7 @@ mod tests {
         assert_eq!(loaded.p, model.p);
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_json_serialization() {
         // Create and fit a model
@@ -871,6 +888,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_save_invalid_path() {
         // Test saving to an invalid path
@@ -887,6 +905,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_load_nonexistent_file() {
         // Test loading a non-existent file
@@ -898,6 +917,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_from_json_invalid() {
         // Test deserializing invalid JSON string

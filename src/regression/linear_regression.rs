@@ -2,18 +2,24 @@
 
 use crate::error::{StatsError, StatsResult};
 use num_traits::{Float, NumCast};
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
+#[cfg(feature = "serde")]
 use std::fs::File;
+#[cfg(feature = "serde")]
 use std::io::{self};
+#[cfg(feature = "serde")]
 use std::path::Path;
 
 /// Linear regression model that fits a line to data points.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct LinearRegression<T = f64>
 where
-    T: Float + Debug + Default + Serialize,
+    T: Float + Debug + Default,
 {
     /// Slope of the regression line (coefficient of x)
     pub slope: T,
@@ -26,17 +32,17 @@ where
     /// Number of data points used for regression
     pub n: usize,
     /// Mean of the fitted X values (needed for confidence intervals).
-    /// `#[serde(default)]` keeps pre-v3.1 saved models loadable.
-    #[serde(default)]
+    /// `serde(default)` keeps pre-v3.1 saved models loadable.
+    #[cfg_attr(feature = "serde", serde(default))]
     pub x_mean: T,
     /// Sum of squared deviations of X around its mean, `Σ(xᵢ−x̄)²`.
-    #[serde(default)]
+    #[cfg_attr(feature = "serde", serde(default))]
     pub sum_xx: T,
 }
 
 impl<T> Default for LinearRegression<T>
 where
-    T: Float + Debug + Default + NumCast + Serialize + for<'de> Deserialize<'de>,
+    T: Float + Debug + Default + NumCast,
 {
     fn default() -> Self {
         Self::new()
@@ -45,7 +51,7 @@ where
 
 impl<T> LinearRegression<T>
 where
-    T: Float + Debug + Default + NumCast + Serialize + for<'de> Deserialize<'de>,
+    T: Float + Debug + Default + NumCast,
 {
     /// Create a new linear regression model without fitting any data
     pub fn new() -> Self {
@@ -254,12 +260,14 @@ where
     {
         // Each prediction is two flops; below this size the rayon dispatch
         // overhead dwarfs the work itself.
-        const PAR_THRESHOLD: usize = 10_000;
-        if x_values.len() < PAR_THRESHOLD {
-            x_values.iter().map(|&x| self.predict(x)).collect()
-        } else {
-            x_values.par_iter().map(|&x| self.predict(x)).collect()
+        #[cfg(feature = "parallel")]
+        {
+            const PAR_THRESHOLD: usize = 10_000;
+            if x_values.len() >= PAR_THRESHOLD {
+                return x_values.par_iter().map(|&x| self.predict(x)).collect();
+            }
         }
+        x_values.iter().map(|&x| self.predict(x)).collect()
     }
 
     /// Shared machinery for confidence / prediction intervals.
@@ -384,6 +392,14 @@ where
         Ok(if self.slope >= T::zero() { r } else { -r })
     }
 
+}
+
+/// Model persistence — requires the `serde` feature.
+#[cfg(feature = "serde")]
+impl<T> LinearRegression<T>
+where
+    T: Float + Debug + Default + NumCast + Serialize + for<'de> Deserialize<'de>,
+{
     /// Save the model to a file
     ///
     /// # Arguments
@@ -460,6 +476,7 @@ where
 mod tests {
     use super::*;
     use crate::utils::approx_equal;
+    #[cfg(feature = "serde")]
     use tempfile::tempdir;
 
     #[test]
@@ -552,6 +569,7 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_save_load_json() {
         // Create a temporary directory
@@ -580,6 +598,7 @@ mod tests {
         assert_eq!(loaded.n, model.n);
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_save_load_binary() {
         // Create a temporary directory
@@ -608,6 +627,7 @@ mod tests {
         assert_eq!(loaded.n, model.n);
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_json_serialization() {
         // Create and fit a model
@@ -633,6 +653,7 @@ mod tests {
         assert_eq!(loaded.n, model.n);
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_load_nonexistent_file() {
         // Test loading from a file that doesn't exist
@@ -640,6 +661,7 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_load_binary_nonexistent_file() {
         // Test loading from a binary file that doesn't exist
@@ -647,6 +669,7 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_from_json_invalid_json() {
         // Test deserializing from invalid JSON
@@ -664,6 +687,7 @@ mod tests {
         assert!(matches!(result.unwrap_err(), StatsError::NotFitted { .. }));
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_save_invalid_path() {
         // Test saving to an invalid path (non-existent directory)
@@ -839,6 +863,7 @@ mod tests {
         assert!((predictions[1] - 10.0).abs() < 1e-10);
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_load_invalid_json() {
         // Test loading invalid JSON
@@ -852,6 +877,7 @@ mod tests {
         assert!(result.is_err(), "Loading invalid JSON should return error");
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_from_json_invalid() {
         // Test deserializing invalid JSON string

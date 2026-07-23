@@ -61,6 +61,7 @@ use crate::utils::special_functions::{bisect_inverse_cdf, ln_beta, regularized_i
 /// assert!((b.mean() - 2.0 / 7.0).abs() < 1e-10);
 /// ```
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Beta {
     /// Shape parameter α > 0
     pub alpha: f64,
@@ -71,6 +72,13 @@ pub struct Beta {
 impl Beta {
     /// Creates a `Beta(α, β)` distribution. Both parameters must be positive.
     pub fn new(alpha: f64, beta: f64) -> StatsResult<Self> {
+        // Non-finite parameters (NaN, ±inf) silently produced NaN
+        // pdf/cdf values before v3.1 — reject them up front.
+        if !alpha.is_finite() || !beta.is_finite() {
+            return Err(StatsError::InvalidInput {
+                message: "Beta::new: parameters must be finite".to_string(),
+            });
+        }
         if alpha <= 0.0 || beta <= 0.0 {
             return Err(StatsError::InvalidInput {
                 message: "Beta::new: alpha and beta must be positive".to_string(),

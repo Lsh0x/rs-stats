@@ -41,6 +41,7 @@
 
 use crate::error::{StatsError, StatsResult};
 use crate::utils::special_functions::{ln_gamma, regularized_incomplete_beta};
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 /// Negative Binomial distribution NegBinom(r, p).
@@ -53,7 +54,8 @@ use serde::{Deserialize, Serialize};
 /// let nb = NegativeBinomial::new(5.0, 0.5).unwrap();
 /// assert!((nb.mean() - 5.0).abs() < 1e-10);
 /// ```
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct NegativeBinomial {
     /// Number of successes r > 0 (can be non-integer, i.e. the overdispersion parameter)
     pub r: f64,
@@ -64,6 +66,13 @@ pub struct NegativeBinomial {
 impl NegativeBinomial {
     /// Creates a `NegBinom(r, p)` distribution.
     pub fn new(r: f64, p: f64) -> StatsResult<Self> {
+        // Non-finite parameters (NaN, ±inf) silently produced NaN
+        // pdf/cdf values before v3.1 — reject them up front.
+        if !r.is_finite() {
+            return Err(StatsError::InvalidInput {
+                message: "NegativeBinomial::new: parameters must be finite".to_string(),
+            });
+        }
         if r <= 0.0 {
             return Err(StatsError::InvalidInput {
                 message: "NegativeBinomial::new: r must be positive".to_string(),

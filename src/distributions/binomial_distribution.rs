@@ -149,6 +149,7 @@ fn cdf(k: u64, n: u64, p: f64) -> StatsResult<f64> {
 /// assert!((b.mean() - 5.0).abs() < 1e-10);
 /// ```
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Binomial {
     /// Number of trials n (must be ≥ 1)
     pub n: u64,

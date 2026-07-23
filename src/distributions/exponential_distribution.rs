@@ -49,10 +49,12 @@ use crate::error::{StatsError, StatsResult};
 ///
 #[inline]
 fn exponential_pdf(x: f64, lambda: f64) -> StatsResult<f64> {
+    // Out-of-support x returns 0 density (like every other continuous
+    // distribution here) — pre-v3.1 this was an error, which made
+    // Exponential the only candidate to abort fit_all's log_likelihood
+    // on a single negative point.
     if x < 0.0 {
-        return Err(StatsError::InvalidInput {
-            message: "exponential_pdf: x must be non-negative".to_string(),
-        });
+        return Ok(0.0);
     }
     if lambda <= 0.0 {
         return Err(StatsError::InvalidInput {
@@ -86,10 +88,10 @@ fn exponential_pdf(x: f64, lambda: f64) -> StatsResult<f64> {
 ///
 #[inline]
 fn exponential_cdf(x: f64, lambda: f64) -> StatsResult<f64> {
+    // Out-of-support: F(x) = 0 for x < 0 (aligned with the other
+    // continuous distributions; was an error before v3.1).
     if x < 0.0 {
-        return Err(StatsError::InvalidInput {
-            message: "exponential_cdf: x must be non-negative".to_string(),
-        });
+        return Ok(0.0);
     }
     if lambda <= 0.0 {
         return Err(StatsError::InvalidInput {
@@ -180,6 +182,7 @@ fn exponential_inverse_cdf(p: f64, lambda: f64) -> StatsResult<f64> {
 /// assert!((e.mean() - 0.5).abs() < 1e-10);
 /// ```
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Exponential {
     /// Rate parameter λ > 0
     pub lambda: f64,
@@ -188,6 +191,13 @@ pub struct Exponential {
 impl Exponential {
     /// Creates an `Exponential` distribution with validation.
     pub fn new(lambda: f64) -> StatsResult<Self> {
+        // Non-finite parameters (NaN, ±inf) silently produced NaN
+        // pdf/cdf values before v3.1 — reject them up front.
+        if !lambda.is_finite() {
+            return Err(StatsError::InvalidInput {
+                message: "Exponential::new: parameters must be finite".to_string(),
+            });
+        }
         if lambda <= 0.0 {
             return Err(StatsError::InvalidInput {
                 message: "Exponential::new: lambda must be positive".to_string(),
@@ -226,9 +236,7 @@ impl crate::distributions::traits::Distribution for Exponential {
     }
     fn logpdf(&self, x: f64) -> StatsResult<f64> {
         if x < 0.0 {
-            return Err(StatsError::InvalidInput {
-                message: "Exponential::logpdf: x must be non-negative".to_string(),
-            });
+            return Ok(f64::NEG_INFINITY);
         }
         Ok(self.lambda.ln() - self.lambda * x)
     }
@@ -238,8 +246,7 @@ impl crate::distributions::traits::Distribution for Exponential {
     /// Exact tail: `S(x) = exp(−λx)`.
     fn sf(&self, x: f64) -> StatsResult<f64> {
         if x < 0.0 {
-            // Same domain handling as cdf (error for negative x).
-            return self.cdf(x).map(|c| 1.0 - c);
+            return Ok(1.0);
         }
         Ok((-self.lambda * x).exp())
     }
@@ -339,15 +346,10 @@ mod tests {
     }
 
     #[test]
-    fn test_exponential_pdf_invalid_x() {
-        let result = exponential_pdf(-1.0, 2.0);
-        assert!(result.is_err());
-        match result {
-            Err(StatsError::InvalidInput { message }) => {
-                assert!(message.contains("x must be non-negative"));
-            }
-            _ => panic!("Expected InvalidInput error"),
-        }
+    fn test_exponential_pdf_out_of_support() {
+        // x < 0 is out of support: density 0 (aligned with the other
+        // continuous distributions), no longer an error.
+        assert_eq!(exponential_pdf(-1.0, 2.0).unwrap(), 0.0);
     }
 
     #[test]
@@ -381,13 +383,8 @@ mod tests {
     }
 
     #[test]
-    fn test_exponential_cdf_invalid_x() {
-        let result = exponential_cdf(-1.0, 2.0);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            StatsError::InvalidInput { .. }
-        ));
+    fn test_exponential_cdf_out_of_support() {
+        assert_eq!(exponential_cdf(-1.0, 2.0).unwrap(), 0.0);
     }
 
     #[test]

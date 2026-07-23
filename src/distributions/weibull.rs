@@ -55,6 +55,7 @@ use crate::utils::special_functions::gamma_fn;
 /// assert!((w.mean() - 2.0).abs() < 1e-10);
 /// ```
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Weibull {
     /// Shape parameter k > 0
     pub k: f64,
@@ -65,6 +66,13 @@ pub struct Weibull {
 impl Weibull {
     /// Creates a `Weibull(k, λ)` distribution.
     pub fn new(k: f64, lambda: f64) -> StatsResult<Self> {
+        // Non-finite parameters (NaN, ±inf) silently produced NaN
+        // pdf/cdf values before v3.1 — reject them up front.
+        if !k.is_finite() || !lambda.is_finite() {
+            return Err(StatsError::InvalidInput {
+                message: "Weibull::new: parameters must be finite".to_string(),
+            });
+        }
         if k <= 0.0 || lambda <= 0.0 {
             return Err(StatsError::InvalidInput {
                 message: "Weibull::new: k and lambda must be positive".to_string(),

@@ -6,7 +6,7 @@ pub mod wilcoxon;
 
 // Re-export functions to allow users to import them directly from hypothesis_tests module
 pub use self::anova::one_way_anova;
-pub use self::chi_square_test::{chi_square_goodness_of_fit, chi_square_independence};
+pub use self::chi_square_test::{ChiSquareResult, chi_square_goodness_of_fit, chi_square_independence};
 pub use self::mann_whitney::{MannWhitneyResult, mann_whitney_u};
 pub use self::t_test::{
     cohens_d, one_sample_t_test, one_sample_t_test_alt, paired_t_test, paired_t_test_alt,
