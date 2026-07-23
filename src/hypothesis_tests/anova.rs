@@ -164,6 +164,11 @@ where
     // Calculate mean squares
     let ms_between = ss_between / (df_between as f64);
     let ms_within = ss_within / (df_within as f64);
+    if ms_within == 0.0 {
+        return Err(StatsError::invalid_input(
+            "one_way_anova: zero within-group variance; the F-statistic is undefined",
+        ));
+    }
 
     // Calculate F-statistic
     let f_statistic = ms_between / ms_within;
@@ -510,47 +515,25 @@ mod tests {
     }
 
     #[test]
-    fn test_f_distribution_cdf_f_zero() {
-        // Test f_distribution_cdf with f = 0.0 (should return 0.0)
-        // This can happen when all groups have identical means
-        // Note: When all groups are identical, ms_within might be 0, causing F to be NaN
-        // This is a valid edge case - we test that the function handles it
+    fn test_anova_zero_within_variance_is_error() {
+        // All groups constant → ms_within = 0 → F undefined. This used to
+        // silently produce a NaN F-statistic; it is now a typed error.
         let group1 = [5.0, 5.0, 5.0];
         let group2 = [5.0, 5.0, 5.0];
         let group3 = [5.0, 5.0, 5.0];
 
         let groups = [&group1[..], &group2[..], &group3[..]];
-        let result = one_way_anova(&groups).unwrap();
+        let result = one_way_anova(&groups);
+        assert!(matches!(
+            result.unwrap_err(),
+            StatsError::InvalidInput { .. }
+        ));
 
-        // When all groups have identical values, ms_within = 0, so F = ms_between / 0 = NaN
-        // This is expected behavior - we just verify the result doesn't panic
-        // F-statistic can be NaN in this edge case
-        assert!(
-            result.f_statistic.is_nan() || result.f_statistic >= 0.0,
-            "F-statistic should be NaN or non-negative"
-        );
-    }
-
-    #[test]
-    fn test_f_distribution_cdf_f_negative() {
-        // Test that f_distribution_cdf handles f <= 0.0 correctly
-        // This should return 0.0
-        // We can't directly test this through ANOVA since F-statistic is always >= 0
-        // But we can verify that the function handles edge cases correctly
-        // by testing with groups that have very small differences
-        // Note: When groups are identical, F may be NaN (0/0)
+        // Two identical constant groups: same 0/0 case, same error.
         let group1 = [1.0, 1.0, 1.0];
         let group2 = [1.0, 1.0, 1.0];
-
         let groups = [&group1[..], &group2[..]];
-        let result = one_way_anova(&groups).unwrap();
-
-        // F-statistic can be NaN when groups are identical (0/0 case)
-        // This is expected - we just verify it doesn't panic
-        assert!(
-            result.f_statistic.is_nan() || result.f_statistic >= 0.0,
-            "F-statistic should be NaN or non-negative"
-        );
+        assert!(one_way_anova(&groups).is_err());
     }
 
     #[test]

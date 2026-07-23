@@ -49,7 +49,7 @@
 use crate::error::{StatsError, StatsResult};
 
 /// Precomputed ln(k!) for k = 0..=20 (exact values).
-/// For k > 20, we use the Stirling approximation: ln(k!) ≈ k*ln(k) - k + 0.5*ln(2πk).
+/// For k > 20, we use ln Γ(k+1) via Lanczos (`ln_gamma`).
 /// This makes PMF O(1) per call instead of O(k).
 const LN_FACT_TABLE: [f64; 21] = [
     0.0,                     // ln(0!) = 0
@@ -76,15 +76,16 @@ const LN_FACT_TABLE: [f64; 21] = [
 ];
 
 /// Compute ln(k!) in O(1) time.
-/// Uses a precomputed table for k <= 20 and Stirling's approximation for k > 20.
+/// Uses a precomputed table for k <= 20 and `ln_gamma(k+1)` for k > 20.
 #[inline]
 fn ln_factorial(k: u64) -> f64 {
     if k <= 20 {
         LN_FACT_TABLE[k as usize]
     } else {
-        // Stirling's approximation: ln(k!) ≈ k*ln(k) - k + 0.5*ln(2πk)
-        let k_f64 = k as f64;
-        k_f64 * k_f64.ln() - k_f64 + 0.5 * (2.0 * std::f64::consts::PI * k_f64).ln()
+        // ln Γ(k+1) via Lanczos (~1e-14 relative). Bare Stirling without the
+        // 1/(12k) correction is off by ~5e-4 at k ≈ 150 — visible directly
+        // in PMF values.
+        crate::utils::special_functions::ln_gamma(k as f64 + 1.0)
     }
 }
 

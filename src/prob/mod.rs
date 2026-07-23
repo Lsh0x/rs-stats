@@ -18,7 +18,7 @@ pub use self::average::average;
 pub use self::erf::erf;
 pub use self::erfc::erfc;
 pub use self::std_dev::{std_dev, std_dev_population, std_dev_sample};
-pub use self::std_err::std_err;
+pub use self::std_err::{std_err, std_err_population};
 pub use self::variance::{variance, variance_population, variance_sample};
 pub use self::welford::{Welford, WelfordCovariance, WelfordVector};
 pub use self::z_score::z_score;

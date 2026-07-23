@@ -93,6 +93,11 @@ where
     let variance = calculate_variance(data, mean)?;
     let std_dev = variance.sqrt();
     let std_error = std_dev / n.sqrt();
+    if std_error == 0.0 {
+        return Err(StatsError::invalid_input(
+            "one_sample_t_test: data has zero variance; the t-statistic is undefined",
+        ));
+    }
 
     // Calculate t-statistic
     let t_statistic = (mean - pop_mean) / std_error;
@@ -181,6 +186,11 @@ where
         // Pooled variance formula for equal variances (Student's t-test)
         let pooled_variance = ((n1 - 1.0) * var1 + (n2 - 1.0) * var2) / (n1 + n2 - 2.0);
         std_error = (pooled_variance * (1.0 / n1 + 1.0 / n2)).sqrt();
+        if std_error == 0.0 {
+            return Err(StatsError::invalid_input(
+                "two_sample_t_test: both samples have zero variance; the t-statistic is undefined",
+            ));
+        }
         t_statistic = (mean1 - mean2) / std_error;
         degrees_of_freedom = n1 + n2 - 2.0;
     } else {
@@ -188,6 +198,11 @@ where
         let var1_n1 = var1 / n1;
         let var2_n2 = var2 / n2;
         std_error = (var1_n1 + var2_n2).sqrt();
+        if std_error == 0.0 {
+            return Err(StatsError::invalid_input(
+                "two_sample_t_test: both samples have zero variance; the t-statistic is undefined",
+            ));
+        }
         t_statistic = (mean1 - mean2) / std_error;
 
         // Welch-Satterthwaite equation for degrees of freedom
@@ -313,6 +328,11 @@ where
     let variance = diff_m2 / (n - 1.0);
     let std_dev = variance.sqrt();
     let std_error = std_dev / n.sqrt();
+    if std_error == 0.0 {
+        return Err(StatsError::invalid_input(
+            "paired_t_test: the pairwise differences have zero variance; the t-statistic is undefined",
+        ));
+    }
 
     // Calculate t-statistic for paired test
     let t_statistic = mean_diff / std_error;

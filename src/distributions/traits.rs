@@ -148,6 +148,16 @@ pub(crate) fn discrete_inverse_cdf_search(
     if p == 0.0 {
         return Ok(0);
     }
+    if p == 1.0 {
+        // For unbounded supports the quantile is +∞ (not representable in
+        // u64) — and a floating-point CDF that saturates at 1 − ε would send
+        // the doubling phase all the way to u64::MAX with O(hi) CDF calls.
+        // Bounded distributions (Binomial) special-case p = 1 before
+        // delegating here.
+        return Err(StatsError::InvalidInput {
+            message: "inverse_cdf: p = 1.0 has no finite quantile for unbounded discrete distributions; use p < 1".to_string(),
+        });
+    }
     let mut hi: u64 = 1;
     while cdf(hi)? < p {
         hi = hi.saturating_mul(2);

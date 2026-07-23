@@ -20,6 +20,7 @@
 
 use crate::error::{StatsError, StatsResult};
 use crate::prob::erf;
+use crate::utils::special_functions::regularized_incomplete_gamma_upper;
 use num_traits::ToPrimitive;
 
 /// Calculate the complementary error function (erfc) of a value
@@ -53,6 +54,12 @@ where
     let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError {
         message: "prob::erfc: Failed to convert x to f64".to_string(),
     })?;
+    // In the upper tail erfc(x) is tiny; `1 − erf(x)` destroys its relative
+    // precision (and rounds to 0 for x ≳ 6). Compute Q(1/2, x²) directly
+    // instead. Below the threshold erfc is O(1) and `1 − erf` is exact enough.
+    if x_64 > 0.5 {
+        return Ok(regularized_incomplete_gamma_upper(0.5, x_64 * x_64));
+    }
     Ok(1.0 - erf(x_64)?)
 }
 

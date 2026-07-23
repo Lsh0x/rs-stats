@@ -26,7 +26,7 @@
 //! - C(n,k) is the binomial coefficient (n choose k)
 
 use crate::error::{StatsError, StatsResult};
-use crate::utils::special_functions::ln_gamma;
+use crate::utils::special_functions::{ln_gamma, regularized_incomplete_beta};
 // Private math helpers; the public API is the [`Binomial`] struct's
 // [`DiscreteDistribution`] impl below.
 
@@ -62,17 +62,23 @@ fn pmf(k: u64, n: u64, p: f64) -> StatsResult<f64> {
             message: "binomial::pmf: p must be between 0 and 1".to_string(),
         });
     }
-    let combinations = combination(n, k)?;
+    if k > n {
+        return Err(StatsError::InvalidInput {
+            message: "binomial::pmf: k must be less than or equal to n".to_string(),
+        });
+    }
     if p == 0.0 {
-        return Ok(if k == 0 { combinations } else { 0.0 });
+        return Ok(if k == 0 { 1.0 } else { 0.0 });
     }
     if p == 1.0 {
-        return Ok(if k == n { combinations } else { 0.0 });
+        return Ok(if k == n { 1.0 } else { 0.0 });
     }
-    let k_f64 = k as f64;
-    let n_minus_k_f64 = (n - k) as f64;
-    let log_prob = k_f64 * p.ln() + n_minus_k_f64 * (1.0 - p).ln();
-    Ok(combinations * log_prob.exp())
+    // Entirely in log-space: a linear-space C(n, k) overflows f64 (→ inf,
+    // then inf·exp(…) = NaN) as soon as n ≈ 1030.
+    let log_binom =
+        ln_gamma((n + 1) as f64) - ln_gamma((k + 1) as f64) - ln_gamma((n - k + 1) as f64);
+    let log_prob = k as f64 * p.ln() + (n - k) as f64 * (1.0 - p).ln();
+    Ok((log_binom + log_prob).exp())
 }
 
 /// Cumulative distribution function (CDF) for the Binomial distribution.
@@ -112,51 +118,23 @@ fn cdf(k: u64, n: u64, p: f64) -> StatsResult<f64> {
             message: "binomial_distribution::cdf: k must be less than or equal to n".to_string(),
         });
     }
-    // Use PMF recurrence relation: P(X=i+1) = P(X=i) * (n-i)/(i+1) * p/(1-p)
-    // This avoids recomputing factorials at each step: O(k) total, O(1) per step
     if p == 0.0 {
         return Ok(1.0); // P(X <= k) = 1 when p = 0 (all mass at k=0)
     }
     if p == 1.0 {
         return Ok(if k >= n { 1.0 } else { 0.0 });
     }
-
-    // Start with pmf(0) = (1-p)^n
-    let q = 1.0 - p;
-    let mut pmf_i = q.powi(n as i32);
-    // For very large n where powi overflows, fall back to log-space
-    if pmf_i == 0.0 && n > 0 {
-        let log_pmf_0 = (n as f64) * q.ln();
-        pmf_i = log_pmf_0.exp();
+    if k == n {
+        return Ok(1.0);
     }
-    let mut cdf_sum = pmf_i;
-    let ratio = p / q;
-
-    for i in 0..k {
-        pmf_i *= ((n - i) as f64 / (i + 1) as f64) * ratio;
-        cdf_sum += pmf_i;
-    }
-
-    Ok(cdf_sum.clamp(0.0, 1.0))
+    // Closed form via the regularized incomplete beta:
+    //   P(X ≤ k) = I_{1−p}(n−k, k+1)
+    // O(1) and stable for any n. The previous O(k) PMF recurrence started at
+    // (1−p)^n, which underflows to 0 for n ≳ 1000 — the whole sum then
+    // silently collapsed to 0.
+    Ok(regularized_incomplete_beta((n - k) as f64, (k + 1) as f64, 1.0 - p).clamp(0.0, 1.0))
 }
 
-/// Calculate the binomial coefficient (n choose k).
-#[inline]
-fn combination(n: u64, k: u64) -> StatsResult<f64> {
-    if k > n {
-        return Err(StatsError::InvalidInput {
-            message: "binomial_distribution::combination: k must be less than or equal to n"
-                .to_string(),
-        });
-    }
-
-    // Use a more numerically stable algorithm
-    if k > n / 2 {
-        return combination(n, n - k);
-    }
-
-    Ok((1..=k).fold(1.0_f64, |acc, i| acc * (n - i + 1) as f64 / i as f64))
-}
 
 // ── Typed struct + DiscreteDistribution impl ───────────────────────────────────
 
@@ -250,7 +228,14 @@ impl crate::distributions::traits::Distribution for Binomial {
         cdf(k, self.n, self.p)
     }
     fn inverse_cdf(&self, p: f64) -> StatsResult<u64> {
-        crate::distributions::traits::discrete_inverse_cdf_search(p, |k| self.cdf(k))
+        // Bounded support: p = 1 has the finite quantile n, and the search's
+        // doubling phase may probe k > n, where `cdf` errors — clamp to 1.
+        if p == 1.0 {
+            return Ok(self.n);
+        }
+        crate::distributions::traits::discrete_inverse_cdf_search(p, |k| {
+            if k >= self.n { Ok(1.0) } else { self.cdf(k) }
+        })
     }
     fn mean(&self) -> f64 {
         self.n as f64 * self.p
@@ -405,44 +390,18 @@ mod tests {
     }
 
     #[test]
-    fn test_binomial_combination_symmetry() {
-        // Test that combination(n, k) == combination(n, n-k) when k > n/2
-        // This tests the symmetry optimization path
-        let n = 10u64;
-        let k = 8u64; // k > n/2, so should use symmetry
-
-        // Direct call should use symmetry path
-        let result1 = combination(n, k).unwrap();
-        // Should be same as combination(n, n-k)
-        let result2 = combination(n, n - k).unwrap();
-        assert_eq!(result1, result2);
-
-        // Verify it's correct: C(10, 8) = C(10, 2) = 45
-        assert_eq!(result1, 45.0);
-    }
-
-    #[test]
-    fn test_binomial_combination_k_greater_than_n() {
-        let result = combination(10, 15);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            StatsError::InvalidInput { .. }
-        ));
-    }
-
-    #[test]
-    fn test_binomial_combination_k_equals_n() {
-        // C(n, n) = 1
-        let result = combination(10, 10).unwrap();
-        assert_eq!(result, 1.0);
-    }
-
-    #[test]
-    fn test_binomial_combination_k_zero() {
-        // C(n, 0) = 1
-        let result = combination(10, 0).unwrap();
-        assert_eq!(result, 1.0);
+    fn test_binomial_pmf_large_n_no_nan() {
+        // n ≈ 1030 used to overflow C(n, k) to inf in linear space,
+        // producing pmf = inf·exp(−large) = NaN. Log-space keeps it finite.
+        for (n, p, k) in [(1030_u64, 0.5_f64, 515_u64), (1500, 0.3, 450), (5000, 0.5, 2500)] {
+            let v = pmf(k, n, p).unwrap();
+            assert!(v.is_finite() && v > 0.0, "pmf({k}, {n}, {p}) = {v}");
+            // Consistent with the log-space trait path.
+            use crate::distributions::traits::Distribution;
+            let d = Binomial::new(n, p).unwrap();
+            let via_log = d.logpdf(k).unwrap().exp();
+            assert!((v - via_log).abs() <= 1e-12 * via_log);
+        }
     }
 
     #[test]
@@ -476,25 +435,4 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn test_binomial_combination_k_exactly_n_over_2() {
-        // Test boundary case: k = n/2 (should not use symmetry)
-        let n = 10u64;
-        let k = 5u64; // k = n/2, should not use symmetry
-        let result = combination(n, k).unwrap();
-        // C(10, 5) = 252
-        assert_eq!(result, 252.0);
-    }
-
-    #[test]
-    fn test_binomial_combination_k_just_over_n_over_2() {
-        // Test k = n/2 + 1 (should use symmetry)
-        let n = 10u64;
-        let k = 6u64; // k > n/2, should use symmetry
-        let result1 = combination(n, k).unwrap();
-        let result2 = combination(n, n - k).unwrap();
-        assert_eq!(result1, result2);
-        // C(10, 6) = C(10, 4) = 210
-        assert_eq!(result1, 210.0);
-    }
 }

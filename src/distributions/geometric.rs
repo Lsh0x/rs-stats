@@ -125,8 +125,16 @@ impl crate::distributions::traits::Distribution for Geometric {
         if p == 0.0 {
             return Ok(0);
         }
-        if p == 1.0 || self.p == 1.0 {
-            return Ok(1);
+        if self.p == 1.0 {
+            return Ok(1); // all mass at k = 1
+        }
+        if p == 1.0 {
+            // Unbounded support: the p = 1 quantile is +∞, not 1 (CDF(1) =
+            // p_param < 1 here — the old code conflated the two conditions).
+            return Err(StatsError::InvalidInput {
+                message: "Geometric::inverse_cdf: p = 1.0 has no finite quantile; use p < 1"
+                    .to_string(),
+            });
         }
         // CDF(k) = 1 - (1-p_param)^k ≥ p_target
         // → (1-p_param)^k ≤ 1 - p_target

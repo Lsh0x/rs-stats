@@ -46,7 +46,7 @@
 
 use crate::distributions::traits::Distribution;
 use crate::error::{StatsError, StatsResult};
-use crate::prob::erf;
+use crate::prob::erfc;
 use crate::utils::constants::{INV_SQRT_2PI, SQRT_2};
 
 // Private math helpers; the public API is the [`Normal`] struct's
@@ -103,8 +103,10 @@ pub(crate) fn normal_cdf(x: f64, mean: f64, std_dev: f64) -> StatsResult<f64> {
     if x == mean {
         return Ok(0.5);
     }
+    // Φ(x) = erfc(−z)/2 keeps full relative precision in the lower tail,
+    // where 0.5·(1 + erf(z)) collapses to 0 (erf(z) → −1 exactly).
     let z = (x - mean) / (std_dev * SQRT_2);
-    Ok(0.5 * (1.0 + erf(z)?))
+    Ok(0.5 * erfc(-z)?)
 }
 
 /// Calculates the inverse cumulative distribution function (Quantile function) for the normal distribution.

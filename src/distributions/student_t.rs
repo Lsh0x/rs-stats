@@ -124,8 +124,15 @@ impl Distribution for StudentT {
         if p == 0.5 {
             return Ok(self.mu);
         }
-        // Bisection on the t-scale then transform back
-        let std_dev_est = self.sigma * (self.nu / (self.nu - 2.0)).sqrt().max(1.0);
+        // Bisection on the t-scale then transform back. The variance-based
+        // scale only exists for ν > 2; below that, seed with σ and let
+        // bisect_inverse_cdf expand the bracket (heavy tails reach quantiles
+        // far beyond any fixed multiple of σ).
+        let std_dev_est = if self.nu > 2.0 {
+            self.sigma * (self.nu / (self.nu - 2.0)).sqrt()
+        } else {
+            self.sigma
+        };
         let lo = self.mu - 30.0 * std_dev_est;
         let hi = self.mu + 30.0 * std_dev_est;
         let mu = self.mu;

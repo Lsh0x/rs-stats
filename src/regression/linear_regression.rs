@@ -25,6 +25,13 @@ where
     pub standard_error: T,
     /// Number of data points used for regression
     pub n: usize,
+    /// Mean of the fitted X values (needed for confidence intervals).
+    /// `#[serde(default)]` keeps pre-v3.1 saved models loadable.
+    #[serde(default)]
+    pub x_mean: T,
+    /// Sum of squared deviations of X around its mean, `Σ(xᵢ−x̄)²`.
+    #[serde(default)]
+    pub sum_xx: T,
 }
 
 impl<T> Default for LinearRegression<T>
@@ -48,6 +55,8 @@ where
             r_squared: T::zero(),
             standard_error: T::zero(),
             n: 0,
+            x_mean: T::zero(),
+            sum_xx: T::zero(),
         }
     }
 
@@ -146,6 +155,8 @@ where
         // Calculate slope and intercept
         self.slope = sum_xy / sum_xx;
         self.intercept = y_mean - (self.slope * x_mean);
+        self.x_mean = x_mean;
+        self.sum_xx = sum_xx;
 
         // Calculate R²
         self.r_squared = (sum_xy * sum_xy) / (sum_xx * sum_yy);
@@ -244,20 +255,11 @@ where
         x_values.par_iter().map(|&x| self.predict(x)).collect()
     }
 
-    /// Calculate confidence intervals for the regression line
+    /// Shared machinery for confidence / prediction intervals.
     ///
-    /// # Arguments
-    /// * `x` - The x value to calculate confidence interval for
-    /// * `confidence_level` - Confidence level (0.95 for 95% confidence)
-    ///
-    /// # Returns
-    /// * `StatsResult<(T, T)>` - Tuple of (lower_bound, upper_bound), or an error if invalid
-    ///
-    /// # Errors
-    /// Returns `StatsError::InvalidInput` if there are fewer than 3 data points.
-    /// Returns `StatsError::InvalidParameter` if confidence level is not supported (only 0.90, 0.95, 0.99).
-    /// Returns `StatsError::ConversionError` if value conversion fails.
-    pub fn confidence_interval<U>(&self, x: U, confidence_level: f64) -> StatsResult<(T, T)>
+    /// `extra` is 0 for the CI of the mean response and 1 for a prediction
+    /// interval (adds the variance of a single new observation).
+    fn t_interval<U>(&self, x: U, confidence_level: f64, extra: f64) -> StatsResult<(T, T)>
     where
         U: NumCast + Copy,
     {
@@ -266,34 +268,82 @@ where
                 "Need at least 3 data points to calculate confidence interval",
             ));
         }
+        if !(0.0..1.0).contains(&confidence_level) || confidence_level <= 0.0 {
+            return Err(StatsError::invalid_parameter(format!(
+                "Confidence level must be in (0, 1), got {confidence_level}"
+            )));
+        }
+        if self.sum_xx <= T::zero() {
+            return Err(StatsError::invalid_input(
+                "Model was fitted without X dispersion info (pre-v3.1 saved model?); refit before computing intervals",
+            ));
+        }
 
         let x_cast: T = T::from(x)
             .ok_or_else(|| StatsError::conversion_error("Failed to convert x value to type T"))?;
 
-        // Get the t-critical value based on degrees of freedom and confidence level
-        // For simplicity, we'll use a normal approximation with standard errors
-        let z_score: T = match confidence_level {
-            0.90 => T::from(1.645).ok_or_else(|| {
-                StatsError::conversion_error("Failed to convert z-score 1.645 to type T")
-            })?,
-            0.95 => T::from(1.96).ok_or_else(|| {
-                StatsError::conversion_error("Failed to convert z-score 1.96 to type T")
-            })?,
-            0.99 => T::from(2.576).ok_or_else(|| {
-                StatsError::conversion_error("Failed to convert z-score 2.576 to type T")
-            })?,
-            _ => {
-                return Err(StatsError::invalid_parameter(format!(
-                    "Unsupported confidence level: {}. Supported values: 0.90, 0.95, 0.99",
-                    confidence_level
-                )));
-            }
-        };
+        // Student-t critical value with n − 2 degrees of freedom. The old
+        // implementation used hardcoded *normal* z-scores, which understate
+        // the interval for small n — exactly where intervals matter most.
+        use crate::distributions::student_t::StudentT;
+        use crate::distributions::traits::Distribution as _;
+        let df = (self.n - 2) as f64;
+        let t_crit = StudentT::new(0.0, 1.0, df)?.inverse_cdf(0.5 * (1.0 + confidence_level))?;
+        let t_crit: T = T::from(t_crit)
+            .ok_or_else(|| StatsError::conversion_error("Failed to convert t quantile to type T"))?;
+
+        // SE of the estimate at x: s·√(extra + 1/n + (x−x̄)²/Sxx).
+        // The band widens away from x̄ — a constant ±t·s is neither a CI of
+        // the mean response nor a prediction interval.
+        let n_t = T::from(self.n)
+            .ok_or_else(|| StatsError::conversion_error("Failed to convert n to type T"))?;
+        let extra_t = T::from(extra)
+            .ok_or_else(|| StatsError::conversion_error("Failed to convert constant to type T"))?;
+        let dx = x_cast - self.x_mean;
+        let se_at_x =
+            self.standard_error * (extra_t + T::one() / n_t + dx * dx / self.sum_xx).sqrt();
 
         let predicted = self.predict_t(x_cast);
-        let margin = z_score * self.standard_error;
-
+        let margin = t_crit * se_at_x;
         Ok((predicted - margin, predicted + margin))
+    }
+
+    /// Confidence interval for the **mean response** `E[Y | x]` at `x`.
+    ///
+    /// Uses Student-t quantiles with `n − 2` degrees of freedom and the
+    /// standard error `s·√(1/n + (x−x̄)²/Sxx)`, so the band widens away
+    /// from the centre of the data. Any `confidence_level` in (0, 1) is
+    /// accepted (0.95 for 95% confidence).
+    ///
+    /// For bounds on a single future *observation*, use
+    /// [`prediction_interval`](Self::prediction_interval) instead.
+    ///
+    /// # Returns
+    /// * `StatsResult<(T, T)>` - Tuple of (lower_bound, upper_bound), or an error if invalid
+    ///
+    /// # Errors
+    /// Returns `StatsError::InvalidInput` if there are fewer than 3 data points.
+    /// Returns `StatsError::InvalidParameter` if `confidence_level` is not in (0, 1).
+    /// Returns `StatsError::ConversionError` if value conversion fails.
+    pub fn confidence_interval<U>(&self, x: U, confidence_level: f64) -> StatsResult<(T, T)>
+    where
+        U: NumCast + Copy,
+    {
+        self.t_interval(x, confidence_level, 0.0)
+    }
+
+    /// Prediction interval for a **single future observation** at `x`.
+    ///
+    /// Wider than [`confidence_interval`](Self::confidence_interval): adds
+    /// the variance of one new observation, `s·√(1 + 1/n + (x−x̄)²/Sxx)`.
+    ///
+    /// # Errors
+    /// Same as [`confidence_interval`](Self::confidence_interval).
+    pub fn prediction_interval<U>(&self, x: U, confidence_level: f64) -> StatsResult<(T, T)>
+    where
+        U: NumCast + Copy,
+    {
+        self.t_interval(x, confidence_level, 1.0)
     }
 
     /// Get the correlation coefficient (r)
@@ -662,19 +712,44 @@ mod tests {
     }
 
     #[test]
-    fn test_confidence_interval_unsupported_level() {
-        // Test confidence_interval with unsupported confidence level
+    fn test_confidence_interval_levels() {
         let mut model = LinearRegression::<f64>::new();
         let x = vec![1.0, 2.0, 3.0, 4.0];
-        let y = vec![2.0, 4.0, 6.0, 8.0];
+        let y = vec![2.1, 3.9, 6.2, 7.8];
         model.fit(&x, &y).unwrap();
 
-        let result = model.confidence_interval(3.0, 0.85);
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            StatsError::InvalidParameter { .. }
-        ));
+        // Any level in (0, 1) is accepted — including non-standard ones.
+        let (lo85, hi85) = model.confidence_interval(3.0, 0.85).unwrap();
+        let (lo95, hi95) = model.confidence_interval(3.0, 0.95).unwrap();
+        assert!(lo95 < lo85 && hi85 < hi95, "higher level ⇒ wider interval");
+
+        // Levels outside (0, 1) are rejected.
+        for bad in [0.0, 1.0, 1.5, -0.1] {
+            assert!(matches!(
+                model.confidence_interval(3.0, bad).unwrap_err(),
+                StatsError::InvalidParameter { .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn test_interval_geometry() {
+        let mut model = LinearRegression::<f64>::new();
+        let x = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0];
+        let y = vec![2.1, 4.0, 5.9, 8.1, 10.0, 12.2, 13.8];
+        model.fit(&x, &y).unwrap();
+
+        // The CI band must widen away from x̄ (= 4.0 here).
+        let w = |x0: f64| {
+            let (lo, hi) = model.confidence_interval(x0, 0.95).unwrap();
+            hi - lo
+        };
+        assert!(w(1.0) > w(4.0) && w(7.0) > w(4.0));
+
+        // A prediction interval is strictly wider than the CI of the mean.
+        let (ci_lo, ci_hi) = model.confidence_interval(4.0, 0.95).unwrap();
+        let (pi_lo, pi_hi) = model.prediction_interval(4.0, 0.95).unwrap();
+        assert!(pi_lo < ci_lo && ci_hi < pi_hi);
     }
 
     #[test]

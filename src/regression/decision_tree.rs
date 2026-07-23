@@ -125,6 +125,8 @@ where
     min_samples_leaf: usize,
     /// Nodes in the tree
     nodes: Vec<Node<T, F>>,
+    /// Number of input features seen at fit time (0 before fitting)
+    n_features: usize,
 }
 
 impl<T, F> DecisionTree<T, F>
@@ -151,6 +153,7 @@ where
             min_samples_split,
             min_samples_leaf,
             nodes: Vec::new(),
+            n_features: 0,
         }
     }
 
@@ -195,6 +198,7 @@ where
 
         // Reset the tree
         self.nodes = Vec::new();
+        self.n_features = n_features;
 
         // Create sample indices (initially all samples)
         let indices: Vec<usize> = (0..features.len()).collect();
@@ -679,21 +683,17 @@ where
         }
     }
 
-    /// Get the importance of each feature
+    /// Get the importance of each feature.
+    ///
+    /// Returns one entry per input feature seen at fit time (unused features
+    /// get 0). Deriving the count from the first split node — as done before
+    /// v3.1 — panicked whenever a deeper node split on a higher feature index.
     pub fn feature_importances(&self) -> Vec<F> {
         if self.nodes.is_empty() {
             return Vec::new();
         }
 
-        // Count the number of features from the first non-leaf node
-        let n_features = self
-            .nodes
-            .iter()
-            .find(|node| !node.is_leaf())
-            .and_then(|node| node.feature_idx)
-            .map(|idx| idx + 1)
-            .unwrap_or(0);
-
+        let n_features = self.n_features;
         if n_features == 0 {
             return Vec::new();
         }
@@ -1428,5 +1428,33 @@ mod tests {
             result.unwrap_err(),
             StatsError::InvalidInput { .. }
         ));
+    }
+
+    #[test]
+    fn test_feature_importances_deep_split_on_higher_feature() {
+        // Regression test: the root splits on feature 0, a deeper node
+        // splits on feature 1. Pre-v3.1 the feature count was derived from
+        // the FIRST split node (→ len 1) and indexing feature 1 panicked.
+        let mut tree =
+            DecisionTree::<i32, f64>::new(TreeType::Classification, SplitCriterion::Gini, 5, 2, 1);
+        // f0 cleanly separates class 2; inside f0 ≤ 3, f1 separates 0 vs 1.
+        let features = vec![
+            vec![0, 0],
+            vec![1, 10],
+            vec![2, 0],
+            vec![3, 10],
+            vec![10, 0],
+            vec![11, 10],
+            vec![12, 0],
+            vec![13, 10],
+        ];
+        let target = vec![0, 1, 0, 1, 2, 2, 2, 2];
+        tree.fit(&features, &target).unwrap();
+
+        let importances = tree.feature_importances();
+        assert_eq!(importances.len(), 2, "one entry per input feature");
+        let total: f64 = importances.iter().sum();
+        assert!((total - 1.0).abs() < 1e-12, "importances sum to 1");
+        assert!(importances.iter().all(|&v| v > 0.0), "both features used");
     }
 }

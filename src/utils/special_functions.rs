@@ -70,6 +70,24 @@ pub fn regularized_incomplete_gamma(a: f64, x: f64) -> f64 {
     }
 }
 
+/// Regularized *upper* incomplete gamma function Q(a, x) = 1 − P(a, x).
+///
+/// Computed directly (series or continued fraction on the appropriate side)
+/// so tiny tail values keep full **relative** precision — `1.0 - P(a, x)`
+/// would round to 0 as soon as Q < ~1e-16. This is the primitive behind
+/// accurate tail probabilities (`erfc`, survival functions, p-values).
+pub fn regularized_incomplete_gamma_upper(a: f64, x: f64) -> f64 {
+    debug_assert!(a > 0.0, "a must be positive");
+    if x <= 0.0 {
+        return 1.0;
+    }
+    if x < a + 1.0 {
+        1.0 - gamma_series(a, x)
+    } else {
+        gamma_continued_fraction(a, x)
+    }
+}
+
 /// Series representation of the lower regularized incomplete gamma.
 /// Converges well when x < a + 1.
 fn gamma_series(a: f64, x: f64) -> f64 {
@@ -227,15 +245,42 @@ fn beta_cf(a: f64, b: f64, x: f64) -> f64 {
 
 // ── General inverse CDF via bisection ─────────────────────────────────────────
 
-/// Find x such that `cdf_fn(x) ≈ p` via bisection on `[lo, hi]`.
-/// `cdf_fn` must be monotone non-decreasing on that interval.
+/// Find x such that `cdf_fn(x) ≈ p` via bisection starting from `[lo, hi]`.
+/// `cdf_fn` must be monotone non-decreasing.
+///
+/// `[lo, hi]` is a *seed* bracket, not a hard bound: if the quantile lies
+/// outside it, the bracket is expanded geometrically until it contains `p`
+/// (heavy-tailed distributions — t with ν ≤ 2, F with small d2 — put
+/// extreme quantiles orders of magnitude beyond any moment-based guess).
+/// Bounded supports never expand: their endpoint CDF already reaches 0/1.
 pub fn bisect_inverse_cdf(cdf_fn: impl Fn(f64) -> f64, p: f64, mut lo: f64, mut hi: f64) -> f64 {
     const MAX_ITER: usize = 200;
     const EPS: f64 = 1e-12;
 
+    let mut width = (hi - lo).abs().max(1.0);
+    for _ in 0..MAX_ITER {
+        if cdf_fn(hi) >= p {
+            break;
+        }
+        lo = hi;
+        hi += width;
+        width *= 2.0;
+    }
+    let mut width = (hi - lo).abs().max(1.0);
+    for _ in 0..MAX_ITER {
+        if cdf_fn(lo) <= p {
+            break;
+        }
+        hi = lo;
+        lo -= width;
+        width *= 2.0;
+    }
+
     for _ in 0..MAX_ITER {
         let mid = 0.5 * (lo + hi);
-        if (hi - lo).abs() < EPS {
+        // Relative tolerance: far-tail quantiles can be huge and an absolute
+        // 1e-12 is then below one ulp (the loop would spin to MAX_ITER).
+        if (hi - lo).abs() < EPS * mid.abs().max(1.0) {
             return mid;
         }
         if cdf_fn(mid) < p {

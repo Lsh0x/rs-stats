@@ -219,6 +219,14 @@ where
         }
     }
 
+    if total_sum <= 0.0 {
+        // An all-zero table would make every expected count 0/0 = NaN, and
+        // the per-cell `expected <= 0.0` guard below never fires on NaN.
+        return Err(StatsError::invalid_input(
+            "chi_square_independence: the contingency table sums to zero",
+        ));
+    }
+
     // Calculate expected values and chi-square statistic
     let mut chi_square = 0.0;
 
