@@ -143,6 +143,24 @@ impl Distribution for Beta {
         )
     }
 
+    fn log_likelihood(&self, data: &[f64]) -> StatsResult<f64> {
+        Ok(self.log_likelihood_fast(data))
+    }
+
+    fn log_likelihood_fast(&self, data: &[f64]) -> f64 {
+        // ln B(α, β) (3 ln_gamma) hoisted out of the per-point loop.
+        let log_norm = -ln_beta(self.alpha, self.beta);
+        let (a1, b1) = (self.alpha - 1.0, self.beta - 1.0);
+        let mut acc = 0.0_f64;
+        for &x in data {
+            if x <= 0.0 || x >= 1.0 {
+                return f64::NEG_INFINITY;
+            }
+            acc += a1 * x.ln() + b1 * (1.0 - x).ln();
+        }
+        data.len() as f64 * log_norm + acc
+    }
+
     fn cdf(&self, x: f64) -> StatsResult<f64> {
         if x <= 0.0 {
             return Ok(0.0);

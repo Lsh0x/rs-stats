@@ -114,6 +114,24 @@ impl Distribution for FDistribution {
         Ok(log_pdf)
     }
 
+    fn log_likelihood(&self, data: &[f64]) -> StatsResult<f64> {
+        Ok(self.log_likelihood_fast(data))
+    }
+
+    fn log_likelihood_fast(&self, data: &[f64]) -> f64 {
+        // 0.5·d2·ln d2 − ln B(d1/2, d2/2) hoisted out of the per-point loop.
+        let (d1, d2) = (self.d1, self.d2);
+        let log_norm = 0.5 * d2 * d2.ln() - ln_beta(d1 / 2.0, d2 / 2.0);
+        let mut acc = 0.0_f64;
+        for &x in data {
+            if x <= 0.0 {
+                return f64::NEG_INFINITY;
+            }
+            acc += 0.5 * (d1 * (d1 * x).ln() - (d1 + d2) * (d1 * x + d2).ln()) - x.ln();
+        }
+        data.len() as f64 * log_norm + acc
+    }
+
     fn cdf(&self, x: f64) -> StatsResult<f64> {
         if x <= 0.0 {
             return Ok(0.0);

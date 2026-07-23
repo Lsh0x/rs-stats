@@ -252,7 +252,14 @@ where
         U: NumCast + Copy + Send + Sync,
         T: Send + Sync,
     {
-        x_values.par_iter().map(|&x| self.predict(x)).collect()
+        // Each prediction is two flops; below this size the rayon dispatch
+        // overhead dwarfs the work itself.
+        const PAR_THRESHOLD: usize = 10_000;
+        if x_values.len() < PAR_THRESHOLD {
+            x_values.iter().map(|&x| self.predict(x)).collect()
+        } else {
+            x_values.par_iter().map(|&x| self.predict(x)).collect()
+        }
     }
 
     /// Shared machinery for confidence / prediction intervals.

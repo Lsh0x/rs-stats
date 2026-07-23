@@ -127,6 +127,24 @@ impl Distribution for Gamma {
             - ln_gamma(self.alpha))
     }
 
+    fn log_likelihood(&self, data: &[f64]) -> StatsResult<f64> {
+        Ok(self.log_likelihood_fast(data))
+    }
+
+    fn log_likelihood_fast(&self, data: &[f64]) -> f64 {
+        // α·ln β − ln Γ(α) hoisted out of the per-point loop.
+        let log_norm = self.alpha * self.beta.ln() - ln_gamma(self.alpha);
+        let a1 = self.alpha - 1.0;
+        let mut acc = 0.0_f64;
+        for &x in data {
+            if x <= 0.0 {
+                return f64::NEG_INFINITY;
+            }
+            acc += a1 * x.ln() - self.beta * x;
+        }
+        data.len() as f64 * log_norm + acc
+    }
+
     fn cdf(&self, x: f64) -> StatsResult<f64> {
         if x <= 0.0 {
             return Ok(0.0);

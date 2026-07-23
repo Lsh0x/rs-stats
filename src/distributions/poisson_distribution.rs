@@ -111,17 +111,13 @@ fn cdf(k: u64, lambda: f64) -> StatsResult<f64> {
             message: "poisson::cdf: lambda must be positive".to_string(),
         });
     }
-    // Incremental log-factorial: O(k) total, O(1) per step.
-    let ln_lambda = lambda.ln();
-    let mut log_fact = 0.0_f64;
-    let mut cdf_sum = 0.0_f64;
-    for i in 0..=k {
-        if i > 0 {
-            log_fact += (i as f64).ln();
-        }
-        cdf_sum += ((i as f64) * ln_lambda - lambda - log_fact).exp();
-    }
-    Ok(cdf_sum.clamp(0.0, 1.0))
+    // Closed form: P(X ≤ k) = Q(k+1, λ), the upper regularized incomplete
+    // gamma. O(1) instead of the previous O(k) term-by-term sum (an exp per
+    // term), and immune to underflow of the individual terms.
+    Ok(
+        crate::utils::special_functions::regularized_incomplete_gamma_upper(k as f64 + 1.0, lambda)
+            .clamp(0.0, 1.0),
+    )
 }
 
 // ── Typed struct + DiscreteDistribution impl ───────────────────────────────────

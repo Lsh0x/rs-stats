@@ -79,7 +79,26 @@ impl Distribution for ChiSquared {
             return Ok(f64::NEG_INFINITY);
         }
         let k = self.k;
-        Ok((k / 2.0 - 1.0) * x.ln() - x / 2.0 - (k / 2.0) * 2_f64.ln() - ln_gamma(k / 2.0))
+        Ok((k / 2.0 - 1.0) * x.ln() - x / 2.0 - (k / 2.0) * std::f64::consts::LN_2
+            - ln_gamma(k / 2.0))
+    }
+
+    fn log_likelihood(&self, data: &[f64]) -> StatsResult<f64> {
+        Ok(self.log_likelihood_fast(data))
+    }
+
+    fn log_likelihood_fast(&self, data: &[f64]) -> f64 {
+        // (k/2)·ln 2 + ln Γ(k/2) hoisted out of the per-point loop.
+        let half_k = self.k / 2.0;
+        let log_norm = -half_k * std::f64::consts::LN_2 - ln_gamma(half_k);
+        let mut acc = 0.0_f64;
+        for &x in data {
+            if x <= 0.0 {
+                return f64::NEG_INFINITY;
+            }
+            acc += (half_k - 1.0) * x.ln() - x / 2.0;
+        }
+        data.len() as f64 * log_norm + acc
     }
 
     fn cdf(&self, x: f64) -> StatsResult<f64> {

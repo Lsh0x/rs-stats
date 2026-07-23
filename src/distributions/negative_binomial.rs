@@ -40,7 +40,7 @@
 //! ```
 
 use crate::error::{StatsError, StatsResult};
-use crate::utils::special_functions::ln_gamma;
+use crate::utils::special_functions::{ln_gamma, regularized_incomplete_beta};
 use serde::{Deserialize, Serialize};
 
 /// Negative Binomial distribution NegBinom(r, p).
@@ -128,17 +128,30 @@ impl crate::distributions::traits::Distribution for NegativeBinomial {
         Ok(log_binom + self.r * self.p.ln() + kf * (1.0 - self.p).ln())
     }
 
-    fn cdf(&self, k: u64) -> StatsResult<f64> {
-        // Sum PMF from 0 to k
-        let mut sum = 0.0_f64;
-        for i in 0..=k {
-            sum += self.pmf(i)?;
-            // Early exit if essentially 1
-            if sum >= 1.0 - 1e-15 {
-                return Ok(1.0);
-            }
+    fn log_likelihood(&self, data: &[u64]) -> StatsResult<f64> {
+        Ok(self.log_likelihood_fast(data))
+    }
+
+    fn log_likelihood_fast(&self, data: &[u64]) -> f64 {
+        // ln Γ(r) and r·ln p / ln(1−p) only depend on the parameters —
+        // hoisted, each point costs 2 ln_gamma instead of 3 + 2 ln.
+        let log_norm = self.r * self.p.ln() - ln_gamma(self.r);
+        let ln_q = (1.0 - self.p).ln();
+        let mut acc = 0.0_f64;
+        for &k in data {
+            let kf = k as f64;
+            acc += ln_gamma(kf + self.r) - ln_gamma(kf + 1.0) + kf * ln_q;
         }
-        Ok(sum.clamp(0.0, 1.0))
+        data.len() as f64 * log_norm + acc
+    }
+
+    fn cdf(&self, k: u64) -> StatsResult<f64> {
+        // Closed form: P(X ≤ k) = I_p(r, k+1), the regularized incomplete
+        // beta. O(1) instead of the previous O(k) PMF sum (3 ln_gamma + exp
+        // per term) — which also made inverse_cdf O(k log k).
+        Ok(
+            regularized_incomplete_beta(self.r, k as f64 + 1.0, self.p).clamp(0.0, 1.0),
+        )
     }
 
     fn inverse_cdf(&self, p: f64) -> StatsResult<u64> {

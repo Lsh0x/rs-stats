@@ -225,10 +225,53 @@ mod combinatorics {
     }
 }
 
+// ── Distribution fitting ──────────────────────────────────────────────────────
+mod fitting {
+    use criterion::{BenchmarkId, Criterion, black_box};
+    use rs_stats::Distribution;
+    use rs_stats::distributions::student_t::StudentT;
+
+    fn lognormal_ish(n: usize) -> Vec<f64> {
+        // Deterministic right-skewed positive data (no rng dependency).
+        (0..n)
+            .map(|i| {
+                let u = (i as f64 + 0.5) / n as f64;
+                (2.0 * u).exp() * (1.0 + 0.1 * (i as f64).sin())
+            })
+            .collect()
+    }
+
+    pub fn bench_fit_all(c: &mut Criterion) {
+        let mut group = c.benchmark_group("fit_all");
+        group.sample_size(20);
+        for n in [50, 1000, 10_000] {
+            let data = lognormal_ish(n);
+            group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, _| {
+                b.iter(|| rs_stats::fit_all(black_box(&data)));
+            });
+        }
+        group.finish();
+    }
+
+    pub fn bench_student_log_likelihood(c: &mut Criterion) {
+        let mut group = c.benchmark_group("student_log_likelihood");
+        let dist = StudentT::new(0.0, 1.0, 5.0).unwrap();
+        for n in [1000, 10_000] {
+            let data: Vec<f64> = (0..n).map(|i| ((i as f64) * 0.37).sin() * 3.0).collect();
+            group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, _| {
+                b.iter(|| dist.log_likelihood(black_box(&data)));
+            });
+        }
+        group.finish();
+    }
+}
+
 criterion_group!(
     benches,
     poisson::bench_pmf,
     poisson::bench_cdf,
+    fitting::bench_fit_all,
+    fitting::bench_student_log_likelihood,
     binomial::bench_cdf,
     binomial::bench_pmf,
     hypothesis::bench_paired_t_test,

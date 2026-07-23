@@ -96,7 +96,9 @@ fn exponential_cdf(x: f64, lambda: f64) -> StatsResult<f64> {
             message: "exponential_cdf: lambda must be positive".to_string(),
         });
     }
-    Ok(1.0 - (-lambda * x).exp())
+    // −expm1(−λx) instead of 1 − exp(−λx): keeps full relative precision
+    // for λx ≪ 1, where the subtraction cancels catastrophically.
+    Ok(-(-lambda * x).exp_m1())
 }
 
 /// Inverse cumulative distribution function for the Exponential distribution.
@@ -128,7 +130,9 @@ fn exponential_inverse_cdf(p: f64, lambda: f64) -> StatsResult<f64> {
             message: "exponential_inverse_cdf: lambda must be positive".to_string(),
         });
     }
-    Ok(-((1.0 - p).ln()) / lambda)
+    // −ln_1p(−p) instead of −ln(1 − p): for small p, `1.0 − p` rounds away
+    // p's low bits before the log ever sees them.
+    Ok(-(-p).ln_1p() / lambda)
 }
 
 /// Mean (expected value) of the Exponential distribution.

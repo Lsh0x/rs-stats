@@ -136,18 +136,24 @@ pub fn ks_test(data: &[f64], cdf: impl Fn(f64) -> f64) -> KsResult {
 /// evaluations: see [`fit_all`] which fits 10 candidates from a single
 /// `&[f64]` input.
 pub fn ks_test_with_scratch(scratch: &mut [f64], cdf: impl Fn(f64) -> f64) -> KsResult {
-    let n = scratch.len();
+    scratch.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    ks_test_presorted(scratch, cdf)
+}
+
+/// KS test on data that is **already sorted ascending** — skips both the
+/// allocation and the O(n log n) sort. This is what [`fit_all`] uses: the
+/// data is sorted once and shared read-only across all candidates.
+pub fn ks_test_presorted(sorted: &[f64], cdf: impl Fn(f64) -> f64) -> KsResult {
+    let n = sorted.len();
     if n == 0 {
         return KsResult {
             statistic: 0.0,
             p_value: 1.0,
         };
     }
-    scratch.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-
     let nf = n as f64;
     let mut d = 0.0_f64;
-    for (i, &x) in scratch.iter().enumerate() {
+    for (i, &x) in sorted.iter().enumerate() {
         let f = cdf(x);
         let upper = (i + 1) as f64 / nf;
         let lower = i as f64 / nf;
@@ -171,18 +177,22 @@ pub fn ks_test_discrete(data: &[f64], cdf: impl Fn(u64) -> f64) -> KsResult {
 
 /// Zero-allocation variant of [`ks_test_discrete`].
 pub fn ks_test_discrete_with_scratch(scratch: &mut [f64], cdf: impl Fn(u64) -> f64) -> KsResult {
-    let n = scratch.len();
+    scratch.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    ks_test_discrete_presorted(scratch, cdf)
+}
+
+/// Discrete KS test on data that is **already sorted ascending**.
+pub fn ks_test_discrete_presorted(sorted: &[f64], cdf: impl Fn(u64) -> f64) -> KsResult {
+    let n = sorted.len();
     if n == 0 {
         return KsResult {
             statistic: 0.0,
             p_value: 1.0,
         };
     }
-    scratch.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-
     let nf = n as f64;
     let mut d = 0.0_f64;
-    for (i, &x) in scratch.iter().enumerate() {
+    for (i, &x) in sorted.iter().enumerate() {
         let k = x.round() as u64;
         let f = cdf(k);
         let upper = (i + 1) as f64 / nf;
@@ -238,13 +248,45 @@ pub struct FitResult {
 
 // ── Continuous fitting ─────────────────────────────────────────────────────────
 
+/// Below this many data points the rayon dispatch overhead (task setup +
+/// pool wake-up) exceeds the cost of fitting all candidates sequentially.
+const PAR_THRESHOLD: usize = 1000;
+
+/// Compute AIC and BIC from a **single** log-likelihood pass.
+///
+/// `aic()` and `bic()` each walk the whole dataset; fit_all used to call
+/// both, doubling the dominant cost of every candidate.
+fn ll_diagnostics<D: Distribution<X = f64>>(dist: &D, data: &[f64]) -> Option<(f64, f64)>
+where
+    D::X: Copy,
+{
+    let ll = dist.log_likelihood(data).ok().filter(|x| x.is_finite())?;
+    let k = dist.num_params() as f64;
+    let n = data.len() as f64;
+    let aic = 2.0 * k - 2.0 * ll;
+    let bic = k * n.ln() - 2.0 * ll;
+    (aic.is_finite() && bic.is_finite()).then_some((aic, bic))
+}
+
+fn ll_diagnostics_discrete<D: Distribution<X = u64>>(dist: &D, data: &[u64]) -> Option<(f64, f64)> {
+    let ll = dist.log_likelihood(data).ok().filter(|x| x.is_finite())?;
+    let k = dist.num_params() as f64;
+    let n = data.len() as f64;
+    let aic = 2.0 * k - 2.0 * ll;
+    let bic = k * n.ln() - 2.0 * ll;
+    (aic.is_finite() && bic.is_finite()).then_some((aic, bic))
+}
+
 /// Apply [`Distribution`]-level diagnostics (AIC / BIC / KS) to one fitted
 /// distribution, producing a [`FitResult`]. Returns `None` if any of the
-/// diagnostics fails (non-finite AIC/BIC or fit error).
-fn try_fit_continuous<D: Distribution<X = f64>>(data: &[f64], dist: D) -> Option<FitResult> {
-    let aic = dist.aic(data).ok().filter(|x| x.is_finite())?;
-    let bic = dist.bic(data).ok().filter(|x| x.is_finite())?;
-    let ks = ks_test(data, |x| dist.cdf(x).unwrap_or(0.0));
+/// diagnostics fails (non-finite log-likelihood or fit error).
+/// `sorted` must be `data` sorted ascending (shared across candidates).
+fn try_fit_continuous<D: Distribution<X = f64>>(
+    sorted: &[f64],
+    dist: D,
+) -> Option<FitResult> {
+    let (aic, bic) = ll_diagnostics(&dist, sorted)?;
+    let ks = ks_test_presorted(sorted, |x| dist.cdf(x).unwrap_or(0.0));
     Some(FitResult {
         name: dist.name().to_string(),
         aic,
@@ -255,43 +297,47 @@ fn try_fit_continuous<D: Distribution<X = f64>>(data: &[f64], dist: D) -> Option
 }
 
 /// Per-candidate fit closures. Each fits one distribution end-to-end and
-/// returns a [`FitResult`] (or `None` on failure). Consumed in parallel
-/// by [`fit_all`].
-type ContinuousFitter = fn(&[f64]) -> Option<FitResult>;
+/// returns a [`FitResult`] (or `None` on failure). Receives `(data, sorted)`
+/// where `sorted` is the shared pre-sorted copy. Consumed in parallel by
+/// [`fit_all`].
+type ContinuousFitter = fn(&[f64], &[f64]) -> Option<FitResult>;
 
 const CONTINUOUS_FITTERS: &[ContinuousFitter] = &[
-    |d| Normal::fit(d).ok().and_then(|x| try_fit_continuous(d, x)),
-    |d| {
+    |d, s| Normal::fit(d).ok().and_then(|x| try_fit_continuous(s, x)),
+    |d, s| {
         crate::distributions::exponential_distribution::Exponential::fit(d)
             .ok()
-            .and_then(|x| try_fit_continuous(d, x))
+            .and_then(|x| try_fit_continuous(s, x))
     },
-    |d| Uniform::fit(d).ok().and_then(|x| try_fit_continuous(d, x)),
-    |d| Gamma::fit(d).ok().and_then(|x| try_fit_continuous(d, x)),
-    |d| {
+    |d, s| Uniform::fit(d).ok().and_then(|x| try_fit_continuous(s, x)),
+    |d, s| Gamma::fit(d).ok().and_then(|x| try_fit_continuous(s, x)),
+    |d, s| {
         LogNormal::fit(d)
             .ok()
-            .and_then(|x| try_fit_continuous(d, x))
+            .and_then(|x| try_fit_continuous(s, x))
     },
-    |d| Weibull::fit(d).ok().and_then(|x| try_fit_continuous(d, x)),
-    |d| Beta::fit(d).ok().and_then(|x| try_fit_continuous(d, x)),
-    |d| StudentT::fit(d).ok().and_then(|x| try_fit_continuous(d, x)),
-    |d| {
+    |d, s| Weibull::fit(d).ok().and_then(|x| try_fit_continuous(s, x)),
+    |d, s| Beta::fit(d).ok().and_then(|x| try_fit_continuous(s, x)),
+    |d, s| StudentT::fit(d).ok().and_then(|x| try_fit_continuous(s, x)),
+    |d, s| {
         FDistribution::fit(d)
             .ok()
-            .and_then(|x| try_fit_continuous(d, x))
+            .and_then(|x| try_fit_continuous(s, x))
     },
-    |d| {
+    |d, s| {
         ChiSquared::fit(d)
             .ok()
-            .and_then(|x| try_fit_continuous(d, x))
+            .and_then(|x| try_fit_continuous(s, x))
     },
 ];
 
 /// Fit all continuous distributions to `data` and return ranked results (by AIC).
 ///
-/// Each candidate is fit on its own rayon worker (10-way parallelism). The
-/// distribution candidates that fail to fit (e.g. Beta when data are not in
+/// The data is sorted **once** and shared read-only by every candidate's KS
+/// test (the previous implementation re-allocated and re-sorted per
+/// candidate). Candidates run on rayon workers when `data.len() ≥ 1000`;
+/// below that, sequentially — dispatch overhead dominates on small inputs.
+/// Distribution candidates that fail to fit (e.g. Beta when data are not in
 /// (0,1)) are silently skipped.
 pub fn fit_all(data: &[f64]) -> StatsResult<Vec<FitResult>> {
     if data.is_empty() {
@@ -300,10 +346,20 @@ pub fn fit_all(data: &[f64]) -> StatsResult<Vec<FitResult>> {
         });
     }
 
-    let mut results: Vec<FitResult> = CONTINUOUS_FITTERS
-        .par_iter()
-        .filter_map(|fit| fit(data))
-        .collect();
+    let mut sorted = data.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut results: Vec<FitResult> = if data.len() < PAR_THRESHOLD {
+        CONTINUOUS_FITTERS
+            .iter()
+            .filter_map(|fit| fit(data, &sorted))
+            .collect()
+    } else {
+        CONTINUOUS_FITTERS
+            .par_iter()
+            .filter_map(|fit| fit(data, &sorted))
+            .collect()
+    };
 
     if results.is_empty() {
         return Err(StatsError::InvalidInput {
@@ -356,30 +412,18 @@ pub struct SkippedFit {
 /// Err with a SkippedFit (name + reason) on any failure.
 fn try_fit_verbose<D: Distribution<X = f64>>(
     name: &'static str,
-    data: &[f64],
+    sorted: &[f64],
     fit_res: StatsResult<D>,
 ) -> Result<FitResult, SkippedFit> {
     let dist = fit_res.map_err(|e| SkippedFit {
         name,
         reason: format!("fit failed: {e}"),
     })?;
-    let aic = dist
-        .aic(data)
-        .ok()
-        .filter(|x| x.is_finite())
-        .ok_or_else(|| SkippedFit {
-            name,
-            reason: "non-finite AIC (log-likelihood diverged)".to_string(),
-        })?;
-    let bic = dist
-        .bic(data)
-        .ok()
-        .filter(|x| x.is_finite())
-        .ok_or_else(|| SkippedFit {
-            name,
-            reason: "non-finite BIC".to_string(),
-        })?;
-    let ks = ks_test(data, |x| dist.cdf(x).unwrap_or(0.0));
+    let (aic, bic) = ll_diagnostics(&dist, sorted).ok_or_else(|| SkippedFit {
+        name,
+        reason: "non-finite AIC/BIC (log-likelihood diverged)".to_string(),
+    })?;
+    let ks = ks_test_presorted(sorted, |x| dist.cdf(x).unwrap_or(0.0));
     Ok(FitResult {
         name: dist.name().to_string(),
         aic,
@@ -389,25 +433,25 @@ fn try_fit_verbose<D: Distribution<X = f64>>(
     })
 }
 
-type ContinuousVerboseFitter = fn(&[f64]) -> Result<FitResult, SkippedFit>;
+type ContinuousVerboseFitter = fn(&[f64], &[f64]) -> Result<FitResult, SkippedFit>;
 
 const CONTINUOUS_VERBOSE_FITTERS: &[ContinuousVerboseFitter] = &[
-    |d| try_fit_verbose("Normal", d, Normal::fit(d)),
-    |d| {
+    |d, s| try_fit_verbose("Normal", s, Normal::fit(d)),
+    |d, s| {
         try_fit_verbose(
             "Exponential",
-            d,
+            s,
             crate::distributions::exponential_distribution::Exponential::fit(d),
         )
     },
-    |d| try_fit_verbose("Uniform", d, Uniform::fit(d)),
-    |d| try_fit_verbose("Gamma", d, Gamma::fit(d)),
-    |d| try_fit_verbose("LogNormal", d, LogNormal::fit(d)),
-    |d| try_fit_verbose("Weibull", d, Weibull::fit(d)),
-    |d| try_fit_verbose("Beta", d, Beta::fit(d)),
-    |d| try_fit_verbose("StudentT", d, StudentT::fit(d)),
-    |d| try_fit_verbose("FDistribution", d, FDistribution::fit(d)),
-    |d| try_fit_verbose("ChiSquared", d, ChiSquared::fit(d)),
+    |d, s| try_fit_verbose("Uniform", s, Uniform::fit(d)),
+    |d, s| try_fit_verbose("Gamma", s, Gamma::fit(d)),
+    |d, s| try_fit_verbose("LogNormal", s, LogNormal::fit(d)),
+    |d, s| try_fit_verbose("Weibull", s, Weibull::fit(d)),
+    |d, s| try_fit_verbose("Beta", s, Beta::fit(d)),
+    |d, s| try_fit_verbose("StudentT", s, StudentT::fit(d)),
+    |d, s| try_fit_verbose("FDistribution", s, FDistribution::fit(d)),
+    |d, s| try_fit_verbose("ChiSquared", s, ChiSquared::fit(d)),
 ];
 
 pub fn fit_all_verbose(data: &[f64]) -> StatsResult<(Vec<FitResult>, Vec<SkippedFit>)> {
@@ -417,10 +461,20 @@ pub fn fit_all_verbose(data: &[f64]) -> StatsResult<(Vec<FitResult>, Vec<Skipped
         });
     }
 
-    let outcomes: Vec<Result<FitResult, SkippedFit>> = CONTINUOUS_VERBOSE_FITTERS
-        .par_iter()
-        .map(|f| f(data))
-        .collect();
+    let mut sorted = data.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    let outcomes: Vec<Result<FitResult, SkippedFit>> = if data.len() < PAR_THRESHOLD {
+        CONTINUOUS_VERBOSE_FITTERS
+            .iter()
+            .map(|f| f(data, &sorted))
+            .collect()
+    } else {
+        CONTINUOUS_VERBOSE_FITTERS
+            .par_iter()
+            .map(|f| f(data, &sorted))
+            .collect()
+    };
 
     let (mut results, skipped): (Vec<FitResult>, Vec<SkippedFit>) =
         outcomes
@@ -448,15 +502,14 @@ pub fn fit_all_verbose(data: &[f64]) -> StatsResult<(Vec<FitResult>, Vec<Skipped
 }
 
 /// Apply [`DiscreteDistribution`]-level diagnostics (AIC / BIC / KS) to one
-/// fitted distribution.
+/// fitted distribution. `sorted` must be the f64 data sorted ascending.
 fn try_fit_discrete<D: DiscreteDistribution>(
-    data: &[f64],
+    sorted: &[f64],
     int_data: &[u64],
     dist: D,
 ) -> Option<FitResult> {
-    let aic = dist.aic(int_data).ok().filter(|x| x.is_finite())?;
-    let bic = dist.bic(int_data).ok().filter(|x| x.is_finite())?;
-    let ks = ks_test_discrete(data, |k| dist.cdf(k).unwrap_or(0.0));
+    let (aic, bic) = ll_diagnostics_discrete(&dist, int_data)?;
+    let ks = ks_test_discrete_presorted(sorted, |k| dist.cdf(k).unwrap_or(0.0));
     Some(FitResult {
         name: dist.name().to_string(),
         aic,
@@ -468,7 +521,7 @@ fn try_fit_discrete<D: DiscreteDistribution>(
 
 fn try_fit_discrete_verbose<D: DiscreteDistribution>(
     name: &'static str,
-    data: &[f64],
+    sorted: &[f64],
     int_data: &[u64],
     fit_res: StatsResult<D>,
 ) -> Result<FitResult, SkippedFit> {
@@ -476,23 +529,11 @@ fn try_fit_discrete_verbose<D: DiscreteDistribution>(
         name,
         reason: format!("fit failed: {e}"),
     })?;
-    let aic = dist
-        .aic(int_data)
-        .ok()
-        .filter(|x| x.is_finite())
-        .ok_or_else(|| SkippedFit {
-            name,
-            reason: "non-finite AIC".to_string(),
-        })?;
-    let bic = dist
-        .bic(int_data)
-        .ok()
-        .filter(|x| x.is_finite())
-        .ok_or_else(|| SkippedFit {
-            name,
-            reason: "non-finite BIC".to_string(),
-        })?;
-    let ks = ks_test_discrete(data, |k| dist.cdf(k).unwrap_or(0.0));
+    let (aic, bic) = ll_diagnostics_discrete(&dist, int_data).ok_or_else(|| SkippedFit {
+        name,
+        reason: "non-finite AIC/BIC (log-likelihood diverged)".to_string(),
+    })?;
+    let ks = ks_test_discrete_presorted(sorted, |k| dist.cdf(k).unwrap_or(0.0));
     Ok(FitResult {
         name: dist.name().to_string(),
         aic,
@@ -502,33 +543,35 @@ fn try_fit_discrete_verbose<D: DiscreteDistribution>(
     })
 }
 
-type DiscreteFitter = fn(&[f64], &[u64]) -> Option<FitResult>;
-type DiscreteVerboseFitter = fn(&[f64], &[u64]) -> Result<FitResult, SkippedFit>;
+/// Receive `(data, sorted, int_data)`: raw data for the fit itself, the
+/// shared pre-sorted copy for KS, and the rounded integers for likelihoods.
+type DiscreteFitter = fn(&[f64], &[f64], &[u64]) -> Option<FitResult>;
+type DiscreteVerboseFitter = fn(&[f64], &[f64], &[u64]) -> Result<FitResult, SkippedFit>;
 
 const DISCRETE_FITTERS: &[DiscreteFitter] = &[
-    |d, i| Poisson::fit(d).ok().and_then(|x| try_fit_discrete(d, i, x)),
-    |d, i| {
+    |d, s, i| Poisson::fit(d).ok().and_then(|x| try_fit_discrete(s, i, x)),
+    |d, s, i| {
         Geometric::fit(d)
             .ok()
-            .and_then(|x| try_fit_discrete(d, i, x))
+            .and_then(|x| try_fit_discrete(s, i, x))
     },
-    |d, i| {
+    |d, s, i| {
         NegativeBinomial::fit(d)
             .ok()
-            .and_then(|x| try_fit_discrete(d, i, x))
+            .and_then(|x| try_fit_discrete(s, i, x))
     },
-    |d, i| {
+    |d, s, i| {
         Binomial::fit(d)
             .ok()
-            .and_then(|x| try_fit_discrete(d, i, x))
+            .and_then(|x| try_fit_discrete(s, i, x))
     },
 ];
 
 const DISCRETE_VERBOSE_FITTERS: &[DiscreteVerboseFitter] = &[
-    |d, i| try_fit_discrete_verbose("Poisson", d, i, Poisson::fit(d)),
-    |d, i| try_fit_discrete_verbose("Geometric", d, i, Geometric::fit(d)),
-    |d, i| try_fit_discrete_verbose("NegativeBinomial", d, i, NegativeBinomial::fit(d)),
-    |d, i| try_fit_discrete_verbose("Binomial", d, i, Binomial::fit(d)),
+    |d, s, i| try_fit_discrete_verbose("Poisson", s, i, Poisson::fit(d)),
+    |d, s, i| try_fit_discrete_verbose("Geometric", s, i, Geometric::fit(d)),
+    |d, s, i| try_fit_discrete_verbose("NegativeBinomial", s, i, NegativeBinomial::fit(d)),
+    |d, s, i| try_fit_discrete_verbose("Binomial", s, i, Binomial::fit(d)),
 ];
 
 /// Like [`fit_all_discrete`] but also reports which distributions were skipped and why.
@@ -540,11 +583,20 @@ pub fn fit_all_discrete_verbose(data: &[f64]) -> StatsResult<(Vec<FitResult>, Ve
     }
 
     let int_data: Vec<u64> = data.iter().map(|&x| x.round() as u64).collect();
+    let mut sorted = data.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-    let outcomes: Vec<Result<FitResult, SkippedFit>> = DISCRETE_VERBOSE_FITTERS
-        .par_iter()
-        .map(|f| f(data, &int_data))
-        .collect();
+    let outcomes: Vec<Result<FitResult, SkippedFit>> = if data.len() < PAR_THRESHOLD {
+        DISCRETE_VERBOSE_FITTERS
+            .iter()
+            .map(|f| f(data, &sorted, &int_data))
+            .collect()
+    } else {
+        DISCRETE_VERBOSE_FITTERS
+            .par_iter()
+            .map(|f| f(data, &sorted, &int_data))
+            .collect()
+    };
 
     let (mut results, skipped): (Vec<FitResult>, Vec<SkippedFit>) =
         outcomes
@@ -585,11 +637,20 @@ pub fn fit_all_discrete(data: &[f64]) -> StatsResult<Vec<FitResult>> {
     }
 
     let int_data: Vec<u64> = data.iter().map(|&x| x.round() as u64).collect();
+    let mut sorted = data.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-    let mut results: Vec<FitResult> = DISCRETE_FITTERS
-        .par_iter()
-        .filter_map(|f| f(data, &int_data))
-        .collect();
+    let mut results: Vec<FitResult> = if data.len() < PAR_THRESHOLD {
+        DISCRETE_FITTERS
+            .iter()
+            .filter_map(|f| f(data, &sorted, &int_data))
+            .collect()
+    } else {
+        DISCRETE_FITTERS
+            .par_iter()
+            .filter_map(|f| f(data, &sorted, &int_data))
+            .collect()
+    };
 
     if results.is_empty() {
         return Err(StatsError::InvalidInput {

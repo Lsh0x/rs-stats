@@ -157,7 +157,8 @@ impl Distribution for Weibull {
         if x <= 0.0 {
             return Ok(0.0);
         }
-        Ok(1.0 - (-(x / self.lambda).powf(self.k)).exp())
+        // −expm1(−t) keeps relative precision when (x/λ)^k ≪ 1.
+        Ok(-(-(x / self.lambda).powf(self.k)).exp_m1())
     }
 
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
@@ -173,7 +174,8 @@ impl Distribution for Weibull {
             return Ok(f64::INFINITY);
         }
         // Closed-form inverse: x = λ · (-ln(1-p))^(1/k)
-        Ok(self.lambda * (-(1.0 - p).ln()).powf(1.0 / self.k))
+        // −ln_1p(−p) keeps p's low bits for small p (1.0 − p would drop them).
+        Ok(self.lambda * (-(-p).ln_1p()).powf(1.0 / self.k))
     }
 
     fn mean(&self) -> f64 {

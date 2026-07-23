@@ -110,8 +110,10 @@ impl crate::distributions::traits::Distribution for Geometric {
         if k == 0 {
             return Ok(0.0);
         }
-        // CDF(k) = 1 - (1-p)^k  — use powf(f64) to handle k > i32::MAX correctly.
-        Ok(1.0 - (1.0 - self.p).powf(k as f64))
+        // CDF(k) = 1 - (1-p)^k, computed as −expm1(k·ln_1p(−p)) so both the
+        // small-p and the far-tail regimes keep relative precision.
+        // (k as f64 handles k > i32::MAX correctly.)
+        Ok(-((k as f64) * (-self.p).ln_1p()).exp_m1())
     }
 
     /// Closed-form quantile: k = ⌈ln(1−p) / ln(1−self.p)⌉.
@@ -139,7 +141,7 @@ impl crate::distributions::traits::Distribution for Geometric {
         // CDF(k) = 1 - (1-p_param)^k ≥ p_target
         // → (1-p_param)^k ≤ 1 - p_target
         // → k ≥ ln(1 - p_target) / ln(1 - p_param)   [denominator < 0, inequality flips]
-        let k = (1.0 - p).ln() / (1.0 - self.p).ln();
+        let k = (-p).ln_1p() / (-self.p).ln_1p();
         Ok(k.ceil().max(1.0) as u64)
     }
 

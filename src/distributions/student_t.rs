@@ -110,6 +110,27 @@ impl Distribution for StudentT {
         Ok(log_coeff + log_tail)
     }
 
+    fn log_likelihood(&self, data: &[f64]) -> StatsResult<f64> {
+        Ok(self.log_likelihood_fast(data))
+    }
+
+    fn log_likelihood_fast(&self, data: &[f64]) -> f64 {
+        // The normalization constant (2 ln_gamma + 2 ln) only depends on the
+        // parameters — hoisted out of the loop, it stops dominating fit_all.
+        let nu = self.nu;
+        let log_coeff = ln_gamma((nu + 1.0) / 2.0)
+            - ln_gamma(nu / 2.0)
+            - 0.5 * (nu * PI).ln()
+            - self.sigma.ln();
+        let half_nu_p1 = (nu + 1.0) / 2.0;
+        let mut acc = 0.0_f64;
+        for &x in data {
+            let z = (x - self.mu) / self.sigma;
+            acc -= half_nu_p1 * (1.0 + z * z / nu).ln();
+        }
+        data.len() as f64 * log_coeff + acc
+    }
+
     fn cdf(&self, x: f64) -> StatsResult<f64> {
         let t = (x - self.mu) / self.sigma;
         Ok(self.standard_t_cdf(t))
