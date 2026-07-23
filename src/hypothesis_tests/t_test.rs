@@ -17,6 +17,7 @@
 //! uncertainty from estimating the standard deviation.
 
 use crate::error::{StatsError, StatsResult};
+use crate::hypothesis_tests::Alternative;
 use crate::utils::special_functions::regularized_incomplete_beta;
 use num_traits::ToPrimitive;
 use std::f64;
@@ -29,7 +30,8 @@ pub struct TTestResult {
     pub t_statistic: f64,
     /// Degrees of freedom for the t-distribution
     pub degrees_of_freedom: f64,
-    /// The two-tailed p-value
+    /// The p-value — two-tailed for the base functions, or under the
+    /// requested [`Alternative`] for the `*_alt` variants.
     pub p_value: f64,
     /// The sample mean(s)
     pub mean_values: Vec<f64>,
@@ -39,15 +41,64 @@ pub struct TTestResult {
     pub std_error: f64,
 }
 
+impl TTestResult {
+    /// The point estimate the test was built around: the sample mean
+    /// (one-sample), the difference of means (two-sample), or the mean
+    /// pairwise difference (paired).
+    pub fn estimate(&self) -> f64 {
+        match self.mean_values.len() {
+            2 => self.mean_values[0] - self.mean_values[1],
+            // one-sample: [mean]; paired: [mean_diff, mean1, mean2].
+            _ => self.mean_values[0],
+        }
+    }
+
+    /// Two-sided confidence interval for [`estimate`](Self::estimate):
+    /// `estimate ± t₍df₎(½(1+level)) · std_error`.
+    ///
+    /// # Errors
+    /// Returns `StatsError::InvalidParameter` if `level` is not in (0, 1).
+    pub fn confidence_interval(&self, level: f64) -> StatsResult<(f64, f64)> {
+        if !(0.0 < level && level < 1.0) {
+            return Err(StatsError::invalid_parameter(format!(
+                "confidence_interval: level must be in (0, 1), got {level}"
+            )));
+        }
+        use crate::distributions::student_t::StudentT;
+        use crate::distributions::traits::Distribution as _;
+        let t_crit =
+            StudentT::new(0.0, 1.0, self.degrees_of_freedom)?.inverse_cdf(0.5 * (1.0 + level))?;
+        let margin = t_crit * self.std_error;
+        let est = self.estimate();
+        Ok((est - margin, est + margin))
+    }
+}
+
+/// Survival function of Student-t: `P(T > t)` with `df` degrees of freedom.
+fn t_sf(t: f64, df: f64) -> f64 {
+    let ib = regularized_incomplete_beta(df / 2.0, 0.5, df / (t * t + df));
+    if t >= 0.0 { 0.5 * ib } else { 1.0 - 0.5 * ib }
+}
+
+/// p-value of `t` under the requested alternative.
+fn t_p_value(t: f64, df: f64, alternative: Alternative) -> f64 {
+    match alternative {
+        Alternative::TwoSided => calculate_p_value(t.abs(), df),
+        Alternative::Greater => t_sf(t, df),
+        Alternative::Less => 1.0 - t_sf(t, df),
+    }
+}
+
 /// Performs a one-sample t-test to determine if a sample mean differs from a specified population mean.
 ///
 /// # Arguments
 /// * `data` - The sample data
 /// * `population_mean` - The population mean to test against
-/// * `alpha` - The significance level (default: 0.05)
 ///
 /// # Returns
-/// A `Result` containing the t-test results or an error if the data is insufficient
+/// A `Result` containing the t-test results (two-sided p-value) or an error
+/// if the data is insufficient. For one-sided alternatives use
+/// [`one_sample_t_test_alt`].
 ///
 /// # Examples
 /// ```
@@ -424,6 +475,93 @@ fn calculate_p_value(t_stat: f64, df: f64) -> f64 {
     let t2 = t_stat * t_stat;
     let x = df / (df + t2);
     regularized_incomplete_beta(0.5 * df, 0.5, x).clamp(0.0, 1.0)
+}
+
+// ── One-sided variants ─────────────────────────────────────────────────────────
+
+/// [`one_sample_t_test`] with a choice of [`Alternative`].
+///
+/// `Alternative::Greater` tests H₁: mean > `population_mean`.
+pub fn one_sample_t_test_alt<T>(
+    data: &[T],
+    population_mean: T,
+    alternative: Alternative,
+) -> StatsResult<TTestResult>
+where
+    T: ToPrimitive + Debug + Copy,
+{
+    let mut res = one_sample_t_test(data, population_mean)?;
+    res.p_value = t_p_value(res.t_statistic, res.degrees_of_freedom, alternative);
+    Ok(res)
+}
+
+/// [`two_sample_t_test`] with a choice of [`Alternative`].
+///
+/// `Alternative::Less` tests H₁: mean(data1) < mean(data2) (scipy convention).
+pub fn two_sample_t_test_alt<T>(
+    data1: &[T],
+    data2: &[T],
+    equal_variances: bool,
+    alternative: Alternative,
+) -> StatsResult<TTestResult>
+where
+    T: ToPrimitive + Debug + Copy,
+{
+    let mut res = two_sample_t_test(data1, data2, equal_variances)?;
+    res.p_value = t_p_value(res.t_statistic, res.degrees_of_freedom, alternative);
+    Ok(res)
+}
+
+/// [`paired_t_test`] with a choice of [`Alternative`].
+///
+/// `Alternative::Greater` tests H₁: mean(data1 − data2) > 0.
+pub fn paired_t_test_alt<T>(
+    data1: &[T],
+    data2: &[T],
+    alternative: Alternative,
+) -> StatsResult<TTestResult>
+where
+    T: ToPrimitive + Debug + Copy,
+{
+    let mut res = paired_t_test(data1, data2)?;
+    res.p_value = t_p_value(res.t_statistic, res.degrees_of_freedom, alternative);
+    Ok(res)
+}
+
+// ── Effect size ────────────────────────────────────────────────────────────────
+
+/// Cohen's d effect size for two independent samples, using the pooled
+/// sample standard deviation:
+/// `d = (mean₁ − mean₂) / √(((n₁−1)s₁² + (n₂−1)s₂²)/(n₁+n₂−2))`.
+///
+/// Rule-of-thumb magnitudes: 0.2 small, 0.5 medium, 0.8 large.
+///
+/// # Errors
+/// Returns an error if either sample has fewer than 2 points or the pooled
+/// variance is zero.
+pub fn cohens_d<T, U>(data1: &[T], data2: &[U]) -> StatsResult<f64>
+where
+    T: ToPrimitive + Debug + Copy,
+    U: ToPrimitive + Debug + Copy,
+{
+    if data1.len() < 2 || data2.len() < 2 {
+        return Err(StatsError::invalid_input(
+            "cohens_d: need at least 2 points per sample",
+        ));
+    }
+    let m1 = calculate_mean(data1)?;
+    let m2 = calculate_mean(data2)?;
+    let v1 = calculate_variance(data1, m1)?;
+    let v2 = calculate_variance(data2, m2)?;
+    let n1 = data1.len() as f64;
+    let n2 = data2.len() as f64;
+    let pooled = ((n1 - 1.0) * v1 + (n2 - 1.0) * v2) / (n1 + n2 - 2.0);
+    if pooled <= 0.0 {
+        return Err(StatsError::invalid_input(
+            "cohens_d: zero pooled variance; the effect size is undefined",
+        ));
+    }
+    Ok((m1 - m2) / pooled.sqrt())
 }
 
 #[cfg(test)]

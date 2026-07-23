@@ -235,6 +235,14 @@ impl crate::distributions::traits::Distribution for Exponential {
     fn cdf(&self, x: f64) -> StatsResult<f64> {
         exponential_cdf(x, self.lambda)
     }
+    /// Exact tail: `S(x) = exp(−λx)`.
+    fn sf(&self, x: f64) -> StatsResult<f64> {
+        if x < 0.0 {
+            // Same domain handling as cdf (error for negative x).
+            return self.cdf(x).map(|c| 1.0 - c);
+        }
+        Ok((-self.lambda * x).exp())
+    }
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
         exponential_inverse_cdf(p, self.lambda)
     }

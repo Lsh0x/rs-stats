@@ -26,6 +26,23 @@ where
     pub n: usize,
     /// Number of predictor variables (excluding intercept)
     pub p: usize,
+    /// Standard error of each coefficient (intercept first):
+    /// `SE(βⱼ) = s·√[(XᵀX)⁻¹]ⱼⱼ`. Empty if `n ≤ p + 1` or `XᵀX` is singular.
+    /// `#[serde(default)]` keeps pre-v3.1 saved models loadable.
+    #[serde(default)]
+    pub coefficient_std_errors: Vec<T>,
+    /// t-statistic of each coefficient (`βⱼ / SE(βⱼ)`, intercept first).
+    #[serde(default)]
+    pub t_statistics: Vec<T>,
+    /// Two-sided p-value of each coefficient (Student-t, `n − p − 1` df).
+    #[serde(default)]
+    pub p_values: Vec<f64>,
+    /// Global F-statistic of the regression (H₀: all slopes are zero).
+    #[serde(default)]
+    pub f_statistic: f64,
+    /// p-value of the global F-test.
+    #[serde(default)]
+    pub f_p_value: f64,
 }
 
 impl<T> Default for MultipleLinearRegression<T>
@@ -50,6 +67,11 @@ where
             standard_error: T::zero(),
             n: 0,
             p: 0,
+            coefficient_std_errors: Vec::new(),
+            t_statistics: Vec::new(),
+            p_values: Vec::new(),
+            f_statistic: 0.0,
+            f_p_value: 0.0,
         }
     }
 
@@ -194,15 +216,65 @@ where
             }
         }
 
-        // Calculate standard error
+        // Calculate standard error + per-coefficient inference
+        self.coefficient_std_errors.clear();
+        self.t_statistics.clear();
+        self.p_values.clear();
+        self.f_statistic = 0.0;
+        self.f_p_value = 0.0;
         if self.n > self.p + 1 {
-            let n_minus_p_minus_1 = T::from(self.n - self.p - 1).ok_or_else(|| {
-                StatsError::conversion_error(format!(
-                    "Failed to convert {} to type T",
-                    self.n - self.p - 1
-                ))
+            let df = self.n - self.p - 1;
+            let n_minus_p_minus_1 = T::from(df).ok_or_else(|| {
+                StatsError::conversion_error(format!("Failed to convert {df} to type T"))
             })?;
             self.standard_error = (ss_residual / n_minus_p_minus_1).sqrt();
+
+            // Per-coefficient SE via the diagonal of (XᵀX)⁻¹ — xt_x is
+            // already built. Singularity here is not fatal (the system was
+            // solvable); inference fields just stay empty.
+            let xtx_f64: Option<Vec<f64>> = xt_x.iter().map(|v| v.to_f64()).collect();
+            let s2 = ss_residual.to_f64().unwrap_or(f64::NAN) / df as f64;
+            if let Some(xtx_f64) = xtx_f64
+                && let Ok(inv) = crate::utils::linalg::invert(&xtx_f64, m, 1e-12)
+            {
+                let dff = df as f64;
+                for j in 0..m {
+                    let se = (s2 * inv[j * m + j]).max(0.0).sqrt();
+                    let beta = self.coefficients[j].to_f64().unwrap_or(f64::NAN);
+                    let t = beta / se;
+                    // Two-sided Student-t p-value: I_{df/(df+t²)}(df/2, ½).
+                    let p_val = crate::utils::special_functions::regularized_incomplete_beta(
+                        0.5 * dff,
+                        0.5,
+                        dff / (dff + t * t),
+                    )
+                    .clamp(0.0, 1.0);
+                    self.coefficient_std_errors.push(
+                        T::from(se).ok_or_else(|| {
+                            StatsError::conversion_error("Failed to convert SE to type T")
+                        })?,
+                    );
+                    self.t_statistics.push(T::from(t).ok_or_else(|| {
+                        StatsError::conversion_error("Failed to convert t to type T")
+                    })?);
+                    self.p_values.push(p_val);
+                }
+            }
+
+            // Global F-test: F = ((SS_tot − SS_res)/p) / (SS_res/(n−p−1)).
+            let ss_tot = ss_total.to_f64().unwrap_or(f64::NAN);
+            let ss_res = ss_residual.to_f64().unwrap_or(f64::NAN);
+            if self.p > 0 && ss_res > 0.0 && ss_tot > ss_res {
+                let f = ((ss_tot - ss_res) / self.p as f64) / (ss_res / df as f64);
+                self.f_statistic = f;
+                use crate::distributions::traits::Distribution as _;
+                if let Ok(fd) = crate::distributions::f_distribution::FDistribution::new(
+                    self.p as f64,
+                    df as f64,
+                ) {
+                    self.f_p_value = fd.sf(f).map(|p| p.clamp(0.0, 1.0)).unwrap_or(f64::NAN);
+                }
+            }
         }
 
         Ok(())

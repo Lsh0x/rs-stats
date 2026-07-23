@@ -78,8 +78,44 @@ pub trait Distribution {
     /// Cumulative distribution function `F(x) = P(X ≤ x)`.
     fn cdf(&self, x: Self::X) -> StatsResult<f64>;
 
+    /// Survival function `S(x) = P(X > x) = 1 − F(x)`.
+    ///
+    /// The default computes `1.0 − cdf(x)`, which loses all relative
+    /// precision once `S(x) < ~1e-16` (it returns exactly 0). Distributions
+    /// with an exact tail form override this — always prefer `sf` over
+    /// `1.0 - cdf(x)` for tail probabilities and p-values.
+    fn sf(&self, x: Self::X) -> StatsResult<f64> {
+        Ok(1.0 - self.cdf(x)?)
+    }
+
     /// Quantile / inverse CDF: smallest `x` such that `F(x) ≥ p`.
     fn inverse_cdf(&self, p: f64) -> StatsResult<Self::X>;
+
+    /// Draw one random sample.
+    ///
+    /// The default uses inverse-CDF sampling: `inverse_cdf(U)` with
+    /// `U ~ Uniform(0, 1)`. Exact but potentially slow for distributions
+    /// whose quantile falls back to bisection (Gamma, Beta, F, …).
+    ///
+    /// Takes `&mut dyn RngCore` so the trait stays object-safe; any
+    /// `rand::Rng` (e.g. `rand::thread_rng()`, a seeded `ChaCha8Rng`)
+    /// coerces to it.
+    fn sample(&self, rng: &mut dyn rand::RngCore) -> StatsResult<Self::X> {
+        // Reject u = 0.0 (probability 2⁻⁵³): several quantiles are
+        // undefined or −∞ there. u < 1.0 is already guaranteed by gen().
+        let u = loop {
+            let u: f64 = rand::Rng::r#gen(rng);
+            if u > 0.0 {
+                break u;
+            }
+        };
+        self.inverse_cdf(u)
+    }
+
+    /// Draw `n` random samples into a `Vec`.
+    fn sample_n(&self, rng: &mut dyn rand::RngCore, n: usize) -> StatsResult<Vec<Self::X>> {
+        (0..n).map(|_| self.sample(rng)).collect()
+    }
 
     /// Mean (expected value) `μ`.
     fn mean(&self) -> f64;
@@ -185,3 +221,59 @@ pub(crate) fn discrete_inverse_cdf_search(
 /// (those whose support is `u64`) and keeps existing imports working.
 pub trait DiscreteDistribution: Distribution<X = u64> {}
 impl<T: Distribution<X = u64>> DiscreteDistribution for T {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::distributions::normal_distribution::Normal;
+    use crate::distributions::poisson_distribution::Poisson;
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+
+    #[test]
+    fn test_sample_normal_matches_distribution() {
+        let d = Normal::new(2.0, 1.5).unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(42);
+        let xs = d.sample_n(&mut rng, 5000).unwrap();
+
+        let n = xs.len() as f64;
+        let mean = xs.iter().sum::<f64>() / n;
+        let var = xs.iter().map(|x| (x - mean) * (x - mean)).sum::<f64>() / (n - 1.0);
+        // ~6σ bounds on the estimators for n = 5000.
+        assert!((mean - 2.0).abs() < 0.13, "mean = {mean}");
+        assert!((var - 2.25).abs() < 0.30, "var = {var}");
+
+        // KS goodness-of-fit of the sample against its own CDF.
+        let ks = crate::distributions::fitting::ks_test(&xs, |x| d.cdf(x).unwrap());
+        assert!(ks.p_value > 1e-3, "KS p = {}", ks.p_value);
+    }
+
+    #[test]
+    fn test_sample_discrete_and_determinism() {
+        let d = Poisson::new(3.0).unwrap();
+        let mut rng = ChaCha8Rng::seed_from_u64(7);
+        let ks = d.sample_n(&mut rng, 4000).unwrap();
+        let mean = ks.iter().sum::<u64>() as f64 / ks.len() as f64;
+        assert!((mean - 3.0).abs() < 0.12, "mean = {mean}");
+
+        // Same seed ⇒ same stream.
+        let mut rng_a = ChaCha8Rng::seed_from_u64(123);
+        let mut rng_b = ChaCha8Rng::seed_from_u64(123);
+        assert_eq!(
+            d.sample_n(&mut rng_a, 20).unwrap(),
+            d.sample_n(&mut rng_b, 20).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_sf_complements_cdf() {
+        let d = Normal::new(0.0, 1.0).unwrap();
+        for x in [-3.0, -1.0, 0.0, 1.0, 3.0] {
+            let s = d.cdf(x).unwrap() + d.sf(x).unwrap();
+            assert!((s - 1.0).abs() < 1e-12, "cdf+sf = {s} at x = {x}");
+        }
+        // Deep tail: sf keeps relative precision where 1 − cdf returns 0.
+        let tail = d.sf(10.0).unwrap();
+        assert!(tail > 0.0 && tail < 1e-20, "sf(10) = {tail}");
+    }
+}

@@ -53,6 +53,16 @@ pub struct AnovaResult {
     pub ms_within: f64,
 }
 
+impl AnovaResult {
+    /// Eta-squared effect size: `η² = SS_between / (SS_between + SS_within)`
+    /// — the proportion of total variance explained by group membership.
+    ///
+    /// Rule-of-thumb magnitudes: 0.01 small, 0.06 medium, 0.14 large.
+    pub fn eta_squared(&self) -> f64 {
+        self.ss_between / (self.ss_between + self.ss_within)
+    }
+}
+
 /// Performs a one-way Analysis of Variance (ANOVA) test on multiple groups of data
 ///
 /// Tests the null hypothesis that all group means are equal against the alternative

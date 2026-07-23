@@ -151,6 +151,16 @@ impl Distribution for Gamma {
         }
         Ok(regularized_incomplete_gamma(self.alpha, self.beta * x))
     }
+    /// Exact tail: `S(x) = Q(α, βx)` (upper regularized incomplete gamma).
+    fn sf(&self, x: f64) -> StatsResult<f64> {
+        if x <= 0.0 {
+            return Ok(1.0);
+        }
+        Ok(crate::utils::special_functions::regularized_incomplete_gamma_upper(
+            self.alpha,
+            self.beta * x,
+        ))
+    }
 
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
         if !(0.0..=1.0).contains(&p) {

@@ -227,6 +227,22 @@ impl crate::distributions::traits::Distribution for Binomial {
     fn cdf(&self, k: u64) -> StatsResult<f64> {
         cdf(k, self.n, self.p)
     }
+    /// Exact tail: `S(k) = P(X ≥ k+1) = I_p(k+1, n−k)`.
+    fn sf(&self, k: u64) -> StatsResult<f64> {
+        if k >= self.n {
+            return Ok(0.0);
+        }
+        if self.p == 0.0 {
+            return Ok(0.0);
+        }
+        if self.p == 1.0 {
+            return Ok(1.0); // k < n here
+        }
+        Ok(
+            regularized_incomplete_beta((k + 1) as f64, (self.n - k) as f64, self.p)
+                .clamp(0.0, 1.0),
+        )
+    }
     fn inverse_cdf(&self, p: f64) -> StatsResult<u64> {
         // Bounded support: p = 1 has the finite quantile n, and the search's
         // doubling phase may probe k > n, where `cdf` errors — clamp to 1.

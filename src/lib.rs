@@ -10,10 +10,10 @@
 //!
 //! | Module | Contents |
 //! |--------|----------|
-//! | [`distributions`] | 14 distributions + unified trait interface + auto-fit API |
-//! | [`hypothesis_tests`] | t-tests, ANOVA, chi-square, chi-square independence |
-//! | [`regression`] | Linear, multiple linear, decision trees |
-//! | [`prob`] | Mean, variance, std-dev, z-scores, erf, CDF helpers |
+//! | [`distributions`] | 14 distributions + unified trait (pdf/cdf/sf/quantile/sample) + auto-fit API |
+//! | [`hypothesis_tests`] | t-tests (one/two-sided + CI), ANOVA, chi-square, Mann-Whitney U, Wilcoxon |
+//! | [`regression`] | Linear (CI + prediction intervals), multiple linear (per-coefficient inference), decision trees |
+//! | [`prob`] | Mean, variance, std-dev, z-scores, erf/erfc, Pearson/Spearman correlation |
 //! | [`utils`] | Special functions (`ln_gamma`, incomplete gamma/beta), combinatorics |
 //!
 //! ## Medical Quick-Start

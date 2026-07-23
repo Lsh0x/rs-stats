@@ -140,6 +140,14 @@ impl Distribution for FDistribution {
         let t = self.d1 * x / (self.d1 * x + self.d2);
         Ok(regularized_incomplete_beta(self.d1 / 2.0, self.d2 / 2.0, t))
     }
+    /// Exact tail: `S(x) = I_{d2/(d1·x + d2)}(d2/2, d1/2)`.
+    fn sf(&self, x: f64) -> StatsResult<f64> {
+        if x <= 0.0 {
+            return Ok(1.0);
+        }
+        let t = self.d2 / (self.d1 * x + self.d2);
+        Ok(regularized_incomplete_beta(self.d2 / 2.0, self.d1 / 2.0, t))
+    }
 
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
         if !(0.0..=1.0).contains(&p) {

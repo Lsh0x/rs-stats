@@ -160,6 +160,13 @@ impl Distribution for Weibull {
         // −expm1(−t) keeps relative precision when (x/λ)^k ≪ 1.
         Ok(-(-(x / self.lambda).powf(self.k)).exp_m1())
     }
+    /// Exact tail: `S(x) = exp(−(x/λ)^k)`.
+    fn sf(&self, x: f64) -> StatsResult<f64> {
+        if x <= 0.0 {
+            return Ok(1.0);
+        }
+        Ok((-(x / self.lambda).powf(self.k)).exp())
+    }
 
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
         if !(0.0..=1.0).contains(&p) {

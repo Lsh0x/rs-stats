@@ -6,6 +6,7 @@
 //! [`crate::distributions::normal_distribution::Normal`] directly.
 
 pub mod average;
+pub mod correlation;
 pub mod erf;
 pub mod erfc;
 pub mod std_dev;
@@ -15,6 +16,7 @@ pub mod welford;
 pub mod z_score;
 
 pub use self::average::average;
+pub use self::correlation::{CorrelationTest, pearson, pearson_test, spearman, spearman_test};
 pub use self::erf::erf;
 pub use self::erfc::erfc;
 pub use self::std_dev::{std_dev, std_dev_population, std_dev_sample};

@@ -180,6 +180,17 @@ impl crate::distributions::traits::Distribution for Poisson {
     fn cdf(&self, k: u64) -> StatsResult<f64> {
         cdf(k, self.lambda)
     }
+    /// Exact tail: `S(k) = P(k+1, λ)` (lower regularized incomplete gamma),
+    /// the complement of `cdf = Q(k+1, λ)`.
+    fn sf(&self, k: u64) -> StatsResult<f64> {
+        Ok(
+            crate::utils::special_functions::regularized_incomplete_gamma(
+                k as f64 + 1.0,
+                self.lambda,
+            )
+            .clamp(0.0, 1.0),
+        )
+    }
     fn inverse_cdf(&self, p: f64) -> StatsResult<u64> {
         crate::distributions::traits::discrete_inverse_cdf_search(p, |k| self.cdf(k))
     }

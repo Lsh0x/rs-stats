@@ -292,6 +292,12 @@ impl Distribution for Normal {
     fn cdf(&self, x: f64) -> StatsResult<f64> {
         normal_cdf(x, self.mean, self.std_dev)
     }
+    /// Exact upper tail: `S(x) = erfc(z/√2)/2` — full relative precision
+    /// where `1 − cdf` would round to 0.
+    fn sf(&self, x: f64) -> StatsResult<f64> {
+        let z = (x - self.mean) / (self.std_dev * SQRT_2);
+        erfc(z).map(|e| 0.5 * e)
+    }
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
         normal_inverse_cdf(p, self.mean, self.std_dev)
     }

@@ -144,6 +144,14 @@ impl Distribution for LogNormal {
         }
         normal_cdf(x.ln(), self.mu, self.sigma)
     }
+    /// Exact tail: `S(x) = erfc((ln x − μ)/(σ√2))/2`.
+    fn sf(&self, x: f64) -> StatsResult<f64> {
+        if x <= 0.0 {
+            return Ok(1.0);
+        }
+        let z = (x.ln() - self.mu) / (self.sigma * std::f64::consts::SQRT_2);
+        crate::prob::erfc(z).map(|e| 0.5 * e)
+    }
 
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
         if !(0.0..=1.0).contains(&p) {

@@ -107,6 +107,16 @@ impl Distribution for ChiSquared {
         }
         Ok(regularized_incomplete_gamma(self.k / 2.0, x / 2.0))
     }
+    /// Exact tail: `S(x) = Q(k/2, x/2)` (upper regularized incomplete gamma).
+    fn sf(&self, x: f64) -> StatsResult<f64> {
+        if x <= 0.0 {
+            return Ok(1.0);
+        }
+        Ok(crate::utils::special_functions::regularized_incomplete_gamma_upper(
+            self.k / 2.0,
+            x / 2.0,
+        ))
+    }
 
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
         if !(0.0..=1.0).contains(&p) {

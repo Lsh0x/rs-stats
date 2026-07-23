@@ -135,6 +135,13 @@ impl Distribution for StudentT {
         let t = (x - self.mu) / self.sigma;
         Ok(self.standard_t_cdf(t))
     }
+    /// Exact tail: `S(x) = I_{ν/(t²+ν)}(ν/2, ½)/2` for `t ≥ 0` — computed
+    /// on the incomplete-beta side that stays accurate in the tail.
+    fn sf(&self, x: f64) -> StatsResult<f64> {
+        let t = (x - self.mu) / self.sigma;
+        let ib = regularized_incomplete_beta(self.nu / 2.0, 0.5, self.nu / (t * t + self.nu));
+        Ok(if t >= 0.0 { 0.5 * ib } else { 1.0 - 0.5 * ib })
+    }
 
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
         if !(0.0..=1.0).contains(&p) {

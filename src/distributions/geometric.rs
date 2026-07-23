@@ -115,6 +115,14 @@ impl crate::distributions::traits::Distribution for Geometric {
         // (k as f64 handles k > i32::MAX correctly.)
         Ok(-((k as f64) * (-self.p).ln_1p()).exp_m1())
     }
+    /// Exact tail: `S(k) = (1−p)^k`, computed as `exp(k·ln_1p(−p))`.
+    fn sf(&self, k: u64) -> StatsResult<f64> {
+        if k == 0 {
+            // Avoids 0 · (−∞) = NaN when p = 1.
+            return Ok(1.0);
+        }
+        Ok(((k as f64) * (-self.p).ln_1p()).exp())
+    }
 
     /// Closed-form quantile: k = ⌈ln(1−p) / ln(1−self.p)⌉.
     fn inverse_cdf(&self, p: f64) -> crate::error::StatsResult<u64> {

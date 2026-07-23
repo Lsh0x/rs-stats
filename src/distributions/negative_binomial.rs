@@ -153,6 +153,12 @@ impl crate::distributions::traits::Distribution for NegativeBinomial {
             regularized_incomplete_beta(self.r, k as f64 + 1.0, self.p).clamp(0.0, 1.0),
         )
     }
+    /// Exact tail via `1 − I_p(r, k+1) = I_{1−p}(k+1, r)`.
+    fn sf(&self, k: u64) -> StatsResult<f64> {
+        Ok(
+            regularized_incomplete_beta(k as f64 + 1.0, self.r, 1.0 - self.p).clamp(0.0, 1.0),
+        )
+    }
 
     fn inverse_cdf(&self, p: f64) -> StatsResult<u64> {
         crate::distributions::traits::discrete_inverse_cdf_search(p, |k| self.cdf(k))

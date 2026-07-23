@@ -170,6 +170,16 @@ impl Distribution for Beta {
         }
         Ok(regularized_incomplete_beta(self.alpha, self.beta, x))
     }
+    /// Exact tail via the identity `1 − I_x(α, β) = I_{1−x}(β, α)`.
+    fn sf(&self, x: f64) -> StatsResult<f64> {
+        if x <= 0.0 {
+            return Ok(1.0);
+        }
+        if x >= 1.0 {
+            return Ok(0.0);
+        }
+        Ok(regularized_incomplete_beta(self.beta, self.alpha, 1.0 - x))
+    }
 
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
         if !(0.0..=1.0).contains(&p) {
