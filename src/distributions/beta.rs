@@ -48,7 +48,7 @@
 
 use crate::distributions::traits::Distribution;
 use crate::error::{StatsError, StatsResult};
-use crate::utils::special_functions::{bisect_inverse_cdf, ln_beta, regularized_incomplete_beta};
+use crate::utils::special_functions::{ln_beta, regularized_incomplete_beta};
 
 /// Beta distribution Beta(α, β).
 ///
@@ -212,8 +212,9 @@ impl Distribution for Beta {
         }
         let alpha = self.alpha;
         let beta = self.beta;
-        Ok(bisect_inverse_cdf(
+        Ok(crate::utils::special_functions::newton_inverse_cdf(
             |x| regularized_incomplete_beta(alpha, beta, x),
+            |x| self.pdf(x).unwrap_or(0.0),
             p,
             0.0,
             1.0,

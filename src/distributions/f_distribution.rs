@@ -9,7 +9,7 @@
 
 use crate::distributions::traits::Distribution;
 use crate::error::{StatsError, StatsResult};
-use crate::utils::special_functions::{bisect_inverse_cdf, ln_beta, regularized_incomplete_beta};
+use crate::utils::special_functions::{ln_beta, regularized_incomplete_beta};
 
 /// F-distribution F(d1, d2).
 ///
@@ -182,7 +182,7 @@ impl Distribution for FDistribution {
         let d2 = self.d2;
         let mean = if d2 > 2.0 { d2 / (d2 - 2.0) } else { 5.0 };
         let hi = mean * 20.0;
-        Ok(bisect_inverse_cdf(
+        Ok(crate::utils::special_functions::newton_inverse_cdf(
             |x| {
                 if x <= 0.0 {
                     return 0.0;
@@ -190,6 +190,7 @@ impl Distribution for FDistribution {
                 let t = d1 * x / (d1 * x + d2);
                 regularized_incomplete_beta(d1 / 2.0, d2 / 2.0, t)
             },
+            |x| self.pdf(x).unwrap_or(0.0),
             p,
             0.0,
             hi,

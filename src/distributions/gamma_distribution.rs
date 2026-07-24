@@ -33,7 +33,7 @@
 
 use crate::distributions::traits::Distribution;
 use crate::error::{StatsError, StatsResult};
-use crate::utils::special_functions::{bisect_inverse_cdf, ln_gamma, regularized_incomplete_gamma};
+use crate::utils::special_functions::{ln_gamma, regularized_incomplete_gamma};
 
 /// Gamma distribution Gamma(α, β) with shape α and rate β.
 ///
@@ -194,8 +194,9 @@ impl Distribution for Gamma {
         let beta = self.beta;
         // Upper bound: mean + 10*std_dev should cover virtually all mass
         let hi = (alpha / beta) + 10.0 * (alpha / beta / beta).sqrt();
-        Ok(bisect_inverse_cdf(
+        Ok(crate::utils::special_functions::newton_inverse_cdf(
             |x| regularized_incomplete_gamma(alpha, beta * x),
+            |x| self.pdf(x).unwrap_or(0.0),
             p,
             0.0,
             hi.max(1.0),

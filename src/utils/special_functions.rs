@@ -301,6 +301,80 @@ pub fn noncentral_t_sf(t: f64, df: f64, nc: f64) -> f64 {
     noncentral_t_cdf(-t, df, -nc)
 }
 
+// ── Inverse CDF via bracketed Newton ──────────────────────────────────────────
+
+/// Find x with `cdf_fn(x) ≈ p` using a short bisection to localise the
+/// root, then bracket-safeguarded Newton steps (`x ← x − (F(x)−p)/f(x)`).
+///
+/// Quadratic convergence cuts the CDF evaluations from ~60 (pure
+/// bisection at relative 1e-12) to ~15. Falls back to a bisection step
+/// whenever Newton leaves the bracket or the density vanishes, so it is
+/// as robust as [`bisect_inverse_cdf`] (including the same dynamic
+/// bracket expansion).
+pub fn newton_inverse_cdf(
+    cdf_fn: impl Fn(f64) -> f64,
+    pdf_fn: impl Fn(f64) -> f64,
+    p: f64,
+    mut lo: f64,
+    mut hi: f64,
+) -> f64 {
+    const EPS: f64 = 1e-12;
+
+    // Same dynamic bracket expansion as bisect_inverse_cdf.
+    let mut width = (hi - lo).abs().max(1.0);
+    for _ in 0..200 {
+        if cdf_fn(hi) >= p {
+            break;
+        }
+        lo = hi;
+        hi += width;
+        width *= 2.0;
+    }
+    let mut width = (hi - lo).abs().max(1.0);
+    for _ in 0..200 {
+        if cdf_fn(lo) <= p {
+            break;
+        }
+        hi = lo;
+        lo -= width;
+        width *= 2.0;
+    }
+
+    // A few bisection steps to give Newton a well-conditioned start.
+    for _ in 0..6 {
+        let mid = 0.5 * (lo + hi);
+        if cdf_fn(mid) < p {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+
+    let mut x = 0.5 * (lo + hi);
+    for _ in 0..40 {
+        let f = cdf_fn(x) - p;
+        if f > 0.0 {
+            hi = x;
+        } else {
+            lo = x;
+        }
+        let d = pdf_fn(x);
+        let mut x_new = x - f / d;
+        if !x_new.is_finite() || x_new <= lo || x_new >= hi {
+            // Newton left the bracket (flat density, overshoot): bisect.
+            x_new = 0.5 * (lo + hi);
+        }
+        if (x_new - x).abs() <= EPS * x.abs().max(1.0) {
+            return x_new;
+        }
+        x = x_new;
+        if (hi - lo).abs() <= EPS * x.abs().max(1.0) {
+            return x;
+        }
+    }
+    x
+}
+
 // ── General inverse CDF via bisection ─────────────────────────────────────────
 
 /// Find x such that `cdf_fn(x) ≈ p` via bisection starting from `[lo, hi]`.

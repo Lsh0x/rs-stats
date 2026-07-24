@@ -165,6 +165,20 @@ impl crate::distributions::traits::Distribution for NegativeBinomial {
         Ok(regularized_incomplete_beta(k as f64 + 1.0, self.r, 1.0 - self.p).clamp(0.0, 1.0))
     }
 
+    /// Direct sampling via the Gamma-Poisson mixture:
+    /// `K ~ Poisson(Λ)` with `Λ ~ Gamma(r, scale = (1−p)/p)` is exactly
+    /// `NegBinom(r, p)` — two direct draws, no quantile search.
+    fn sample(&self, rng: &mut dyn rand::RngCore) -> StatsResult<u64> {
+        use crate::distributions::gamma_distribution::gamma_sample_unit_rate;
+        use crate::distributions::poisson_distribution::poisson_sample;
+        let lambda = gamma_sample_unit_rate(rng, self.r) * (1.0 - self.p) / self.p;
+        if lambda <= 0.0 {
+            // Γ draw can underflow to 0 for tiny r: Poisson(0) ≡ 0.
+            return Ok(0);
+        }
+        Ok(poisson_sample(rng, lambda))
+    }
+
     fn inverse_cdf(&self, p: f64) -> StatsResult<u64> {
         crate::distributions::traits::discrete_inverse_cdf_search(p, |k| self.cdf(k))
     }

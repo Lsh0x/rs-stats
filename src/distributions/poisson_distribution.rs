@@ -199,6 +199,12 @@ impl crate::distributions::traits::Distribution for Poisson {
             .clamp(0.0, 1.0),
         )
     }
+    /// Direct sampling: Knuth's product method for λ < 10, Hörmann's PTRS
+    /// transformed rejection for larger λ — no quantile search per draw.
+    fn sample(&self, rng: &mut dyn rand::RngCore) -> StatsResult<u64> {
+        Ok(poisson_sample(rng, self.lambda))
+    }
+
     fn inverse_cdf(&self, p: f64) -> StatsResult<u64> {
         crate::distributions::traits::discrete_inverse_cdf_search(p, |k| self.cdf(k))
     }
@@ -207,6 +213,55 @@ impl crate::distributions::traits::Distribution for Poisson {
     }
     fn variance(&self) -> f64 {
         self.lambda
+    }
+}
+
+/// One Poisson(λ) draw without quantile search.
+///
+/// - λ < 10: Knuth's product method — multiply uniforms until the product
+///   drops below e^{−λ} (mean λ+1 uniforms, one exp per draw).
+/// - λ ≥ 10: Hörmann's PTRS transformed rejection (1993) — ~1.1 uniforms
+///   per draw with a squeeze that skips the ln/ln_gamma test most of the
+///   time. Exact for all λ.
+pub(crate) fn poisson_sample(rng: &mut dyn rand::RngCore, lambda: f64) -> u64 {
+    use crate::distributions::normal_distribution::uniform01;
+    use crate::utils::special_functions::ln_gamma;
+
+    if lambda < 10.0 {
+        let l = (-lambda).exp();
+        let mut k = 0u64;
+        let mut p = 1.0_f64;
+        loop {
+            p *= uniform01(rng);
+            if p <= l {
+                return k;
+            }
+            k += 1;
+        }
+    }
+
+    // PTRS (Hörmann): sample k = floor((2a/(0.5−|u|) + b)·u + λ + 0.43).
+    let b = 0.931 + 2.53 * lambda.sqrt();
+    let a = -0.059 + 0.02483 * b;
+    let inv_alpha = 1.1239 + 1.1328 / (b - 3.4);
+    let v_r = 0.9277 - 3.6224 / (b - 2.0);
+    loop {
+        let u = uniform01(rng) - 0.5;
+        let v = uniform01(rng);
+        let us = 0.5 - u.abs();
+        let k = ((2.0 * a / us + b) * u + lambda + 0.43).floor();
+        if us >= 0.07 && v <= v_r {
+            return k as u64;
+        }
+        if k < 0.0 || (us < 0.013 && v > us) {
+            continue;
+        }
+        // Exact acceptance test in log space.
+        if (v * inv_alpha / (a / (us * us) + b)).ln()
+            <= k * lambda.ln() - lambda - ln_gamma(k + 1.0)
+        {
+            return k as u64;
+        }
     }
 }
 

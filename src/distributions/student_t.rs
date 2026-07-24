@@ -9,7 +9,7 @@
 
 use crate::distributions::traits::Distribution;
 use crate::error::{StatsError, StatsResult};
-use crate::utils::special_functions::{bisect_inverse_cdf, ln_gamma, regularized_incomplete_beta};
+use crate::utils::special_functions::{ln_gamma, regularized_incomplete_beta};
 use std::f64::consts::PI;
 
 /// Student's t-distribution with location μ, scale σ, and ν degrees of freedom.
@@ -184,12 +184,13 @@ impl Distribution for StudentT {
         let mu = self.mu;
         let sigma = self.sigma;
         let nu = self.nu;
-        Ok(bisect_inverse_cdf(
+        Ok(crate::utils::special_functions::newton_inverse_cdf(
             |x| {
                 let t = (x - mu) / sigma;
                 let ib = regularized_incomplete_beta(nu / 2.0, 0.5, nu / (t * t + nu));
                 if t >= 0.0 { 1.0 - 0.5 * ib } else { 0.5 * ib }
             },
+            |x| self.pdf(x).unwrap_or(0.0),
             p,
             lo,
             hi,

@@ -243,6 +243,43 @@ impl crate::distributions::traits::Distribution for Binomial {
                 .clamp(0.0, 1.0),
         )
     }
+    /// Direct sampling: BINV sequential inversion (mean `n·min(p,1−p)`
+    /// steps of a multiplicative recurrence) when that mean is ≤ 30,
+    /// otherwise the generic quantile search. Symmetry `k ↔ n−k` keeps
+    /// the walk on the cheap side of p.
+    fn sample(&self, rng: &mut dyn rand::RngCore) -> StatsResult<u64> {
+        use crate::distributions::normal_distribution::uniform01;
+        let (pp, flipped) = if self.p <= 0.5 {
+            (self.p, false)
+        } else {
+            (1.0 - self.p, true)
+        };
+        let n = self.n;
+        let k = if pp == 0.0 {
+            0
+        } else if (n as f64) * pp <= 30.0 {
+            // BINV: walk the PMF from k = 0 with the standard recurrence.
+            let q = 1.0 - pp;
+            let s = pp / q;
+            let mut f = q.powf(n as f64); // pmf(0)
+            let mut u = uniform01(rng);
+            let mut k = 0u64;
+            while u > f && k < n {
+                u -= f;
+                k += 1;
+                f *= s * ((n - k + 1) as f64) / (k as f64);
+            }
+            k
+        } else {
+            // Large n·p: exact quantile search on the flipped parameter.
+            let d = Binomial { n, p: pp };
+            crate::distributions::traits::discrete_inverse_cdf_search(uniform01(rng), |k| {
+                if k >= n { Ok(1.0) } else { d.cdf(k) }
+            })?
+        };
+        Ok(if flipped { n - k } else { k })
+    }
+
     fn inverse_cdf(&self, p: f64) -> StatsResult<u64> {
         // Bounded support: p = 1 has the finite quantile n, and the search's
         // doubling phase may probe k > n, where `cdf` errors — clamp to 1.

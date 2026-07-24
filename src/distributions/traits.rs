@@ -296,6 +296,62 @@ mod tests {
     }
 
     #[test]
+    fn test_discrete_samplers_moments() {
+        // Every direct discrete sampler (Knuth, PTRS, BINV, quantile
+        // fallback, Gamma-Poisson mixture) must reproduce mean & variance.
+        use crate::distributions::binomial_distribution::Binomial;
+        use crate::distributions::negative_binomial::NegativeBinomial;
+        use crate::distributions::poisson_distribution::Poisson;
+
+        fn check<D: Distribution<X = u64>>(name: &str, d: &D, seed: u64) {
+            let mut rng = ChaCha8Rng::seed_from_u64(seed);
+            let n = 30_000usize;
+            let ks = d.sample_n(&mut rng, n).unwrap();
+            let nf = n as f64;
+            let mean = ks.iter().map(|&k| k as f64).sum::<f64>() / nf;
+            let var = ks
+                .iter()
+                .map(|&k| (k as f64 - mean) * (k as f64 - mean))
+                .sum::<f64>()
+                / (nf - 1.0);
+            let se_mean = d.std_dev() / nf.sqrt();
+            assert!(
+                (mean - d.mean()).abs() < 7.0 * se_mean,
+                "{name}: mean {mean} vs {}",
+                d.mean()
+            );
+            assert!(
+                (var - d.variance()).abs() / d.variance() < 0.1,
+                "{name}: var {var} vs {}",
+                d.variance()
+            );
+        }
+
+        check("Poisson(3) Knuth", &Poisson::new(3.0).unwrap(), 10);
+        check("Poisson(50) PTRS", &Poisson::new(50.0).unwrap(), 11);
+        check(
+            "Binomial(20,0.3) BINV",
+            &Binomial::new(20, 0.3).unwrap(),
+            12,
+        );
+        check(
+            "Binomial(40,0.8) flip",
+            &Binomial::new(40, 0.8).unwrap(),
+            13,
+        );
+        check(
+            "Binomial(500,0.4) fallback",
+            &Binomial::new(500, 0.4).unwrap(),
+            14,
+        );
+        check(
+            "NegBin(5,0.5) Gamma-Poisson",
+            &NegativeBinomial::new(5.0, 0.5).unwrap(),
+            15,
+        );
+    }
+
+    #[test]
     fn test_sf_complements_cdf() {
         let d = Normal::new(0.0, 1.0).unwrap();
         for x in [-3.0, -1.0, 0.0, 1.0, 3.0] {

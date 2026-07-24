@@ -9,7 +9,7 @@
 
 use crate::distributions::traits::Distribution;
 use crate::error::{StatsError, StatsResult};
-use crate::utils::special_functions::{bisect_inverse_cdf, ln_gamma, regularized_incomplete_gamma};
+use crate::utils::special_functions::{ln_gamma, regularized_incomplete_gamma};
 
 /// Chi-squared distribution χ²(k).
 ///
@@ -150,8 +150,9 @@ impl Distribution for ChiSquared {
         }
         let k = self.k;
         let hi = k + 10.0 * (2.0 * k).sqrt() + 50.0;
-        Ok(bisect_inverse_cdf(
+        Ok(crate::utils::special_functions::newton_inverse_cdf(
             |x| regularized_incomplete_gamma(k / 2.0, x / 2.0),
+            |x| self.pdf(x).unwrap_or(0.0),
             p,
             0.0,
             hi,
