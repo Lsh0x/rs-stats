@@ -151,6 +151,16 @@ impl Distribution for StudentT {
         Ok(if t >= 0.0 { 0.5 * ib } else { 1.0 - 0.5 * ib })
     }
 
+    /// `T = Z / √(V/ν)` with `Z` from the ziggurat and `V ~ χ²(ν)` from
+    /// Marsaglia-Tsang — exact for every ν, including ν < 2 heavy tails.
+    fn sample(&self, rng: &mut dyn rand::RngCore) -> StatsResult<f64> {
+        use crate::distributions::gamma_distribution::gamma_sample_unit_rate;
+        use crate::distributions::normal_distribution::ziggurat_standard_normal;
+        let z = ziggurat_standard_normal(rng);
+        let v = 2.0 * gamma_sample_unit_rate(rng, self.nu / 2.0);
+        Ok(self.mu + self.sigma * z / (v / self.nu).sqrt())
+    }
+
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
         if !(0.0..=1.0).contains(&p) {
             return Err(StatsError::InvalidInput {

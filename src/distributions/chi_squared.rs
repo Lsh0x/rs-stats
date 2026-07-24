@@ -130,6 +130,12 @@ impl Distribution for ChiSquared {
         )
     }
 
+    /// χ²(k) = 2·Γ(k/2, rate = 1): one Marsaglia-Tsang draw.
+    fn sample(&self, rng: &mut dyn rand::RngCore) -> StatsResult<f64> {
+        use crate::distributions::gamma_distribution::gamma_sample_unit_rate;
+        Ok(2.0 * gamma_sample_unit_rate(rng, self.k / 2.0))
+    }
+
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
         if !(0.0..=1.0).contains(&p) {
             return Err(StatsError::InvalidInput {

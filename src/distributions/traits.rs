@@ -266,6 +266,36 @@ mod tests {
     }
 
     #[test]
+    fn test_gamma_family_samplers_ks() {
+        // Every Marsaglia-Tsang-based sampler must pass a KS test against
+        // its own CDF (n = 4000, seeded).
+        use crate::distributions::beta::Beta;
+        use crate::distributions::chi_squared::ChiSquared;
+        use crate::distributions::f_distribution::FDistribution;
+        use crate::distributions::gamma_distribution::Gamma;
+        use crate::distributions::student_t::StudentT;
+
+        fn check<D: Distribution<X = f64>>(name: &str, d: &D, seed: u64) {
+            let mut rng = ChaCha8Rng::seed_from_u64(seed);
+            let xs = d.sample_n(&mut rng, 4000).unwrap();
+            let ks = crate::distributions::fitting::ks_test(&xs, |x| d.cdf(x).unwrap_or(0.0));
+            assert!(ks.p_value > 1e-3, "{name}: KS p = {}", ks.p_value);
+        }
+
+        check("Gamma(2.5,1.5)", &Gamma::new(2.5, 1.5).unwrap(), 1);
+        check("Gamma(0.4,1) boost", &Gamma::new(0.4, 1.0).unwrap(), 2);
+        check("Beta(2,5)", &Beta::new(2.0, 5.0).unwrap(), 3);
+        check("ChiSquared(4)", &ChiSquared::new(4.0).unwrap(), 4);
+        check("StudentT(ν=5)", &StudentT::new(0.0, 1.0, 5.0).unwrap(), 5);
+        check(
+            "StudentT(ν=1.5) heavy",
+            &StudentT::new(0.0, 1.0, 1.5).unwrap(),
+            6,
+        );
+        check("F(5,10)", &FDistribution::new(5.0, 10.0).unwrap(), 7);
+    }
+
+    #[test]
     fn test_sf_complements_cdf() {
         let d = Normal::new(0.0, 1.0).unwrap();
         for x in [-3.0, -1.0, 0.0, 1.0, 3.0] {

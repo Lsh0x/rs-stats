@@ -248,7 +248,7 @@ static ZIG: std::sync::LazyLock<ZigguratTables> = std::sync::LazyLock::new(|| {
 
 /// Uniform draw in (0, 1] — never 0, so `ln` stays finite.
 #[inline]
-fn uniform01(rng: &mut dyn rand::RngCore) -> f64 {
+pub(crate) fn uniform01(rng: &mut dyn rand::RngCore) -> f64 {
     ((rng.next_u64() >> 11) + 1) as f64 * (1.0 / (1u64 << 53) as f64)
 }
 

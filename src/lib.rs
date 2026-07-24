@@ -105,6 +105,7 @@ pub mod error;
 pub mod hypothesis_tests;
 pub mod prob;
 pub mod regression;
+pub mod resampling;
 pub mod utils;
 
 // Re-export error types for convenience

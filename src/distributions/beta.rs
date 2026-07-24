@@ -189,6 +189,15 @@ impl Distribution for Beta {
         Ok(regularized_incomplete_beta(self.beta, self.alpha, 1.0 - x))
     }
 
+    /// Gamma-ratio sampling: `X/(X+Y)` with `X ~ Γ(α)`, `Y ~ Γ(β)` —
+    /// avoids the bisection quantile entirely.
+    fn sample(&self, rng: &mut dyn rand::RngCore) -> StatsResult<f64> {
+        use crate::distributions::gamma_distribution::gamma_sample_unit_rate;
+        let x = gamma_sample_unit_rate(rng, self.alpha);
+        let y = gamma_sample_unit_rate(rng, self.beta);
+        Ok(x / (x + y))
+    }
+
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
         if !(0.0..=1.0).contains(&p) {
             return Err(StatsError::InvalidInput {

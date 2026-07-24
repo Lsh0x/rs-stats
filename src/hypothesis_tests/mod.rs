@@ -3,6 +3,9 @@ pub mod chi_square_test;
 pub mod fisher;
 pub mod ks;
 pub mod mann_whitney;
+pub mod normality;
+pub mod p_adjust;
+pub mod power;
 pub mod t_test;
 pub mod wilcoxon;
 
@@ -14,6 +17,9 @@ pub use self::chi_square_test::{
 pub use self::fisher::{FisherExactResult, fisher_exact};
 pub use self::ks::ks_2samp;
 pub use self::mann_whitney::{MannWhitneyResult, mann_whitney_u};
+pub use self::normality::{NormalityResult, dagostino_k2};
+pub use self::p_adjust::{PAdjustMethod, p_adjust};
+pub use self::power::{TTestKind, power_t_test, sample_size_t_test};
 pub use self::t_test::{
     cohens_d, one_sample_t_test, one_sample_t_test_alt, paired_t_test, paired_t_test_alt,
     two_sample_t_test, two_sample_t_test_alt,

@@ -157,6 +157,15 @@ impl Distribution for FDistribution {
         Ok(regularized_incomplete_beta(self.d2 / 2.0, self.d1 / 2.0, t))
     }
 
+    /// `F = (X/d₁)/(Y/d₂)` with `X ~ χ²(d₁)`, `Y ~ χ²(d₂)` via
+    /// Marsaglia-Tsang gamma draws.
+    fn sample(&self, rng: &mut dyn rand::RngCore) -> StatsResult<f64> {
+        use crate::distributions::gamma_distribution::gamma_sample_unit_rate;
+        let x = 2.0 * gamma_sample_unit_rate(rng, self.d1 / 2.0);
+        let y = 2.0 * gamma_sample_unit_rate(rng, self.d2 / 2.0);
+        Ok((x / self.d1) / (y / self.d2))
+    }
+
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
         if !(0.0..=1.0).contains(&p) {
             return Err(StatsError::InvalidInput {

@@ -13,7 +13,7 @@
 //! | Function | Description |
 //! |----------|-------------|
 //! | `auto_fit(data)` | Auto-detect type + return single best fit |
-//! | `fit_all(data)` | All 10 continuous distributions, ranked by AIC |
+//! | `fit_all(data)` | All 14 continuous distributions, ranked by AIC |
 //! | `fit_best(data)` | Best continuous distribution (lowest AIC) |
 //! | `fit_all_discrete(data)` | All 4 discrete distributions, ranked by AIC |
 //! | `fit_best_discrete(data)` | Best discrete distribution |
@@ -61,13 +61,17 @@
 use crate::distributions::{
     beta::Beta,
     binomial_distribution::Binomial,
+    cauchy::Cauchy,
     chi_squared::ChiSquared,
     f_distribution::FDistribution,
     gamma_distribution::Gamma,
     geometric::Geometric,
+    laplace::Laplace,
+    logistic::Logistic,
     lognormal::LogNormal,
     negative_binomial::NegativeBinomial,
     normal_distribution::Normal,
+    pareto::Pareto,
     poisson_distribution::Poisson,
     student_t::StudentT,
     traits::{DiscreteDistribution, Distribution},
@@ -328,6 +332,10 @@ const CONTINUOUS_FITTERS: &[ContinuousFitter] = &[
             .ok()
             .and_then(|x| try_fit_continuous(s, x))
     },
+    |d, s| Cauchy::fit(d).ok().and_then(|x| try_fit_continuous(s, x)),
+    |d, s| Laplace::fit(d).ok().and_then(|x| try_fit_continuous(s, x)),
+    |d, s| Pareto::fit(d).ok().and_then(|x| try_fit_continuous(s, x)),
+    |d, s| Logistic::fit(d).ok().and_then(|x| try_fit_continuous(s, x)),
 ];
 
 /// Fit all continuous distributions to `data` and return ranked results (by AIC).
@@ -457,6 +465,10 @@ const CONTINUOUS_VERBOSE_FITTERS: &[ContinuousVerboseFitter] = &[
     |d, s| try_fit_verbose("StudentT", s, StudentT::fit(d)),
     |d, s| try_fit_verbose("FDistribution", s, FDistribution::fit(d)),
     |d, s| try_fit_verbose("ChiSquared", s, ChiSquared::fit(d)),
+    |d, s| try_fit_verbose("Cauchy", s, Cauchy::fit(d)),
+    |d, s| try_fit_verbose("Laplace", s, Laplace::fit(d)),
+    |d, s| try_fit_verbose("Pareto", s, Pareto::fit(d)),
+    |d, s| try_fit_verbose("Logistic", s, Logistic::fit(d)),
 ];
 
 pub fn fit_all_verbose(data: &[f64]) -> StatsResult<(Vec<FitResult>, Vec<SkippedFit>)> {

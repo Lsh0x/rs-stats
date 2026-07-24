@@ -243,6 +243,64 @@ fn beta_cf(a: f64, b: f64, x: f64) -> f64 {
     h
 }
 
+// ── Noncentral Student-t CDF (Lenth 1989) ─────────────────────────────────────
+
+/// CDF of the noncentral t distribution: `P(T ≤ t)` with `df` degrees of
+/// freedom and noncentrality `nc`.
+///
+/// Lenth's series (Algorithm AS 243): with `x = t²/(t²+df)`,
+/// `P = Φ(−nc) + ½ Σⱼ [pⱼ·I_x(j+½, df/2) + qⱼ·I_x(j+1, df/2)]` where the
+/// Poisson-like weights `pⱼ`, `qⱼ` are computed by recurrence. This is the
+/// engine behind exact statistical power calculations
+/// (see [`crate::hypothesis_tests::power_t_test`]).
+pub fn noncentral_t_cdf(t: f64, df: f64, nc: f64) -> f64 {
+    debug_assert!(df > 0.0, "df must be positive");
+    // Symmetry reduces to t ≥ 0: P(T ≤ t; δ) = 1 − P(T ≤ −t; −δ).
+    if t < 0.0 {
+        return 1.0 - noncentral_t_cdf(-t, df, -nc);
+    }
+    let phi_neg_nc = 0.5 * crate::prob::erf::erfc_cody(nc / std::f64::consts::SQRT_2);
+    if t == 0.0 {
+        return phi_neg_nc;
+    }
+    let half_nc2 = 0.5 * nc * nc;
+    if half_nc2 > 700.0 {
+        // exp(−δ²/2) underflows; at |δ| > 37 the CDF is 0 or 1 to ~1e-300.
+        return if nc > 0.0 { 0.0 } else { 1.0 };
+    }
+
+    let x = t * t / (t * t + df);
+    let half_df = 0.5 * df;
+
+    // Weights by recurrence: p₀ = e^{−δ²/2}, q₀ = δ·e^{−δ²/2}·√(2/π).
+    let mut p_j = (-half_nc2).exp();
+    let mut q_j = nc * (-half_nc2).exp() * (2.0 / std::f64::consts::PI).sqrt();
+    let mut sum = 0.0_f64;
+    let mut j = 0usize;
+    loop {
+        let jf = j as f64;
+        let term = p_j * regularized_incomplete_beta(jf + 0.5, half_df, x)
+            + q_j * regularized_incomplete_beta(jf + 1.0, half_df, x);
+        sum += term;
+        // The Poisson weights peak near j ≈ δ²/2; only stop once past it.
+        if (jf > half_nc2 && term.abs() < 1e-14 * (sum.abs() + 1e-300)) || j > 2000 {
+            break;
+        }
+        p_j *= half_nc2 / (jf + 1.0);
+        q_j *= half_nc2 / (jf + 1.5);
+        j += 1;
+    }
+
+    (phi_neg_nc + 0.5 * sum).clamp(0.0, 1.0)
+}
+
+/// Survival function of the noncentral t: `P(T > t)`.
+pub fn noncentral_t_sf(t: f64, df: f64, nc: f64) -> f64 {
+    // Recompute on the mirrored side rather than 1 − cdf so small upper
+    // tails keep relative precision.
+    noncentral_t_cdf(-t, df, -nc)
+}
+
 // ── General inverse CDF via bisection ─────────────────────────────────────────
 
 /// Find x such that `cdf_fn(x) ≈ p` via bisection starting from `[lo, hi]`.

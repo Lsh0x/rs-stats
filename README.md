@@ -95,9 +95,9 @@ println!("95% CI of the difference: [{lo:.1}, {hi:.1}] ms");
 
 ### Distributions
 
-| Continuous | Discrete |
-|---|---|
-| Normal, LogNormal, Exponential, Uniform, Gamma, Weibull, Beta, ChiSquared, StudentT, F | Poisson, Binomial, Geometric, NegativeBinomial |
+| Continuous | Discrete | Multivariate |
+|---|---|---|
+| Normal, LogNormal, Exponential, Uniform, Gamma, Weibull, Beta, ChiSquared, StudentT, F, Cauchy, Laplace, Pareto, Logistic | Poisson, Binomial, Geometric, NegativeBinomial | MultivariateNormal (Cholesky-backed pdf/sample/Mahalanobis) |
 
 Each implements the unified `Distribution` trait:
 
@@ -129,9 +129,28 @@ for f in &ranked {
 
 ### Hypothesis tests
 
-| Parametric | Non-parametric | Categorical |
+| Parametric | Non-parametric & resampling | Categorical & meta |
 |---|---|---|
-| one-sample / two-sample (Student & Welch) / paired t-tests, one-way ANOVA (+ η²) | Mann-Whitney U, Wilcoxon signed-rank, two-sample Kolmogorov-Smirnov | χ² goodness-of-fit, χ² independence, Fisher exact (2×2) |
+| one-sample / two-sample (Student & Welch) / paired t-tests, one-way ANOVA (+ η²), D'Agostino K² normality | Mann-Whitney U, Wilcoxon signed-rank, two-sample Kolmogorov-Smirnov, bootstrap CIs, permutation tests | χ² goodness-of-fit & independence, Fisher exact (2×2), p-value adjustment (Bonferroni / Holm / BH) |
+
+Plus **exact power analysis** through the noncentral t distribution:
+
+```rust
+use rs_stats::hypothesis_tests::{sample_size_t_test, power_t_test, Alternative, TTestKind};
+
+// "How many subjects per arm to detect d = 0.5 at 80% power?"  → 64
+let n = sample_size_t_test(TTestKind::TwoSample, 0.5, 0.05, 0.8, Alternative::TwoSided)?;
+```
+
+And distribution-free inference for **any** statistic:
+
+```rust
+use rs_stats::resampling::{bootstrap_ci, permutation_test};
+use rs_stats::prob::quantile;
+
+// 95% CI for the p90 latency — no closed form needed.
+let ci = bootstrap_ci(&latencies, |s| quantile(s, 0.9).unwrap(), 5000, 0.95, &mut rng)?;
+```
 
 All two-sample tests take `Alternative::{TwoSided, Less, Greater}`; t-test results expose `confidence_interval(level)`; small tables get the exact test:
 
@@ -248,6 +267,13 @@ match Normal::new(0.0, f64::NAN) {
 
 ## What's new in 4.0
 
+- 4 new distributions (Cauchy, Laplace, Pareto, Logistic — 14 auto-fit
+  candidates) + MultivariateNormal with Cholesky sampling
+- Bootstrap confidence intervals & permutation tests for any statistic
+- Exact power / sample-size analysis (noncentral t), D'Agostino K²
+  normality test, multiple-comparison corrections (Bonferroni/Holm/BH)
+- Marsaglia-Tsang gamma sampling — Gamma, Beta, χ², Student-t and F all
+  sample without quantile bisection; ziggurat for Normal/LogNormal
 - `sample()` / `sample_n()` and exact `sf()` on all distributions
 - Pearson / Spearman correlation with significance tests
 - Mann-Whitney U, Wilcoxon signed-rank, two-sample KS, Fisher exact

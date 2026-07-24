@@ -135,6 +135,12 @@ impl Distribution for Gamma {
             - ln_gamma(self.alpha))
     }
 
+    /// Marsaglia-Tsang squeeze sampling: ~1.05 ziggurat normals + one
+    /// uniform per draw — no per-sample quantile bisection.
+    fn sample(&self, rng: &mut dyn rand::RngCore) -> StatsResult<f64> {
+        Ok(gamma_sample_unit_rate(rng, self.alpha) / self.beta)
+    }
+
     fn log_likelihood(&self, data: &[f64]) -> StatsResult<f64> {
         Ok(self.log_likelihood_fast(data))
     }
@@ -202,6 +208,40 @@ impl Distribution for Gamma {
 
     fn variance(&self) -> f64 {
         self.alpha / (self.beta * self.beta)
+    }
+}
+
+/// One `Gamma(α, rate = 1)` draw via Marsaglia & Tsang's squeeze method
+/// (2000): for α ≥ 1, `d·(1+c·Z)³` with a fast squeeze acceptance
+/// (~96% of draws need one normal + one uniform). For α < 1, boost from
+/// `Gamma(α+1)` by a `U^{1/α}` factor.
+///
+/// Shared by the Beta, ChiSquared, StudentT and F samplers.
+pub(crate) fn gamma_sample_unit_rate(rng: &mut dyn rand::RngCore, alpha: f64) -> f64 {
+    use crate::distributions::normal_distribution::{uniform01, ziggurat_standard_normal};
+
+    if alpha < 1.0 {
+        let u = uniform01(rng);
+        return gamma_sample_unit_rate(rng, alpha + 1.0) * u.powf(1.0 / alpha);
+    }
+    let d = alpha - 1.0 / 3.0;
+    let c = 1.0 / (9.0 * d).sqrt();
+    loop {
+        let x = ziggurat_standard_normal(rng);
+        let v = 1.0 + c * x;
+        if v <= 0.0 {
+            continue;
+        }
+        let v = v * v * v;
+        let u = uniform01(rng);
+        let x2 = x * x;
+        // Cheap squeeze first; the exact log test only on the rare misses.
+        if u < 1.0 - 0.0331 * x2 * x2 {
+            return d * v;
+        }
+        if u.ln() < 0.5 * x2 + d * (1.0 - v + v.ln()) {
+            return d * v;
+        }
     }
 }
 
