@@ -55,6 +55,7 @@ use crate::utils::special_functions::gamma_fn;
 /// assert!((w.mean() - 2.0).abs() < 1e-10);
 /// ```
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Weibull {
     /// Shape parameter k > 0
     pub k: f64,
@@ -65,6 +66,13 @@ pub struct Weibull {
 impl Weibull {
     /// Creates a `Weibull(k, λ)` distribution.
     pub fn new(k: f64, lambda: f64) -> StatsResult<Self> {
+        // Non-finite parameters (NaN, ±inf) silently produced NaN
+        // pdf/cdf values before v4.0 — reject them up front.
+        if !k.is_finite() || !lambda.is_finite() {
+            return Err(StatsError::InvalidInput {
+                message: "Weibull::new: parameters must be finite".to_string(),
+            });
+        }
         if k <= 0.0 || lambda <= 0.0 {
             return Err(StatsError::InvalidInput {
                 message: "Weibull::new: k and lambda must be positive".to_string(),
@@ -157,7 +165,15 @@ impl Distribution for Weibull {
         if x <= 0.0 {
             return Ok(0.0);
         }
-        Ok(1.0 - (-(x / self.lambda).powf(self.k)).exp())
+        // −expm1(−t) keeps relative precision when (x/λ)^k ≪ 1.
+        Ok(-(-(x / self.lambda).powf(self.k)).exp_m1())
+    }
+    /// Exact tail: `S(x) = exp(−(x/λ)^k)`.
+    fn sf(&self, x: f64) -> StatsResult<f64> {
+        if x <= 0.0 {
+            return Ok(1.0);
+        }
+        Ok((-(x / self.lambda).powf(self.k)).exp())
     }
 
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
@@ -173,7 +189,8 @@ impl Distribution for Weibull {
             return Ok(f64::INFINITY);
         }
         // Closed-form inverse: x = λ · (-ln(1-p))^(1/k)
-        Ok(self.lambda * (-(1.0 - p).ln()).powf(1.0 / self.k))
+        // −ln_1p(−p) keeps p's low bits for small p (1.0 − p would drop them).
+        Ok(self.lambda * (-(-p).ln_1p()).powf(1.0 / self.k))
     }
 
     fn mean(&self) -> f64 {

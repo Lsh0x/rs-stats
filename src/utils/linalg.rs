@@ -122,6 +122,49 @@ pub fn invert_with_ridge(matrix: &[f64], dim: usize, ridge_factor: f64) -> Stats
     invert_augmented(aug, dim, 1e-9)
 }
 
+/// Cholesky decomposition of a symmetric positive-definite matrix
+/// (row-major, `dim × dim`): returns the lower-triangular `L` with
+/// `A = L·Lᵀ` (upper triangle of the result is zero).
+///
+/// Also the standard SPD test: a covariance matrix is valid iff this
+/// succeeds.
+///
+/// # Errors
+/// Returns an error on a size mismatch, or when the matrix is not
+/// positive-definite (a pivot ≤ 0 within tolerance).
+pub fn cholesky(matrix: &[f64], dim: usize) -> StatsResult<Vec<f64>> {
+    if matrix.len() != dim * dim {
+        return Err(StatsError::invalid_input(format!(
+            "linalg::cholesky: expected {} elements for {}×{} matrix, got {}",
+            dim * dim,
+            dim,
+            dim,
+            matrix.len()
+        )));
+    }
+    let mut l = vec![0.0_f64; dim * dim];
+    for i in 0..dim {
+        for j in 0..=i {
+            let mut sum = matrix[i * dim + j];
+            for k in 0..j {
+                sum -= l[i * dim + k] * l[j * dim + k];
+            }
+            if i == j {
+                // `!(sum > 0.0)` also rejects a NaN pivot (NaN ≤ 0 is false).
+                if !(sum > 0.0) {
+                    return Err(StatsError::numerical_error(format!(
+                        "linalg::cholesky: matrix is not positive-definite (pivot {sum:.3e} at row {i})"
+                    )));
+                }
+                l[i * dim + j] = sum.sqrt();
+            } else {
+                l[i * dim + j] = sum / l[j * dim + j];
+            }
+        }
+    }
+    Ok(l)
+}
+
 /// Gauss-Jordan elimination on a pre-built `[A | I]` augmented matrix of shape
 /// `dim × (2·dim)`. Shared between [`invert`] and [`invert_with_ridge`].
 fn invert_augmented(mut aug: Vec<f64>, dim: usize, eps: f64) -> StatsResult<Vec<f64>> {

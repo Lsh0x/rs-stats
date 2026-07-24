@@ -48,7 +48,7 @@
 
 use crate::distributions::traits::Distribution;
 use crate::error::{StatsError, StatsResult};
-use crate::utils::special_functions::{bisect_inverse_cdf, ln_beta, regularized_incomplete_beta};
+use crate::utils::special_functions::{ln_beta, regularized_incomplete_beta};
 
 /// Beta distribution Beta(α, β).
 ///
@@ -61,6 +61,7 @@ use crate::utils::special_functions::{bisect_inverse_cdf, ln_beta, regularized_i
 /// assert!((b.mean() - 2.0 / 7.0).abs() < 1e-10);
 /// ```
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Beta {
     /// Shape parameter α > 0
     pub alpha: f64,
@@ -71,6 +72,13 @@ pub struct Beta {
 impl Beta {
     /// Creates a `Beta(α, β)` distribution. Both parameters must be positive.
     pub fn new(alpha: f64, beta: f64) -> StatsResult<Self> {
+        // Non-finite parameters (NaN, ±inf) silently produced NaN
+        // pdf/cdf values before v4.0 — reject them up front.
+        if !alpha.is_finite() || !beta.is_finite() {
+            return Err(StatsError::InvalidInput {
+                message: "Beta::new: parameters must be finite".to_string(),
+            });
+        }
         if alpha <= 0.0 || beta <= 0.0 {
             return Err(StatsError::InvalidInput {
                 message: "Beta::new: alpha and beta must be positive".to_string(),
@@ -143,6 +151,24 @@ impl Distribution for Beta {
         )
     }
 
+    fn log_likelihood(&self, data: &[f64]) -> StatsResult<f64> {
+        Ok(self.log_likelihood_fast(data))
+    }
+
+    fn log_likelihood_fast(&self, data: &[f64]) -> f64 {
+        // ln B(α, β) (3 ln_gamma) hoisted out of the per-point loop.
+        let log_norm = -ln_beta(self.alpha, self.beta);
+        let (a1, b1) = (self.alpha - 1.0, self.beta - 1.0);
+        let mut acc = 0.0_f64;
+        for &x in data {
+            if x <= 0.0 || x >= 1.0 {
+                return f64::NEG_INFINITY;
+            }
+            acc += a1 * x.ln() + b1 * (1.0 - x).ln();
+        }
+        data.len() as f64 * log_norm + acc
+    }
+
     fn cdf(&self, x: f64) -> StatsResult<f64> {
         if x <= 0.0 {
             return Ok(0.0);
@@ -151,6 +177,37 @@ impl Distribution for Beta {
             return Ok(1.0);
         }
         Ok(regularized_incomplete_beta(self.alpha, self.beta, x))
+    }
+    /// Exact tail via the identity `1 − I_x(α, β) = I_{1−x}(β, α)`.
+    fn sf(&self, x: f64) -> StatsResult<f64> {
+        if x <= 0.0 {
+            return Ok(1.0);
+        }
+        if x >= 1.0 {
+            return Ok(0.0);
+        }
+        Ok(regularized_incomplete_beta(self.beta, self.alpha, 1.0 - x))
+    }
+
+    /// Gamma-ratio sampling: `X/(X+Y)` with `X ~ Γ(α)`, `Y ~ Γ(β)` —
+    /// avoids the bisection quantile entirely.
+    fn sample(&self, rng: &mut dyn rand::RngCore) -> StatsResult<f64> {
+        use crate::distributions::gamma_distribution::gamma_sample_unit_rate;
+        let x = gamma_sample_unit_rate(rng, self.alpha);
+        let y = gamma_sample_unit_rate(rng, self.beta);
+        let s = x + y;
+        if s == 0.0 {
+            // Both gamma draws underflowed (tiny α, β ≪ 1): in that limit
+            // the Beta concentrates at {0, 1} with P(1) = α/(α+β) — return
+            // that Bernoulli limit instead of 0/0 = NaN (numpy returns NaN).
+            use crate::distributions::normal_distribution::uniform01;
+            return Ok(if uniform01(rng) < self.alpha / (self.alpha + self.beta) {
+                1.0
+            } else {
+                0.0
+            });
+        }
+        Ok(x / s)
     }
 
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
@@ -167,8 +224,9 @@ impl Distribution for Beta {
         }
         let alpha = self.alpha;
         let beta = self.beta;
-        Ok(bisect_inverse_cdf(
+        Ok(crate::utils::special_functions::newton_inverse_cdf(
             |x| regularized_incomplete_beta(alpha, beta, x),
+            |x| self.pdf(x).unwrap_or(0.0),
             p,
             0.0,
             1.0,

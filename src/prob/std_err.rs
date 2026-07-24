@@ -18,13 +18,14 @@
 //! - Used in confidence intervals and hypothesis testing
 
 use crate::error::StatsResult;
-use crate::prob::std_dev;
+use crate::prob::{std_dev_population, std_dev_sample};
 use num_traits::ToPrimitive;
 
-/// Calculate the standard error of a dataset
+/// Calculate the standard error of the mean (SEM) of a dataset.
 ///
-/// The standard error quantifies the uncertainty in the sample mean
-/// as an estimate of the population mean.
+/// Uses the **sample** standard deviation (ddof = 1), the standard SEM
+/// convention (matches `scipy.stats.sem`). The population variant is
+/// available as [`std_err_population`].
 ///
 /// # Arguments
 /// * `data` - A slice of numeric values implementing `ToPrimitive`
@@ -34,16 +35,18 @@ use num_traits::ToPrimitive;
 ///
 /// # Errors
 /// Returns `StatsError::EmptyData` if the input slice is empty.
+/// Returns `StatsError::InvalidInput` if the slice has fewer than 2 elements
+/// (the sample standard deviation needs n ≥ 2).
 /// Returns `StatsError::ConversionError` if any value cannot be converted to f64.
 ///
 /// # Examples
 /// ```
 /// use rs_stats::prob::std_err;
 ///
-/// // Calculate standard error for a dataset
+/// // Calculate standard error for a dataset (sample convention, like scipy.stats.sem)
 /// let data = [1.0, 2.0, 3.0, 4.0, 5.0];
 /// let se = std_err(&data)?;
-/// assert!((se - 0.632455532).abs() < 1e-9);
+/// assert!((se - 0.7071067811865476).abs() < 1e-9);
 ///
 /// // Handle empty input
 /// let empty_data: &[f64] = &[];
@@ -55,7 +58,20 @@ pub fn std_err<T>(data: &[T]) -> StatsResult<f64>
 where
     T: ToPrimitive + std::fmt::Debug,
 {
-    std_dev(data).map(|std| std / (data.len() as f64).sqrt())
+    std_dev_sample(data).map(|std| std / (data.len() as f64).sqrt())
+}
+
+/// Standard error of the mean using the **population** standard deviation
+/// (ddof = 0).
+///
+/// This was the (undocumented) behaviour of [`std_err`] before v4.0; prefer
+/// [`std_err`] unless you specifically have the full population.
+#[inline]
+pub fn std_err_population<T>(data: &[T]) -> StatsResult<f64>
+where
+    T: ToPrimitive + std::fmt::Debug,
+{
+    std_dev_population(data).map(|std| std / (data.len() as f64).sqrt())
 }
 
 #[cfg(test)]
@@ -67,41 +83,44 @@ mod tests {
     #[test]
     fn test_std_err_integers() {
         // Dataset: [1, 2, 3, 4, 5]
-        // Standard deviation of [1, 2, 3, 4, 5] is 1.414213562 (approx)
-        // Standard error should be std_dev / sqrt(n) = 1.414213562 / sqrt(5) = 0.632455532 (approx)
+        // Sample std-dev (ddof=1) = sqrt(2.5) ≈ 1.5811388
+        // SEM = 1.5811388 / sqrt(5) ≈ 0.7071068 (matches scipy.stats.sem)
         let data = vec![1, 2, 3, 4, 5];
         let result = std_err(&data).unwrap();
-        let expected = 0.632455532; // Calculated value of the standard error
+        let expected = std::f64::consts::FRAC_1_SQRT_2;
         assert!(
             (result - expected).abs() < EPSILON,
-            "Standard error should be approximately 0.632455532"
+            "Standard error should be approximately 0.7071068"
         );
     }
 
     #[test]
     fn test_std_err_floats() {
-        // Dataset: [1.0, 2.0, 3.0, 4.0, 5.0]
-        // Standard deviation of [1.0, 2.0, 3.0, 4.0, 5.0] is the same as for integers
         let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let result = std_err(&data).unwrap();
-        let expected = 0.632455532;
+        let expected = std::f64::consts::FRAC_1_SQRT_2;
         assert!(
             (result - expected).abs() < EPSILON,
-            "Standard error for floats should be approximately 0.632455532"
+            "Standard error for floats should be approximately 0.7071068"
         );
     }
 
     #[test]
+    fn test_std_err_population_variant() {
+        // Population convention: pop std-dev = sqrt(2) ≈ 1.4142136,
+        // SEM_pop = 1.4142136 / sqrt(5) ≈ 0.6324555.
+        let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let result = std_err_population(&data).unwrap();
+        let expected = 0.6324555320336759;
+        assert!((result - expected).abs() < EPSILON);
+    }
+
+    #[test]
     fn test_std_err_single_element() {
-        // Dataset with only one element: [5]
-        // Standard deviation is 0, and thus standard error should also be 0
+        // The sample standard deviation is undefined for n = 1 —
+        // a single point carries no information about spread.
         let data = vec![5];
-        let result = std_err(&data).unwrap();
-        let expected = 0.0;
-        assert_eq!(
-            result, expected,
-            "Standard error for a single element should be 0.0"
-        );
+        assert!(std_err(&data).is_err());
     }
 
     #[test]

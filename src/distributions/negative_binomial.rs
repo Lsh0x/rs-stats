@@ -40,7 +40,8 @@
 //! ```
 
 use crate::error::{StatsError, StatsResult};
-use crate::utils::special_functions::ln_gamma;
+use crate::utils::special_functions::{ln_gamma, regularized_incomplete_beta};
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 /// Negative Binomial distribution NegBinom(r, p).
@@ -53,7 +54,8 @@ use serde::{Deserialize, Serialize};
 /// let nb = NegativeBinomial::new(5.0, 0.5).unwrap();
 /// assert!((nb.mean() - 5.0).abs() < 1e-10);
 /// ```
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct NegativeBinomial {
     /// Number of successes r > 0 (can be non-integer, i.e. the overdispersion parameter)
     pub r: f64,
@@ -64,6 +66,13 @@ pub struct NegativeBinomial {
 impl NegativeBinomial {
     /// Creates a `NegBinom(r, p)` distribution.
     pub fn new(r: f64, p: f64) -> StatsResult<Self> {
+        // Non-finite parameters (NaN, ±inf) silently produced NaN
+        // pdf/cdf values before v4.0 — reject them up front.
+        if !r.is_finite() {
+            return Err(StatsError::InvalidInput {
+                message: "NegativeBinomial::new: parameters must be finite".to_string(),
+            });
+        }
         if r <= 0.0 {
             return Err(StatsError::InvalidInput {
                 message: "NegativeBinomial::new: r must be positive".to_string(),
@@ -128,17 +137,46 @@ impl crate::distributions::traits::Distribution for NegativeBinomial {
         Ok(log_binom + self.r * self.p.ln() + kf * (1.0 - self.p).ln())
     }
 
-    fn cdf(&self, k: u64) -> StatsResult<f64> {
-        // Sum PMF from 0 to k
-        let mut sum = 0.0_f64;
-        for i in 0..=k {
-            sum += self.pmf(i)?;
-            // Early exit if essentially 1
-            if sum >= 1.0 - 1e-15 {
-                return Ok(1.0);
-            }
+    fn log_likelihood(&self, data: &[u64]) -> StatsResult<f64> {
+        Ok(self.log_likelihood_fast(data))
+    }
+
+    fn log_likelihood_fast(&self, data: &[u64]) -> f64 {
+        // ln Γ(r) and r·ln p / ln(1−p) only depend on the parameters —
+        // hoisted, each point costs 2 ln_gamma instead of 3 + 2 ln.
+        let log_norm = self.r * self.p.ln() - ln_gamma(self.r);
+        let ln_q = (1.0 - self.p).ln();
+        let mut acc = 0.0_f64;
+        for &k in data {
+            let kf = k as f64;
+            acc += ln_gamma(kf + self.r) - ln_gamma(kf + 1.0) + kf * ln_q;
         }
-        Ok(sum.clamp(0.0, 1.0))
+        data.len() as f64 * log_norm + acc
+    }
+
+    fn cdf(&self, k: u64) -> StatsResult<f64> {
+        // Closed form: P(X ≤ k) = I_p(r, k+1), the regularized incomplete
+        // beta. O(1) instead of the previous O(k) PMF sum (3 ln_gamma + exp
+        // per term) — which also made inverse_cdf O(k log k).
+        Ok(regularized_incomplete_beta(self.r, k as f64 + 1.0, self.p).clamp(0.0, 1.0))
+    }
+    /// Exact tail via `1 − I_p(r, k+1) = I_{1−p}(k+1, r)`.
+    fn sf(&self, k: u64) -> StatsResult<f64> {
+        Ok(regularized_incomplete_beta(k as f64 + 1.0, self.r, 1.0 - self.p).clamp(0.0, 1.0))
+    }
+
+    /// Direct sampling via the Gamma-Poisson mixture:
+    /// `K ~ Poisson(Λ)` with `Λ ~ Gamma(r, scale = (1−p)/p)` is exactly
+    /// `NegBinom(r, p)` — two direct draws, no quantile search.
+    fn sample(&self, rng: &mut dyn rand::RngCore) -> StatsResult<u64> {
+        use crate::distributions::gamma_distribution::gamma_sample_unit_rate;
+        use crate::distributions::poisson_distribution::poisson_sample;
+        let lambda = gamma_sample_unit_rate(rng, self.r) * (1.0 - self.p) / self.p;
+        if lambda <= 0.0 {
+            // Γ draw can underflow to 0 for tiny r: Poisson(0) ≡ 0.
+            return Ok(0);
+        }
+        Ok(poisson_sample(rng, lambda))
     }
 
     fn inverse_cdf(&self, p: f64) -> StatsResult<u64> {

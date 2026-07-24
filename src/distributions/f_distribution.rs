@@ -9,7 +9,7 @@
 
 use crate::distributions::traits::Distribution;
 use crate::error::{StatsError, StatsResult};
-use crate::utils::special_functions::{bisect_inverse_cdf, ln_beta, regularized_incomplete_beta};
+use crate::utils::special_functions::{ln_beta, regularized_incomplete_beta};
 
 /// F-distribution F(d1, d2).
 ///
@@ -22,6 +22,7 @@ use crate::utils::special_functions::{bisect_inverse_cdf, ln_beta, regularized_i
 /// assert!((f.mean() - 10.0 / 8.0).abs() < 1e-10);
 /// ```
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FDistribution {
     /// Numerator degrees of freedom d1 > 0
     pub d1: f64,
@@ -32,6 +33,13 @@ pub struct FDistribution {
 impl FDistribution {
     /// Creates an `F(d1, d2)` distribution.
     pub fn new(d1: f64, d2: f64) -> StatsResult<Self> {
+        // Non-finite parameters (NaN, ±inf) silently produced NaN
+        // pdf/cdf values before v4.0 — reject them up front.
+        if !d1.is_finite() || !d2.is_finite() {
+            return Err(StatsError::InvalidInput {
+                message: "FDistribution::new: parameters must be finite".to_string(),
+            });
+        }
         if d1 <= 0.0 || d2 <= 0.0 {
             return Err(StatsError::InvalidInput {
                 message: "FDistribution::new: d1 and d2 must be positive".to_string(),
@@ -114,6 +122,24 @@ impl Distribution for FDistribution {
         Ok(log_pdf)
     }
 
+    fn log_likelihood(&self, data: &[f64]) -> StatsResult<f64> {
+        Ok(self.log_likelihood_fast(data))
+    }
+
+    fn log_likelihood_fast(&self, data: &[f64]) -> f64 {
+        // 0.5·d2·ln d2 − ln B(d1/2, d2/2) hoisted out of the per-point loop.
+        let (d1, d2) = (self.d1, self.d2);
+        let log_norm = 0.5 * d2 * d2.ln() - ln_beta(d1 / 2.0, d2 / 2.0);
+        let mut acc = 0.0_f64;
+        for &x in data {
+            if x <= 0.0 {
+                return f64::NEG_INFINITY;
+            }
+            acc += 0.5 * (d1 * (d1 * x).ln() - (d1 + d2) * (d1 * x + d2).ln()) - x.ln();
+        }
+        data.len() as f64 * log_norm + acc
+    }
+
     fn cdf(&self, x: f64) -> StatsResult<f64> {
         if x <= 0.0 {
             return Ok(0.0);
@@ -121,6 +147,23 @@ impl Distribution for FDistribution {
         // I_{d1*x/(d1*x + d2)}(d1/2, d2/2)
         let t = self.d1 * x / (self.d1 * x + self.d2);
         Ok(regularized_incomplete_beta(self.d1 / 2.0, self.d2 / 2.0, t))
+    }
+    /// Exact tail: `S(x) = I_{d2/(d1·x + d2)}(d2/2, d1/2)`.
+    fn sf(&self, x: f64) -> StatsResult<f64> {
+        if x <= 0.0 {
+            return Ok(1.0);
+        }
+        let t = self.d2 / (self.d1 * x + self.d2);
+        Ok(regularized_incomplete_beta(self.d2 / 2.0, self.d1 / 2.0, t))
+    }
+
+    /// `F = (X/d₁)/(Y/d₂)` with `X ~ χ²(d₁)`, `Y ~ χ²(d₂)` via
+    /// Marsaglia-Tsang gamma draws.
+    fn sample(&self, rng: &mut dyn rand::RngCore) -> StatsResult<f64> {
+        use crate::distributions::gamma_distribution::gamma_sample_unit_rate;
+        let x = 2.0 * gamma_sample_unit_rate(rng, self.d1 / 2.0);
+        let y = 2.0 * gamma_sample_unit_rate(rng, self.d2 / 2.0);
+        Ok((x / self.d1) / (y / self.d2))
     }
 
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
@@ -139,7 +182,7 @@ impl Distribution for FDistribution {
         let d2 = self.d2;
         let mean = if d2 > 2.0 { d2 / (d2 - 2.0) } else { 5.0 };
         let hi = mean * 20.0;
-        Ok(bisect_inverse_cdf(
+        Ok(crate::utils::special_functions::newton_inverse_cdf(
             |x| {
                 if x <= 0.0 {
                     return 0.0;
@@ -147,6 +190,7 @@ impl Distribution for FDistribution {
                 let t = d1 * x / (d1 * x + d2);
                 regularized_incomplete_beta(d1 / 2.0, d2 / 2.0, t)
             },
+            |x| self.pdf(x).unwrap_or(0.0),
             p,
             0.0,
             hi,

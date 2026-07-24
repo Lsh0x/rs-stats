@@ -97,6 +97,42 @@ where
     approx_equal(a, b, None)
 }
 
+/// 1-based **average ranks** of `values` (ties get the mean of the ranks
+/// they span) — the convention used by Spearman correlation and the
+/// rank-based tests (Mann-Whitney U, Wilcoxon signed-rank).
+///
+/// # Examples
+/// ```
+/// use rs_stats::utils::numeric::average_ranks;
+///
+/// let r = average_ranks(&[10.0, 20.0, 20.0, 30.0]);
+/// assert_eq!(r, vec![1.0, 2.5, 2.5, 4.0]);
+/// ```
+pub fn average_ranks(values: &[f64]) -> Vec<f64> {
+    let n = values.len();
+    let mut order: Vec<usize> = (0..n).collect();
+    // total_cmp: NaNs sort deterministically to the end instead of
+    // corrupting the order of the finite elements.
+    order.sort_by(|&a, &b| values[a].total_cmp(&values[b]));
+
+    let mut ranks = vec![0.0_f64; n];
+    let mut i = 0;
+    while i < n {
+        // Find the tie run [i, j).
+        let mut j = i + 1;
+        while j < n && values[order[j]] == values[order[i]] {
+            j += 1;
+        }
+        // Average of 1-based ranks i+1 ..= j.
+        let avg = (i + 1 + j) as f64 / 2.0;
+        for &idx in &order[i..j] {
+            ranks[idx] = avg;
+        }
+        i = j;
+    }
+    ranks
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

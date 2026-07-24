@@ -33,7 +33,7 @@
 
 use crate::distributions::traits::Distribution;
 use crate::error::{StatsError, StatsResult};
-use crate::utils::special_functions::{bisect_inverse_cdf, ln_gamma, regularized_incomplete_gamma};
+use crate::utils::special_functions::{ln_gamma, regularized_incomplete_gamma};
 
 /// Gamma distribution Gamma(α, β) with shape α and rate β.
 ///
@@ -46,6 +46,7 @@ use crate::utils::special_functions::{bisect_inverse_cdf, ln_gamma, regularized_
 /// assert!((g.mean() - 2.0).abs() < 1e-10);
 /// ```
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Gamma {
     /// Shape parameter α > 0
     pub alpha: f64,
@@ -56,6 +57,13 @@ pub struct Gamma {
 impl Gamma {
     /// Creates a `Gamma(α, β)` distribution.
     pub fn new(alpha: f64, beta: f64) -> StatsResult<Self> {
+        // Non-finite parameters (NaN, ±inf) silently produced NaN
+        // pdf/cdf values before v4.0 — reject them up front.
+        if !alpha.is_finite() || !beta.is_finite() {
+            return Err(StatsError::InvalidInput {
+                message: "Gamma::new: parameters must be finite".to_string(),
+            });
+        }
         if alpha <= 0.0 || beta <= 0.0 {
             return Err(StatsError::InvalidInput {
                 message: "Gamma::new: alpha and beta must be positive".to_string(),
@@ -127,11 +135,47 @@ impl Distribution for Gamma {
             - ln_gamma(self.alpha))
     }
 
+    /// Marsaglia-Tsang squeeze sampling: ~1.05 ziggurat normals + one
+    /// uniform per draw — no per-sample quantile bisection.
+    fn sample(&self, rng: &mut dyn rand::RngCore) -> StatsResult<f64> {
+        Ok(gamma_sample_unit_rate(rng, self.alpha) / self.beta)
+    }
+
+    fn log_likelihood(&self, data: &[f64]) -> StatsResult<f64> {
+        Ok(self.log_likelihood_fast(data))
+    }
+
+    fn log_likelihood_fast(&self, data: &[f64]) -> f64 {
+        // α·ln β − ln Γ(α) hoisted out of the per-point loop.
+        let log_norm = self.alpha * self.beta.ln() - ln_gamma(self.alpha);
+        let a1 = self.alpha - 1.0;
+        let mut acc = 0.0_f64;
+        for &x in data {
+            if x <= 0.0 {
+                return f64::NEG_INFINITY;
+            }
+            acc += a1 * x.ln() - self.beta * x;
+        }
+        data.len() as f64 * log_norm + acc
+    }
+
     fn cdf(&self, x: f64) -> StatsResult<f64> {
         if x <= 0.0 {
             return Ok(0.0);
         }
         Ok(regularized_incomplete_gamma(self.alpha, self.beta * x))
+    }
+    /// Exact tail: `S(x) = Q(α, βx)` (upper regularized incomplete gamma).
+    fn sf(&self, x: f64) -> StatsResult<f64> {
+        if x <= 0.0 {
+            return Ok(1.0);
+        }
+        Ok(
+            crate::utils::special_functions::regularized_incomplete_gamma_upper(
+                self.alpha,
+                self.beta * x,
+            ),
+        )
     }
 
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
@@ -150,8 +194,9 @@ impl Distribution for Gamma {
         let beta = self.beta;
         // Upper bound: mean + 10*std_dev should cover virtually all mass
         let hi = (alpha / beta) + 10.0 * (alpha / beta / beta).sqrt();
-        Ok(bisect_inverse_cdf(
+        Ok(crate::utils::special_functions::newton_inverse_cdf(
             |x| regularized_incomplete_gamma(alpha, beta * x),
+            |x| self.pdf(x).unwrap_or(0.0),
             p,
             0.0,
             hi.max(1.0),
@@ -164,6 +209,40 @@ impl Distribution for Gamma {
 
     fn variance(&self) -> f64 {
         self.alpha / (self.beta * self.beta)
+    }
+}
+
+/// One `Gamma(α, rate = 1)` draw via Marsaglia & Tsang's squeeze method
+/// (2000): for α ≥ 1, `d·(1+c·Z)³` with a fast squeeze acceptance
+/// (~96% of draws need one normal + one uniform). For α < 1, boost from
+/// `Gamma(α+1)` by a `U^{1/α}` factor.
+///
+/// Shared by the Beta, ChiSquared, StudentT and F samplers.
+pub(crate) fn gamma_sample_unit_rate(rng: &mut dyn rand::RngCore, alpha: f64) -> f64 {
+    use crate::distributions::normal_distribution::{uniform01, ziggurat_standard_normal};
+
+    if alpha < 1.0 {
+        let u = uniform01(rng);
+        return gamma_sample_unit_rate(rng, alpha + 1.0) * u.powf(1.0 / alpha);
+    }
+    let d = alpha - 1.0 / 3.0;
+    let c = 1.0 / (9.0 * d).sqrt();
+    loop {
+        let x = ziggurat_standard_normal(rng);
+        let v = 1.0 + c * x;
+        if v <= 0.0 {
+            continue;
+        }
+        let v = v * v * v;
+        let u = uniform01(rng);
+        let x2 = x * x;
+        // Cheap squeeze first; the exact log test only on the rare misses.
+        if u < 1.0 - 0.0331 * x2 * x2 {
+            return d * v;
+        }
+        if u.ln() < 0.5 * x2 + d * (1.0 - v + v.ln()) {
+            return d * v;
+        }
     }
 }
 

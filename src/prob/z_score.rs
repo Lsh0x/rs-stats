@@ -32,7 +32,13 @@ use num_traits::ToPrimitive;
 /// * `stddev` - The standard deviation (σ) of the distribution
 ///
 /// # Returns
-/// The z-score of the value. Returns infinity if stddev is 0.
+/// The z-score of the value.
+///
+/// # Errors
+/// Returns `StatsError::InvalidInput` if `stddev` is zero, negative, or not
+/// finite: a z-score is undefined without positive dispersion (the old
+/// behaviour silently returned `+∞`, even for the 0/0 case `x == avg`, and
+/// accepted a negative σ that flipped the sign of every score).
 ///
 /// # Examples
 /// ```
@@ -46,17 +52,18 @@ use num_traits::ToPrimitive;
 /// let z = z_score(55.0, 70.0, 10.0).unwrap();
 /// assert!((z - (-1.5)).abs() < 1e-10);
 ///
-/// // Handle zero standard deviation case
-/// let z = z_score(70.0, 70.0, 0.0).unwrap();
-/// assert!(z.is_infinite());
+/// // Zero standard deviation is an error, not infinity
+/// assert!(z_score(70.0, 70.0, 0.0).is_err());
 /// ```
 #[inline]
 pub fn z_score<T>(x: T, avg: f64, stddev: f64) -> StatsResult<f64>
 where
     T: ToPrimitive,
 {
-    if stddev == 0.0 {
-        return Ok(f64::INFINITY);
+    if stddev <= 0.0 || !stddev.is_finite() {
+        return Err(StatsError::invalid_input(format!(
+            "prob::z_score: standard deviation must be positive and finite, got {stddev}"
+        )));
     }
 
     let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError {
@@ -112,15 +119,15 @@ mod tests {
     }
 
     #[test]
-    fn test_z_score_zero_stddev() {
-        let x = 3.0;
-        let avg = 3.0;
-        let stddev = 0.0;
-        let result = z_score(x, avg, stddev).unwrap();
-        assert!(
-            result.is_infinite(),
-            "Z-score should be infinite when stddev is 0"
-        );
+    fn test_z_score_invalid_stddev() {
+        // σ = 0 (including the 0/0 case x == avg), σ < 0 and non-finite σ
+        // are all undefined — typed errors, not ±∞.
+        for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert!(
+                z_score(3.0, 3.0, bad).is_err(),
+                "z_score should reject stddev = {bad}"
+            );
+        }
     }
 
     #[test]

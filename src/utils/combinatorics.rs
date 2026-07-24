@@ -1,6 +1,7 @@
 //! Provides functions for combinatorial calculations.
 
 use crate::error::{StatsError, StatsResult};
+use crate::utils::special_functions::ln_gamma;
 
 /// Calculate the factorial of a number n.
 ///
@@ -46,10 +47,12 @@ pub fn factorial(n: u64) -> StatsResult<u64> {
 /// * `k` - The number of items to choose.
 ///
 /// # Returns
-/// * `StatsResult<u64>` - The number of permutations, or an error if k > n.
+/// * `StatsResult<u64>` - The number of permutations, or an error if k > n
+///   or the result overflows `u64`.
 ///
 /// # Errors
-/// Returns `StatsError::InvalidInput` if `k > n`.
+/// Returns `StatsError::InvalidInput` if `k > n`, or if the result overflows
+/// `u64` (use [`ln_permutation`] for large arguments).
 ///
 /// # Examples
 /// ```
@@ -58,8 +61,9 @@ pub fn factorial(n: u64) -> StatsResult<u64> {
 /// let result = permutation(5, 3).unwrap();
 /// assert_eq!(result, 60);
 ///
-/// // Error case
+/// // Error cases
 /// assert!(permutation(5, 10).is_err());
+/// assert!(permutation(30, 20).is_err()); // overflows u64
 /// ```
 pub fn permutation(n: u64, k: u64) -> StatsResult<u64> {
     if k > n {
@@ -68,7 +72,47 @@ pub fn permutation(n: u64, k: u64) -> StatsResult<u64> {
             k, n
         )));
     }
-    Ok(((n - k + 1)..=n).product::<u64>())
+    let mut result: u64 = 1;
+    for i in (n - k + 1)..=n {
+        result = result.checked_mul(i).ok_or_else(|| {
+            StatsError::invalid_input(format!(
+                "permutation({n}, {k}) overflows u64; use ln_permutation for large arguments"
+            ))
+        })?;
+    }
+    Ok(result)
+}
+
+/// Natural logarithm of the number of permutations:
+/// `ln P(n, k) = ln Γ(n+1) − ln Γ(n−k+1)`.
+///
+/// Never overflows — use this when [`permutation`] exceeds `u64`.
+///
+/// # Errors
+/// Returns `StatsError::InvalidInput` if `k > n`.
+///
+/// # Examples
+/// ```
+/// use rs_stats::utils::combinatorics::{ln_permutation, permutation};
+///
+/// let exact = permutation(10, 3).unwrap() as f64;
+/// let ln = ln_permutation(10, 3).unwrap();
+/// assert!((ln - exact.ln()).abs() < 1e-10);
+/// ```
+pub fn ln_permutation(n: u64, k: u64) -> StatsResult<f64> {
+    if k > n {
+        return Err(StatsError::invalid_input(format!(
+            "k ({}) cannot be greater than n ({})",
+            k, n
+        )));
+    }
+    // Direct log-sum for small k: the lnΓ difference cancels
+    // catastrophically when n ≫ k (both terms ~n·ln n; at n = 1e15 the
+    // difference keeps almost no significant bits).
+    if k <= 64 {
+        return Ok(((n - k + 1)..=n).map(|i| (i as f64).ln()).sum());
+    }
+    Ok(ln_gamma(n as f64 + 1.0) - ln_gamma((n - k) as f64 + 1.0))
 }
 
 /// Calculate the number of combinations of n items taken k at a time.
@@ -78,10 +122,12 @@ pub fn permutation(n: u64, k: u64) -> StatsResult<u64> {
 /// * `k` - The number of items to choose.
 ///
 /// # Returns
-/// * `StatsResult<u64>` - The number of combinations, or an error if k > n.
+/// * `StatsResult<u64>` - The number of combinations, or an error if k > n
+///   or the result overflows `u64`.
 ///
 /// # Errors
-/// Returns `StatsError::InvalidInput` if `k > n`.
+/// Returns `StatsError::InvalidInput` if `k > n`, or if the result overflows
+/// `u64` (use [`ln_combination`] for large arguments).
 ///
 /// # Examples
 /// ```
@@ -90,8 +136,12 @@ pub fn permutation(n: u64, k: u64) -> StatsResult<u64> {
 /// let result = combination(5, 3).unwrap();
 /// assert_eq!(result, 10);
 ///
-/// // Error case
+/// // C(66, 33) fits in u64 even though naive intermediates overflow.
+/// assert_eq!(combination(66, 33).unwrap(), 7_219_428_434_016_265_740);
+///
+/// // Error cases
 /// assert!(combination(5, 10).is_err());
+/// assert!(combination(70, 35).is_err()); // overflows u64
 /// ```
 pub fn combination(n: u64, k: u64) -> StatsResult<u64> {
     if k > n {
@@ -101,7 +151,52 @@ pub fn combination(n: u64, k: u64) -> StatsResult<u64> {
         )));
     }
     let k = if k > n - k { n - k } else { k };
-    Ok((1..=k).fold(1, |acc, x| acc * (n - x + 1) / x))
+    // Intermediates are held in u128: after step x the accumulator equals
+    // C(n, x), but the product before the division is C(n, x)·x, which can
+    // overflow u64 even when the final C(n, k) fits (e.g. C(66, 33)).
+    let overflow = || {
+        StatsError::invalid_input(format!(
+            "combination({n}, {k}) overflows u64; use ln_combination for large arguments"
+        ))
+    };
+    let mut acc: u128 = 1;
+    for x in 1..=k {
+        acc = acc.checked_mul((n - x + 1) as u128).ok_or_else(overflow)? / (x as u128);
+    }
+    u64::try_from(acc).map_err(|_| overflow())
+}
+
+/// Natural logarithm of the number of combinations:
+/// `ln C(n, k) = ln Γ(n+1) − ln Γ(k+1) − ln Γ(n−k+1)`.
+///
+/// Never overflows — use this when [`combination`] exceeds `u64`.
+///
+/// # Errors
+/// Returns `StatsError::InvalidInput` if `k > n`.
+///
+/// # Examples
+/// ```
+/// use rs_stats::utils::combinatorics::{combination, ln_combination};
+///
+/// let exact = combination(10, 3).unwrap() as f64;
+/// let ln = ln_combination(10, 3).unwrap();
+/// assert!((ln - exact.ln()).abs() < 1e-10);
+/// ```
+pub fn ln_combination(n: u64, k: u64) -> StatsResult<f64> {
+    if k > n {
+        return Err(StatsError::invalid_input(format!(
+            "k ({}) cannot be greater than n ({})",
+            k, n
+        )));
+    }
+    // Same small-k shortcut as ln_permutation, via C(n,k) = P(n,k')/k'!
+    // with k' = min(k, n−k).
+    let k_small = k.min(n - k);
+    if k_small <= 64 {
+        let ln_perm: f64 = ((n - k_small + 1)..=n).map(|i| (i as f64).ln()).sum();
+        return Ok(ln_perm - ln_gamma(k_small as f64 + 1.0));
+    }
+    Ok(ln_gamma(n as f64 + 1.0) - ln_gamma(k as f64 + 1.0) - ln_gamma((n - k) as f64 + 1.0))
 }
 
 #[cfg(test)]
@@ -159,6 +254,38 @@ mod tests {
             combination(5, 10).unwrap_err(),
             StatsError::InvalidInput { .. }
         ));
+    }
+
+    #[test]
+    fn test_permutation_overflow() {
+        // P(30, 20) = 30!/10! ≈ 7.3e25 > u64::MAX — must error, never wrap.
+        assert!(permutation(30, 20).is_err());
+        // P(20, 10) fits.
+        assert_eq!(permutation(20, 10).unwrap(), 670_442_572_800);
+    }
+
+    #[test]
+    fn test_combination_u64_edge() {
+        // Fits in u64 but naive u64 intermediates overflow.
+        assert_eq!(combination(66, 33).unwrap(), 7_219_428_434_016_265_740);
+        assert_eq!(combination(62, 31).unwrap(), 465_428_353_255_261_088);
+        // Result itself exceeds u64 — typed error.
+        assert!(combination(70, 35).is_err());
+    }
+
+    #[test]
+    fn test_ln_variants() {
+        // Agree with exact values where those exist…
+        let exact = combination(52, 5).unwrap() as f64;
+        assert!((ln_combination(52, 5).unwrap() - exact.ln()).abs() < 1e-9);
+        let exact = permutation(20, 10).unwrap() as f64;
+        assert!((ln_permutation(20, 10).unwrap() - exact.ln()).abs() < 1e-9);
+        // …and stay finite far beyond u64 range.
+        assert!(ln_combination(1000, 500).unwrap().is_finite());
+        assert!(ln_permutation(1000, 500).unwrap().is_finite());
+        // Same domain validation as the exact versions.
+        assert!(ln_combination(5, 10).is_err());
+        assert!(ln_permutation(5, 10).is_err());
     }
 
     #[test]

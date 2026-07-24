@@ -1,5 +1,81 @@
 # Changelog
 
+## [v4.0.0](https://github.com/Lsh0x/rs-stats/tree/v4.0.0)
+
+The "trust the tails" release: every numeric path is cross-validated
+against scipy/numpy, including extreme-tail regimes, and the whole
+library gets sampling, survival functions, non-parametric tests,
+resampling, exact power analysis and 5 new distributions.
+
+**Breaking changes:**
+
+- `chi_square_goodness_of_fit` / `chi_square_independence` return a named
+  `ChiSquareResult { statistic, degrees_of_freedom, p_value }` instead of
+  a positional `(f64, usize, f64)` tuple.
+- `std_err` now uses the **sample** convention (ddof = 1, matching
+  `scipy.stats.sem`); the previous population behaviour is available as
+  `std_err_population`.
+- Degenerate inputs that silently returned `NaN`/`±∞` are now typed
+  errors: zero-variance t-tests and ANOVA, `z_score` with σ ≤ 0, all-zero
+  χ² tables, `p = 1.0` quantiles of unbounded discrete distributions,
+  non-finite distribution parameters in every `new()`, NaN data in
+  `describe`/`quantile`, correlation and rank tests.
+- `Exponential` out-of-support behaviour aligned with the other continuous
+  distributions: `pdf(x<0) = 0`, `cdf(x<0) = 0`, `logpdf(x<0) = −∞`
+  (previously the lone `Err`).
+- Public structs gained fields (`LinearRegression::{x_mean, sum_xx}`,
+  `MultipleLinearRegression` per-coefficient inference,
+  `DecisionTree` internals); struct literals from older versions no longer
+  compile. Saved serde models from v3 still load (`serde(default)`).
+- `LinearRegression::confidence_interval` accepts any level in (0, 1) and
+  now returns a statistically correct Student-t interval of the mean
+  response (hardcoded normal z-scores are gone).
+- `Welford::population_variance` is deprecated in favour of
+  `variance_population`; `variance_sample` added.
+- `DecisionTree` no longer requires `Eq + Hash` on targets
+  (`DecisionTree<f64, f64>` now compiles); the MAE criterion evaluates
+  and predicts medians (its actual minimiser) instead of means.
+- Cargo features introduced: `parallel` (rayon) and `serde`
+  (serde/serde_json/bincode), both enabled by default;
+  `--no-default-features` builds with only `num-traits` + `rand`.
+  Unused `num` dependency removed; `rand_chacha` moved to
+  dev-dependencies; `thiserror` upgraded to 2.
+
+**Added:**
+
+- `sample()` / `sample_n()` on all distributions: ziggurat Normal /
+  LogNormal, Marsaglia-Tsang Gamma (shared by Beta, χ², Student-t, F),
+  Knuth/PTRS Poisson, BINV Binomial, Gamma-Poisson NegativeBinomial.
+- Exact survival functions `sf(x)` on all distributions (full relative
+  precision where `1 − cdf` collapses to 0).
+- New distributions: Cauchy, Laplace, Pareto, Logistic (14 auto-fit
+  candidates) and `MultivariateNormal` (Cholesky-validated, scipy-exact
+  logpdf, Mahalanobis score, `μ + L·z` sampling).
+- Hypothesis tests: Mann-Whitney U, Wilcoxon signed-rank, two-sample
+  Kolmogorov-Smirnov, Fisher exact, D'Agostino-Pearson K² normality test,
+  one-sided `Alternative`s on t-tests, `cohens_d`, `AnovaResult::eta_squared`,
+  `p_adjust` (Bonferroni / Holm / Benjamini-Hochberg).
+- `resampling`: `bootstrap_ci` (percentile) and `permutation_test` for any
+  statistic.
+- Exact power analysis: `power_t_test` / `sample_size_t_test` via a new
+  noncentral-t CDF (Lenth AS 243).
+- Correlation: `pearson` / `spearman` (tie-aware) with significance tests.
+- Descriptive: `describe()` and numpy-compatible `quantile()`.
+- Regression: `prediction_interval`, per-coefficient SE/t/p and global
+  F-test in multiple regression.
+- `utils::linalg::cholesky`; `ln_permutation` / `ln_combination`.
+
+**Fixed:**
+
+- Deep-tail correctness: dynamic quantile brackets (StudentT ν < 2,
+  F(1,1)), `erfc` exact in the far tail, Binomial pmf/cdf at large n,
+  Poisson `ln(k!)` beyond the table, u64-edge combinatorics,
+  `feature_importances` panic, sub-1e-12 quantiles of tiny-shape
+  Gamma/Beta (log-scale root bracketing).
+- Performance: Cody rational erf/erfc, O(1) discrete CDFs, single-pass
+  fit_all diagnostics, Newton quantiles, incremental decision-tree splits
+  (4–25×), multi-accumulator reductions, rayon size thresholds.
+
 ## [v3.0.0](https://github.com/Lsh0x/rs-stats/tree/v3.0.0)
 
 **Breaking changes** — slimmed-down public surface and rayon-default

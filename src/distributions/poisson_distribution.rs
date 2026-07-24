@@ -49,7 +49,7 @@
 use crate::error::{StatsError, StatsResult};
 
 /// Precomputed ln(k!) for k = 0..=20 (exact values).
-/// For k > 20, we use the Stirling approximation: ln(k!) ≈ k*ln(k) - k + 0.5*ln(2πk).
+/// For k > 20, we use ln Γ(k+1) via Lanczos (`ln_gamma`).
 /// This makes PMF O(1) per call instead of O(k).
 const LN_FACT_TABLE: [f64; 21] = [
     0.0,                     // ln(0!) = 0
@@ -76,15 +76,16 @@ const LN_FACT_TABLE: [f64; 21] = [
 ];
 
 /// Compute ln(k!) in O(1) time.
-/// Uses a precomputed table for k <= 20 and Stirling's approximation for k > 20.
+/// Uses a precomputed table for k <= 20 and `ln_gamma(k+1)` for k > 20.
 #[inline]
 fn ln_factorial(k: u64) -> f64 {
     if k <= 20 {
         LN_FACT_TABLE[k as usize]
     } else {
-        // Stirling's approximation: ln(k!) ≈ k*ln(k) - k + 0.5*ln(2πk)
-        let k_f64 = k as f64;
-        k_f64 * k_f64.ln() - k_f64 + 0.5 * (2.0 * std::f64::consts::PI * k_f64).ln()
+        // ln Γ(k+1) via Lanczos (~1e-14 relative). Bare Stirling without the
+        // 1/(12k) correction is off by ~5e-4 at k ≈ 150 — visible directly
+        // in PMF values.
+        crate::utils::special_functions::ln_gamma(k as f64 + 1.0)
     }
 }
 
@@ -110,17 +111,13 @@ fn cdf(k: u64, lambda: f64) -> StatsResult<f64> {
             message: "poisson::cdf: lambda must be positive".to_string(),
         });
     }
-    // Incremental log-factorial: O(k) total, O(1) per step.
-    let ln_lambda = lambda.ln();
-    let mut log_fact = 0.0_f64;
-    let mut cdf_sum = 0.0_f64;
-    for i in 0..=k {
-        if i > 0 {
-            log_fact += (i as f64).ln();
-        }
-        cdf_sum += ((i as f64) * ln_lambda - lambda - log_fact).exp();
-    }
-    Ok(cdf_sum.clamp(0.0, 1.0))
+    // Closed form: P(X ≤ k) = Q(k+1, λ), the upper regularized incomplete
+    // gamma. O(1) instead of the previous O(k) term-by-term sum (an exp per
+    // term), and immune to underflow of the individual terms.
+    Ok(
+        crate::utils::special_functions::regularized_incomplete_gamma_upper(k as f64 + 1.0, lambda)
+            .clamp(0.0, 1.0),
+    )
 }
 
 // ── Typed struct + DiscreteDistribution impl ───────────────────────────────────
@@ -136,6 +133,7 @@ fn cdf(k: u64, lambda: f64) -> StatsResult<f64> {
 /// assert!((p.mean() - 3.0).abs() < 1e-10);
 /// ```
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Poisson {
     /// Rate parameter λ > 0
     pub lambda: f64,
@@ -144,6 +142,13 @@ pub struct Poisson {
 impl Poisson {
     /// Creates a `Poisson` distribution with validation.
     pub fn new(lambda: f64) -> StatsResult<Self> {
+        // Non-finite parameters (NaN, ±inf) silently produced NaN
+        // pdf/cdf values before v4.0 — reject them up front.
+        if !lambda.is_finite() {
+            return Err(StatsError::InvalidInput {
+                message: "Poisson::new: parameters must be finite".to_string(),
+            });
+        }
         if lambda <= 0.0 {
             return Err(StatsError::InvalidInput {
                 message: "Poisson::new: lambda must be positive".to_string(),
@@ -183,6 +188,23 @@ impl crate::distributions::traits::Distribution for Poisson {
     fn cdf(&self, k: u64) -> StatsResult<f64> {
         cdf(k, self.lambda)
     }
+    /// Exact tail: `S(k) = P(k+1, λ)` (lower regularized incomplete gamma),
+    /// the complement of `cdf = Q(k+1, λ)`.
+    fn sf(&self, k: u64) -> StatsResult<f64> {
+        Ok(
+            crate::utils::special_functions::regularized_incomplete_gamma(
+                k as f64 + 1.0,
+                self.lambda,
+            )
+            .clamp(0.0, 1.0),
+        )
+    }
+    /// Direct sampling: Knuth's product method for λ < 10, Hörmann's PTRS
+    /// transformed rejection for larger λ — no quantile search per draw.
+    fn sample(&self, rng: &mut dyn rand::RngCore) -> StatsResult<u64> {
+        Ok(poisson_sample(rng, self.lambda))
+    }
+
     fn inverse_cdf(&self, p: f64) -> StatsResult<u64> {
         crate::distributions::traits::discrete_inverse_cdf_search(p, |k| self.cdf(k))
     }
@@ -191,6 +213,55 @@ impl crate::distributions::traits::Distribution for Poisson {
     }
     fn variance(&self) -> f64 {
         self.lambda
+    }
+}
+
+/// One Poisson(λ) draw without quantile search.
+///
+/// - λ < 10: Knuth's product method — multiply uniforms until the product
+///   drops below e^{−λ} (mean λ+1 uniforms, one exp per draw).
+/// - λ ≥ 10: Hörmann's PTRS transformed rejection (1993) — ~1.1 uniforms
+///   per draw with a squeeze that skips the ln/ln_gamma test most of the
+///   time. Exact for all λ.
+pub(crate) fn poisson_sample(rng: &mut dyn rand::RngCore, lambda: f64) -> u64 {
+    use crate::distributions::normal_distribution::uniform01;
+    use crate::utils::special_functions::ln_gamma;
+
+    if lambda < 10.0 {
+        let l = (-lambda).exp();
+        let mut k = 0u64;
+        let mut p = 1.0_f64;
+        loop {
+            p *= uniform01(rng);
+            if p <= l {
+                return k;
+            }
+            k += 1;
+        }
+    }
+
+    // PTRS (Hörmann): sample k = floor((2a/(0.5−|u|) + b)·u + λ + 0.43).
+    let b = 0.931 + 2.53 * lambda.sqrt();
+    let a = -0.059 + 0.02483 * b;
+    let inv_alpha = 1.1239 + 1.1328 / (b - 3.4);
+    let v_r = 0.9277 - 3.6224 / (b - 2.0);
+    loop {
+        let u = uniform01(rng) - 0.5;
+        let v = uniform01(rng);
+        let us = 0.5 - u.abs();
+        let k = ((2.0 * a / us + b) * u + lambda + 0.43).floor();
+        if us >= 0.07 && v <= v_r {
+            return k as u64;
+        }
+        if k < 0.0 || (us < 0.013 && v > us) {
+            continue;
+        }
+        // Exact acceptance test in log space.
+        if (v * inv_alpha / (a / (us * us) + b)).ln()
+            <= k * lambda.ln() - lambda - ln_gamma(k + 1.0)
+        {
+            return k as u64;
+        }
     }
 }
 

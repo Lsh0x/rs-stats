@@ -1,11 +1,10 @@
 use crate::error::{StatsError, StatsResult};
 use num_traits::cast::AsPrimitive;
 use num_traits::{Float, FromPrimitive, NumCast, ToPrimitive};
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 use std::cmp::Ordering;
-use std::collections::HashMap;
 use std::fmt::{self, Debug};
-use std::hash::Hash;
 
 /// Types of decision trees that can be created
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -42,8 +41,10 @@ where
     threshold: Option<T>,
     /// Value to return if this is a leaf node
     value: Option<T>,
-    /// Class distribution for classification trees
-    class_distribution: Option<HashMap<T, usize>>,
+    /// Class distribution for classification trees, sorted by class.
+    /// A sorted `Vec` instead of a `HashMap` so that `T` only needs
+    /// `PartialOrd` — which lets `DecisionTree<f64, f64>` compile.
+    class_distribution: Option<Vec<(T, usize)>>,
     /// Left child node index
     left: Option<usize>,
     /// Right child node index
@@ -54,7 +55,7 @@ where
 
 impl<T, F> Node<T, F>
 where
-    T: Clone + PartialOrd + Eq + Hash + Debug + ToPrimitive,
+    T: Clone + PartialOrd + Debug + ToPrimitive,
     F: Float,
 {
     /// Create a new internal node with a split condition
@@ -84,7 +85,7 @@ where
     }
 
     /// Create a new leaf node for classification
-    fn new_leaf_classification(value: T, class_distribution: HashMap<T, usize>) -> Self {
+    fn new_leaf_classification(value: T, class_distribution: Vec<(T, usize)>) -> Self {
         Node {
             feature_idx: None,
             threshold: None,
@@ -125,11 +126,13 @@ where
     min_samples_leaf: usize,
     /// Nodes in the tree
     nodes: Vec<Node<T, F>>,
+    /// Number of input features seen at fit time (0 before fitting)
+    n_features: usize,
 }
 
 impl<T, F> DecisionTree<T, F>
 where
-    T: Clone + PartialOrd + Eq + Hash + Send + Sync + NumCast + ToPrimitive + Debug,
+    T: Clone + PartialOrd + Send + Sync + NumCast + ToPrimitive + Debug,
     F: Float + Send + Sync + NumCast + FromPrimitive + 'static,
     f64: AsPrimitive<F>,
     usize: AsPrimitive<F>,
@@ -151,6 +154,7 @@ where
             min_samples_split,
             min_samples_leaf,
             nodes: Vec::new(),
+            n_features: 0,
         }
     }
 
@@ -195,6 +199,7 @@ where
 
         // Reset the tree
         self.nodes = Vec::new();
+        self.n_features = n_features;
 
         // Create sample indices (initially all samples)
         let indices: Vec<usize> = (0..features.len()).collect();
@@ -222,8 +227,12 @@ where
         {
             let node_idx = self.nodes.len();
             if self.tree_type == TreeType::Regression {
-                // For regression, use the mean value
-                let value = self.calculate_mean(target, indices)?;
+                // MAE-optimal prediction is the median; MSE-optimal is the mean.
+                let value = if self.criterion == SplitCriterion::Mae {
+                    self.calculate_median(target, indices)?
+                } else {
+                    self.calculate_mean(target, indices)?
+                };
                 self.nodes.push(Node::new_leaf_regression(value));
             } else {
                 // For classification, use the most common class
@@ -242,7 +251,11 @@ where
         if left_indices.is_empty() || right_indices.is_empty() {
             let node_idx = self.nodes.len();
             if self.tree_type == TreeType::Regression {
-                let value = self.calculate_mean(target, indices)?;
+                let value = if self.criterion == SplitCriterion::Mae {
+                    self.calculate_median(target, indices)?
+                } else {
+                    self.calculate_mean(target, indices)?
+                };
                 self.nodes.push(Node::new_leaf_regression(value));
             } else {
                 let (value, class_counts) = self.calculate_class_distribution(target, indices);
@@ -277,13 +290,16 @@ where
 
     /// Find the best split for the given samples.
     ///
-    /// Per (node, feature) cost is dominated by one O(n log n) sort plus
-    /// one O(n) walk of candidate thresholds. The previous implementation
-    /// rebuilt `left_indices` / `right_indices` as fresh `Vec`s for every
-    /// candidate threshold (an inner loop of size O(unique values)),
-    /// which produced O(features × thresholds) per-node allocations. Now
-    /// we sort once and use prefix / suffix slices of the sorted index
-    /// vector — only the **best** split's index vectors are materialised.
+    /// Per (node, feature): one O(n log n) sort of contiguous
+    /// `(value, position)` pairs, then a **single incremental sweep** of
+    /// the candidate thresholds — running sums for MSE, running class
+    /// counts for Gini/entropy — so each candidate costs O(1) (or
+    /// O(n_classes)) instead of a full re-scan of both sides. The previous
+    /// implementation re-walked left AND right per candidate (O(n²) per
+    /// feature) and allocated two HashMaps per candidate in
+    /// classification. MAE is the exception: its minimiser is the median,
+    /// which can't be maintained in O(1) — it re-selects the median per
+    /// candidate and is documented as the slower criterion.
     fn find_best_split<D>(
         &self,
         features: &[Vec<D>],
@@ -294,6 +310,7 @@ where
         D: Clone + Copy + PartialOrd + NumCast + ToPrimitive + AsPrimitive<F> + Send + Sync,
     {
         let n_features = features[0].len();
+        let n_samples = indices.len();
 
         let mut best_impurity = F::infinity();
         let mut best_feature = 0;
@@ -301,72 +318,177 @@ where
         let mut best_left: Vec<usize> = Vec::new();
         let mut best_right: Vec<usize> = Vec::new();
 
-        // One par_iter over features; each task does its own sort. The
-        // closure returns the per-feature best split (or None) — no
-        // shared scratch between tasks.
-        let results: Vec<_> = (0..n_features)
-            .into_par_iter()
+        if n_samples < 2 {
+            return (best_feature, best_threshold, best_left, best_right);
+        }
+        let n_f: F = n_samples.as_();
+
+        // Per-node precomputation shared (read-only) by all feature tasks.
+        // Regression: targets as F, aligned with `indices` positions.
+        let ys_by_pos: Vec<F> = if self.tree_type == TreeType::Regression {
+            indices.iter().map(|&i| target[i].as_()).collect()
+        } else {
+            Vec::new()
+        };
+        // Classification: sorted unique classes + class id per position.
+        // Binary search over PartialOrd — no Eq/Hash bound needed.
+        let (n_classes, ids_by_pos) = if self.tree_type == TreeType::Classification {
+            let mut classes: Vec<T> = indices.iter().map(|&i| target[i]).collect();
+            classes.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+            classes.dedup_by(|a, b| {
+                (*a).partial_cmp(&*b).unwrap_or(Ordering::Less) == Ordering::Equal
+            });
+            let ids: Vec<usize> = indices
+                .iter()
+                .map(|&i| {
+                    classes
+                        .binary_search_by(|c| c.partial_cmp(&target[i]).unwrap_or(Ordering::Equal))
+                        .unwrap_or(0)
+                })
+                .collect();
+            (classes.len(), ids)
+        } else {
+            (0, Vec::new())
+        };
+
+        // One par_iter over features; each task owns its sort + sweep.
+        #[cfg(feature = "parallel")]
+        let feature_iter = (0..n_features).into_par_iter();
+        #[cfg(not(feature = "parallel"))]
+        let feature_iter = 0..n_features;
+        let results: Vec<_> = feature_iter
             .filter_map(|feature_idx| {
-                // Sort the node's indices by this feature's value (stable
-                // ordering on ties is fine; we skip across ties below).
-                let mut sorted_indices: Vec<usize> = indices.to_vec();
-                sorted_indices.sort_by(|&a, &b| {
-                    features[a][feature_idx]
-                        .partial_cmp(&features[b][feature_idx])
-                        .unwrap_or(Ordering::Equal)
-                });
-                let n = sorted_indices.len();
-                if n < 2 {
-                    return None;
-                }
+                // Contiguous (value, position) pairs: one cache-friendly
+                // sort instead of comparator-driven double indirection
+                // into the row-major feature matrix.
+                let mut pairs: Vec<(D, usize)> = (0..n_samples)
+                    .map(|p| (features[indices[p]][feature_idx], p))
+                    .collect();
+                pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal));
 
                 let two = F::from(2.0)?;
-
-                // Walk candidate split positions. A split at `split_pos`
-                // means left = sorted_indices[..split_pos],
-                // right = sorted_indices[split_pos..]. Only positions
-                // between two distinct feature values are candidates.
                 let mut feature_best_impurity = F::infinity();
                 let mut feature_best_split_pos: Option<usize> = None;
-                let mut feature_best_threshold = features[sorted_indices[0]][feature_idx];
+                let mut feature_best_threshold = pairs[0].0;
 
-                for split_pos in 1..n {
-                    let i_prev = sorted_indices[split_pos - 1];
-                    let i_curr = sorted_indices[split_pos];
-                    let v_prev = features[i_prev][feature_idx];
-                    let v_curr = features[i_curr][feature_idx];
-                    if v_prev.partial_cmp(&v_curr).unwrap_or(Ordering::Equal) == Ordering::Equal {
-                        continue; // tied feature value; threshold can't separate these
-                    }
-                    let left = &sorted_indices[..split_pos];
-                    let right = &sorted_indices[split_pos..];
-                    if left.len() < self.min_samples_leaf || right.len() < self.min_samples_leaf {
-                        continue;
-                    }
-                    let impurity = self.calculate_split_impurity(target, left, right);
-                    if impurity < feature_best_impurity {
-                        let v1: F = v_prev.as_();
-                        let v2: F = v_curr.as_();
-                        let mid = (v1 + v2) / two;
-                        let threshold: D = match NumCast::from(mid) {
-                            Some(t) => t,
-                            None => continue,
-                        };
+                // A position is a candidate when both sides satisfy
+                // min_samples_leaf and the two adjacent feature values
+                // differ (a threshold can't separate tied values).
+                let is_candidate = |split_pos: usize| {
+                    split_pos >= self.min_samples_leaf
+                        && n_samples - split_pos >= self.min_samples_leaf
+                        && pairs[split_pos - 1]
+                            .0
+                            .partial_cmp(&pairs[split_pos].0)
+                            .unwrap_or(Ordering::Equal)
+                            != Ordering::Equal
+                };
+                let mut consider = |split_pos: usize, impurity: F| {
+                    if impurity < feature_best_impurity
+                        && let Some(thr) = Self::midpoint_threshold(
+                            pairs[split_pos - 1].0,
+                            pairs[split_pos].0,
+                            two,
+                        )
+                    {
                         feature_best_impurity = impurity;
                         feature_best_split_pos = Some(split_pos);
-                        feature_best_threshold = threshold;
+                        feature_best_threshold = thr;
                     }
+                };
+
+                match (self.tree_type, self.criterion) {
+                    (TreeType::Regression, SplitCriterion::Mse) => {
+                        let mut ys: Vec<F> = pairs.iter().map(|&(_, p)| ys_by_pos[p]).collect();
+                        // Centre on the node mean before accumulating:
+                        // Σy² − (Σy)²/n cancels catastrophically when
+                        // mean² ≫ variance (timestamps, amounts). SSE is
+                        // shift-invariant, so the split choice is identical.
+                        let node_mean = ys.iter().fold(F::zero(), |a, &b| a + b) / n_f;
+                        for y in ys.iter_mut() {
+                            *y = *y - node_mean;
+                        }
+                        let mut total_sum = F::zero();
+                        let mut total_sq = F::zero();
+                        for &y in &ys {
+                            total_sum = total_sum + y;
+                            total_sq = total_sq + y * y;
+                        }
+                        let mut left_sum = F::zero();
+                        let mut left_sq = F::zero();
+                        for split_pos in 1..n_samples {
+                            let y = ys[split_pos - 1];
+                            left_sum = left_sum + y;
+                            left_sq = left_sq + y * y;
+                            if !is_candidate(split_pos) {
+                                continue;
+                            }
+                            let nl: F = split_pos.as_();
+                            let nr: F = (n_samples - split_pos).as_();
+                            let right_sum = total_sum - left_sum;
+                            let right_sq = total_sq - left_sq;
+                            // SSE = Σy² − (Σy)²/n, clamped: cancellation can
+                            // push it a hair below zero.
+                            let sse_l = (left_sq - left_sum * left_sum / nl).max(F::zero());
+                            let sse_r = (right_sq - right_sum * right_sum / nr).max(F::zero());
+                            consider(split_pos, (sse_l + sse_r) / n_f);
+                        }
+                    }
+                    (TreeType::Regression, SplitCriterion::Mae) => {
+                        let ys: Vec<F> = pairs.iter().map(|&(_, p)| ys_by_pos[p]).collect();
+                        let mut scratch: Vec<F> = Vec::with_capacity(n_samples);
+                        for split_pos in 1..n_samples {
+                            if !is_candidate(split_pos) {
+                                continue;
+                            }
+                            let sae_l = Self::sum_abs_dev_median(&ys[..split_pos], &mut scratch);
+                            let sae_r = Self::sum_abs_dev_median(&ys[split_pos..], &mut scratch);
+                            consider(split_pos, (sae_l + sae_r) / n_f);
+                        }
+                    }
+                    (TreeType::Classification, SplitCriterion::Gini)
+                    | (TreeType::Classification, SplitCriterion::Entropy) => {
+                        let ids: Vec<usize> = pairs.iter().map(|&(_, p)| ids_by_pos[p]).collect();
+                        let entropy = self.criterion == SplitCriterion::Entropy;
+                        let mut left_counts = vec![0usize; n_classes];
+                        let mut right_counts = vec![0usize; n_classes];
+                        for &id in &ids {
+                            right_counts[id] += 1;
+                        }
+                        for split_pos in 1..n_samples {
+                            let id = ids[split_pos - 1];
+                            left_counts[id] += 1;
+                            right_counts[id] -= 1;
+                            if !is_candidate(split_pos) {
+                                continue;
+                            }
+                            let nl: F = split_pos.as_();
+                            let nr: F = (n_samples - split_pos).as_();
+                            let imp_l = Self::counts_impurity(&left_counts, nl, entropy);
+                            let imp_r = Self::counts_impurity(&right_counts, nr, entropy);
+                            consider(split_pos, (nl * imp_l + nr * imp_r) / n_f);
+                        }
+                    }
+                    // Invalid tree-type/criterion combination: no split.
+                    _ => return None,
                 }
 
-                // Materialise the best split's index vectors only once.
+                // Materialise the best split's global index vectors only once.
                 feature_best_split_pos.map(|split_pos| {
-                    let (left, right) = sorted_indices.split_at(split_pos);
+                    let left: Vec<usize> = pairs[..split_pos]
+                        .iter()
+                        .map(|&(_, p)| indices[p])
+                        .collect();
+                    let right: Vec<usize> = pairs[split_pos..]
+                        .iter()
+                        .map(|&(_, p)| indices[p])
+                        .collect();
                     (
                         feature_idx,
                         feature_best_impurity,
                         feature_best_threshold,
-                        left.to_vec(),
-                        right.to_vec(),
+                        left,
+                        right,
                     )
                 })
             })
@@ -385,149 +507,61 @@ where
         (best_feature, best_threshold, best_left, best_right)
     }
 
-    /// Calculate the impurity of a split
-    fn calculate_split_impurity(
-        &self,
-        target: &[T],
-        left_indices: &[usize],
-        right_indices: &[usize],
-    ) -> F {
-        let n_left = left_indices.len();
-        let n_right = right_indices.len();
-        let n_total = n_left + n_right;
-
-        if n_left == 0 || n_right == 0 {
-            return F::infinity();
-        }
-
-        let left_weight: F = (n_left as f64).as_();
-        let right_weight: F = (n_right as f64).as_();
-        let total: F = (n_total as f64).as_();
-
-        let left_ratio = left_weight / total;
-        let right_ratio = right_weight / total;
-
-        match (self.tree_type, self.criterion) {
-            (TreeType::Regression, SplitCriterion::Mse) => {
-                // Mean squared error
-                let left_mse = self.calculate_mse(target, left_indices);
-                let right_mse = self.calculate_mse(target, right_indices);
-                left_ratio * left_mse + right_ratio * right_mse
-            }
-            (TreeType::Regression, SplitCriterion::Mae) => {
-                // Mean absolute error
-                let left_mae = self.calculate_mae(target, left_indices);
-                let right_mae = self.calculate_mae(target, right_indices);
-                left_ratio * left_mae + right_ratio * right_mae
-            }
-            (TreeType::Classification, SplitCriterion::Gini) => {
-                // Gini impurity
-                let left_gini = self.calculate_gini(target, left_indices);
-                let right_gini = self.calculate_gini(target, right_indices);
-                left_ratio * left_gini + right_ratio * right_gini
-            }
-            (TreeType::Classification, SplitCriterion::Entropy) => {
-                // Entropy
-                let left_entropy = self.calculate_entropy(target, left_indices);
-                let right_entropy = self.calculate_entropy(target, right_indices);
-                left_ratio * left_entropy + right_ratio * right_entropy
-            }
-            _ => {
-                // This should never happen if the tree is properly constructed
-                // Return infinity as a sentinel value that will be ignored
-                F::infinity()
-            }
-        }
+    /// Midpoint of two adjacent feature values, converted back to `D`.
+    #[inline]
+    fn midpoint_threshold<D>(v_prev: D, v_curr: D, two: F) -> Option<D>
+    where
+        D: Copy + NumCast + AsPrimitive<F>,
+    {
+        let v1: F = v_prev.as_();
+        let v2: F = v_curr.as_();
+        NumCast::from((v1 + v2) / two)
     }
 
-    /// Calculate the mean squared error for a set of samples
-    fn calculate_mse(&self, target: &[T], indices: &[usize]) -> F {
-        if indices.is_empty() {
-            return F::zero();
-        }
-
-        // If calculate_mean fails, return infinity to make this split undesirable
-        let mean = match self.calculate_mean(target, indices) {
-            Ok(m) => m,
-            Err(_) => return F::infinity(),
-        };
-        let mean_f: F = mean.as_();
-
-        let sum_squared_error: F = indices
-            .iter()
-            .map(|&idx| {
-                let error: F = target[idx].as_() - mean_f;
-                error * error
-            })
-            .fold(F::zero(), |a, b| a + b);
-
-        let count = F::from(indices.len()).unwrap_or(F::one());
-        sum_squared_error / count
-    }
-
-    /// Calculate the mean absolute error for a set of samples
-    fn calculate_mae(&self, target: &[T], indices: &[usize]) -> F {
-        if indices.is_empty() {
-            return F::zero();
-        }
-
-        // If calculate_mean fails, return infinity to make this split undesirable
-        let mean = match self.calculate_mean(target, indices) {
-            Ok(m) => m,
-            Err(_) => return F::infinity(),
-        };
-        let mean_f: F = mean.as_();
-
-        let sum_absolute_error: F = indices
-            .iter()
-            .map(|&idx| {
-                let error: F = target[idx].as_() - mean_f;
-                error.abs()
-            })
-            .fold(F::zero(), |a, b| a + b);
-
-        let count = F::from(indices.len()).unwrap_or(F::one());
-        sum_absolute_error / count
-    }
-
-    /// Calculate the Gini impurity for a set of samples
-    fn calculate_gini(&self, target: &[T], indices: &[usize]) -> F {
-        if indices.is_empty() {
-            return F::zero();
-        }
-
-        let (_, class_counts) = self.calculate_class_distribution(target, indices);
-        let n_samples = indices.len();
-
-        F::one()
-            - class_counts
-                .values()
-                .map(|&count| {
-                    let probability: F = (count as f64 / n_samples as f64).as_();
-                    probability * probability
+    /// Gini or entropy impurity from class counts (`n_side` = Σ counts).
+    fn counts_impurity(counts: &[usize], n_side: F, entropy: bool) -> F {
+        if entropy {
+            -counts
+                .iter()
+                .filter(|&&c| c > 0)
+                .map(|&c| {
+                    let p: F = c.as_() / n_side;
+                    p * p.ln()
                 })
                 .fold(F::zero(), |a, b| a + b)
+        } else {
+            F::one()
+                - counts
+                    .iter()
+                    .map(|&c| {
+                        let p: F = c.as_() / n_side;
+                        p * p
+                    })
+                    .fold(F::zero(), |a, b| a + b)
+        }
     }
 
-    /// Calculate the entropy for a set of samples
-    fn calculate_entropy(&self, target: &[T], indices: &[usize]) -> F {
-        if indices.is_empty() {
-            return F::zero();
-        }
-
-        let (_, class_counts) = self.calculate_class_distribution(target, indices);
-        let n_samples = indices.len();
-
-        -class_counts
-            .values()
-            .map(|&count| {
-                let probability: F = (count as f64 / n_samples as f64).as_();
-                if probability > F::zero() {
-                    probability * probability.ln()
-                } else {
-                    F::zero()
-                }
-            })
+    /// Sum of |y − median(ys)| — the MAE numerator. The median (not the
+    /// mean) is the MAE minimiser; centring on the mean, as done before
+    /// v4.0, computed a different quantity ("mean absolute deviation
+    /// around the mean") under the MAE name.
+    fn sum_abs_dev_median(ys: &[F], scratch: &mut Vec<F>) -> F {
+        scratch.clear();
+        scratch.extend_from_slice(ys);
+        let n = scratch.len();
+        let mid = n / 2;
+        scratch.select_nth_unstable_by(mid, |a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+        let median = if n % 2 == 1 {
+            scratch[mid]
+        } else {
+            let lower = scratch[..mid]
+                .iter()
+                .cloned()
+                .fold(F::neg_infinity(), F::max);
+            (lower + scratch[mid]) / (F::one() + F::one())
+        };
+        ys.iter()
+            .map(|&y| (y - median).abs())
             .fold(F::zero(), |a, b| a + b)
     }
 
@@ -557,30 +591,60 @@ where
         })
     }
 
-    /// Calculate the class distribution and majority class for a set of samples
+    /// Calculate the class distribution (sorted by class) and the majority
+    /// class for a set of samples. Sort + run-length encode: only needs
+    /// `PartialOrd` on `T`, unlike the previous HashMap (`Eq + Hash`),
+    /// which made `DecisionTree<f64, _>` impossible.
     fn calculate_class_distribution(
         &self,
         target: &[T],
         indices: &[usize],
-    ) -> (T, HashMap<T, usize>) {
-        let mut class_counts: HashMap<T, usize> = HashMap::new();
+    ) -> (T, Vec<(T, usize)>) {
+        let mut values: Vec<T> = indices.iter().map(|&idx| target[idx]).collect();
+        values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
 
-        for &idx in indices {
-            let class = target[idx];
-            *class_counts.entry(class).or_insert(0) += 1;
+        let mut class_counts: Vec<(T, usize)> = Vec::new();
+        for v in values {
+            match class_counts.last_mut() {
+                Some((c, n))
+                    if (*c).partial_cmp(&v).unwrap_or(Ordering::Less) == Ordering::Equal =>
+                {
+                    *n += 1;
+                }
+                _ => class_counts.push((v, 1)),
+            }
         }
 
-        // Find the majority class
-        let (majority_class, _) = class_counts
+        let majority_class = class_counts
             .iter()
-            .max_by_key(|&(_, count)| *count)
-            .map(|(&class, count)| (class, *count))
-            .unwrap_or_else(|| {
-                // Default value if empty (should never happen)
-                (NumCast::from(0.0).unwrap(), 0)
-            });
+            .max_by_key(|(_, count)| *count)
+            .map(|(class, _)| class.clone())
+            .unwrap_or_else(|| NumCast::from(0.0).unwrap());
 
         (majority_class, class_counts)
+    }
+
+    /// Median of target values — the MAE-optimal leaf prediction
+    /// (converted back to `T`, which may round for integer targets).
+    fn calculate_median(&self, target: &[T], indices: &[usize]) -> StatsResult<T> {
+        if indices.is_empty() {
+            return Err(StatsError::empty_data(
+                "Cannot calculate median for empty indices",
+            ));
+        }
+        let mut vals: Vec<F> = indices.iter().map(|&i| target[i].as_()).collect();
+        let n = vals.len();
+        let mid = n / 2;
+        vals.select_nth_unstable_by(mid, |a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+        let median = if n % 2 == 1 {
+            vals[mid]
+        } else {
+            let lower = vals[..mid].iter().cloned().fold(F::neg_infinity(), F::max);
+            (lower + vals[mid]) / (F::one() + F::one())
+        };
+        NumCast::from(median).ok_or_else(|| {
+            StatsError::conversion_error("Failed to convert median to the target type".to_string())
+        })
     }
 
     /// Check if all samples in the current set have the same target value
@@ -679,21 +743,17 @@ where
         }
     }
 
-    /// Get the importance of each feature
+    /// Get the importance of each feature.
+    ///
+    /// Returns one entry per input feature seen at fit time (unused features
+    /// get 0). Deriving the count from the first split node — as done before
+    /// v4.0 — panicked whenever a deeper node split on a higher feature index.
     pub fn feature_importances(&self) -> Vec<F> {
         if self.nodes.is_empty() {
             return Vec::new();
         }
 
-        // Count the number of features from the first non-leaf node
-        let n_features = self
-            .nodes
-            .iter()
-            .find(|node| !node.is_leaf())
-            .and_then(|node| node.feature_idx)
-            .map(|idx| idx + 1)
-            .unwrap_or(0);
-
+        let n_features = self.n_features;
         if n_features == 0 {
             return Vec::new();
         }
@@ -776,7 +836,7 @@ where
 
 impl<T, F> fmt::Display for DecisionTree<T, F>
 where
-    T: Clone + PartialOrd + Eq + Hash + Debug + ToPrimitive,
+    T: Clone + PartialOrd + Debug + ToPrimitive,
     F: Float,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -794,7 +854,7 @@ where
 /// Implementation of additional methods for enhanced usability
 impl<T, F> DecisionTree<T, F>
 where
-    T: Clone + PartialOrd + Eq + Hash + Send + Sync + NumCast + ToPrimitive + Debug,
+    T: Clone + PartialOrd + Send + Sync + NumCast + ToPrimitive + Debug,
     F: Float + Send + Sync + NumCast + FromPrimitive + 'static,
     f64: AsPrimitive<F>,
     usize: AsPrimitive<F>,
@@ -830,7 +890,7 @@ where
         // Helper function to calculate the depth recursively
         fn depth_helper<T, F>(nodes: &[Node<T, F>], node_idx: usize, current_depth: usize) -> usize
         where
-            T: Clone + PartialOrd + Eq + Hash + Debug + ToPrimitive,
+            T: Clone + PartialOrd + Debug + ToPrimitive,
             F: Float,
         {
             let node = &nodes[node_idx];
@@ -1428,5 +1488,98 @@ mod tests {
             result.unwrap_err(),
             StatsError::InvalidInput { .. }
         ));
+    }
+
+    #[test]
+    fn test_f64_regression_target_compiles_and_fits() {
+        // The headline of the v4.0 tree refactor: f64 targets no longer
+        // need a wrapper type (the old `Eq + Hash` bound made
+        // `DecisionTree<f64, f64>` a compile error).
+        let mut tree =
+            DecisionTree::<f64, f64>::new(TreeType::Regression, SplitCriterion::Mse, 4, 2, 1);
+        let features: Vec<Vec<f64>> = (0..40).map(|i| vec![i as f64]).collect();
+        let target: Vec<f64> = (0..40)
+            .map(|i| {
+                if i < 20 {
+                    1.0 + (i % 3) as f64 * 0.01
+                } else {
+                    10.0
+                }
+            })
+            .collect();
+        tree.fit(&features, &target).unwrap();
+
+        let preds = tree.predict(&vec![vec![5.0], vec![30.0]]).unwrap();
+        assert!((preds[0] - 1.0).abs() < 0.1, "pred low = {}", preds[0]);
+        assert!((preds[1] - 10.0).abs() < 0.1, "pred high = {}", preds[1]);
+    }
+
+    #[test]
+    fn test_mae_leaf_predicts_median() {
+        // With an outlier, the median (MAE-optimal) differs from the mean:
+        // max_depth = 0 forces a single leaf so we observe the raw leaf value.
+        let mut tree =
+            DecisionTree::<f64, f64>::new(TreeType::Regression, SplitCriterion::Mae, 0, 2, 1);
+        let features: Vec<Vec<f64>> = (0..5).map(|i| vec![i as f64]).collect();
+        let target = vec![1.0, 2.0, 3.0, 4.0, 100.0];
+        tree.fit(&features, &target).unwrap();
+        let pred = tree.predict(&vec![vec![2.0]]).unwrap()[0];
+        assert!(
+            (pred - 3.0).abs() < 1e-12,
+            "MAE leaf = {pred} (median is 3, mean is 22)"
+        );
+    }
+
+    #[test]
+    fn test_mse_split_matches_bruteforce() {
+        // The incremental SSE sweep must select the same split as an
+        // explicit brute-force evaluation.
+        let features: Vec<Vec<f64>> = vec![
+            vec![1.0],
+            vec![2.0],
+            vec![3.0],
+            vec![4.0],
+            vec![10.0],
+            vec![11.0],
+            vec![12.0],
+        ];
+        let target = vec![5.0, 5.1, 4.9, 5.0, 20.0, 20.2, 19.8];
+        let mut tree =
+            DecisionTree::<f64, f64>::new(TreeType::Regression, SplitCriterion::Mse, 1, 2, 1);
+        tree.fit(&features, &target).unwrap();
+        // Best split must separate {1..4} from {10..12}: threshold in (4, 10).
+        let s = tree.tree_structure();
+        assert!(s.contains("feature 0"), "structure: {s}");
+        let preds = tree.predict(&vec![vec![2.0], vec![11.0]]).unwrap();
+        assert!((preds[0] - 5.0).abs() < 0.1);
+        assert!((preds[1] - 20.0).abs() < 0.2);
+    }
+
+    #[test]
+    fn test_feature_importances_deep_split_on_higher_feature() {
+        // Regression test: the root splits on feature 0, a deeper node
+        // splits on feature 1. Pre-v4.0 the feature count was derived from
+        // the FIRST split node (→ len 1) and indexing feature 1 panicked.
+        let mut tree =
+            DecisionTree::<i32, f64>::new(TreeType::Classification, SplitCriterion::Gini, 5, 2, 1);
+        // f0 cleanly separates class 2; inside f0 ≤ 3, f1 separates 0 vs 1.
+        let features = vec![
+            vec![0, 0],
+            vec![1, 10],
+            vec![2, 0],
+            vec![3, 10],
+            vec![10, 0],
+            vec![11, 10],
+            vec![12, 0],
+            vec![13, 10],
+        ];
+        let target = vec![0, 1, 0, 1, 2, 2, 2, 2];
+        tree.fit(&features, &target).unwrap();
+
+        let importances = tree.feature_importances();
+        assert_eq!(importances.len(), 2, "one entry per input feature");
+        let total: f64 = importances.iter().sum();
+        assert!((total - 1.0).abs() < 1e-12, "importances sum to 1");
+        assert!(importances.iter().all(|&v| v > 0.0), "both features used");
     }
 }

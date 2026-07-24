@@ -225,10 +225,97 @@ mod combinatorics {
     }
 }
 
+// ── Distribution fitting ──────────────────────────────────────────────────────
+mod fitting {
+    use criterion::{BenchmarkId, Criterion, black_box};
+    use rs_stats::Distribution;
+    use rs_stats::distributions::student_t::StudentT;
+
+    fn lognormal_ish(n: usize) -> Vec<f64> {
+        // Deterministic right-skewed positive data (no rng dependency).
+        (0..n)
+            .map(|i| {
+                let u = (i as f64 + 0.5) / n as f64;
+                (2.0 * u).exp() * (1.0 + 0.1 * (i as f64).sin())
+            })
+            .collect()
+    }
+
+    pub fn bench_fit_all(c: &mut Criterion) {
+        let mut group = c.benchmark_group("fit_all");
+        group.sample_size(20);
+        for n in [50, 1000, 10_000] {
+            let data = lognormal_ish(n);
+            group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, _| {
+                b.iter(|| rs_stats::fit_all(black_box(&data)));
+            });
+        }
+        group.finish();
+    }
+
+    pub fn bench_student_log_likelihood(c: &mut Criterion) {
+        let mut group = c.benchmark_group("student_log_likelihood");
+        let dist = StudentT::new(0.0, 1.0, 5.0).unwrap();
+        for n in [1000, 10_000] {
+            let data: Vec<f64> = (0..n).map(|i| ((i as f64) * 0.37).sin() * 3.0).collect();
+            group.bench_with_input(BenchmarkId::from_parameter(n), &n, |b, _| {
+                b.iter(|| dist.log_likelihood(black_box(&data)));
+            });
+        }
+        group.finish();
+    }
+}
+
+// ── Decision tree ─────────────────────────────────────────────────────────────
+mod tree {
+    use criterion::{BenchmarkId, Criterion, black_box};
+    use rs_stats::regression::decision_tree::{DecisionTree, SplitCriterion, TreeType};
+
+    pub fn bench_tree_fit(c: &mut Criterion) {
+        let mut group = c.benchmark_group("tree_fit");
+        group.sample_size(10);
+        for n in [500_usize, 2000] {
+            let features: Vec<Vec<i32>> = (0..n)
+                .map(|i| (0..6).map(|f| ((i * 37 + f * 101) % 997) as i32).collect())
+                .collect();
+            let target_reg: Vec<i32> = (0..n).map(|i| ((i * 53) % 211) as i32).collect();
+            group.bench_with_input(BenchmarkId::new("mse", n), &n, |b, _| {
+                b.iter(|| {
+                    let mut t = DecisionTree::<i32, f64>::new(
+                        TreeType::Regression,
+                        SplitCriterion::Mse,
+                        8,
+                        4,
+                        2,
+                    );
+                    t.fit(black_box(&features), black_box(&target_reg)).unwrap();
+                });
+            });
+            let target_cls: Vec<i32> = (0..n).map(|i| ((i * 7) % 5) as i32).collect();
+            group.bench_with_input(BenchmarkId::new("gini", n), &n, |b, _| {
+                b.iter(|| {
+                    let mut t = DecisionTree::<i32, f64>::new(
+                        TreeType::Classification,
+                        SplitCriterion::Gini,
+                        8,
+                        4,
+                        2,
+                    );
+                    t.fit(black_box(&features), black_box(&target_cls)).unwrap();
+                });
+            });
+        }
+        group.finish();
+    }
+}
+
 criterion_group!(
     benches,
     poisson::bench_pmf,
     poisson::bench_cdf,
+    fitting::bench_fit_all,
+    fitting::bench_student_log_likelihood,
+    tree::bench_tree_fit,
     binomial::bench_cdf,
     binomial::bench_pmf,
     hypothesis::bench_paired_t_test,

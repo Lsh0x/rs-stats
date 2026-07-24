@@ -9,7 +9,7 @@
 
 use crate::distributions::traits::Distribution;
 use crate::error::{StatsError, StatsResult};
-use crate::utils::special_functions::{bisect_inverse_cdf, ln_gamma, regularized_incomplete_beta};
+use crate::utils::special_functions::{ln_gamma, regularized_incomplete_beta};
 use std::f64::consts::PI;
 
 /// Student's t-distribution with location μ, scale σ, and ν degrees of freedom.
@@ -23,6 +23,7 @@ use std::f64::consts::PI;
 /// assert_eq!(t.mean(), 0.0);
 /// ```
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StudentT {
     /// Location μ
     pub mu: f64,
@@ -35,6 +36,13 @@ pub struct StudentT {
 impl StudentT {
     /// Creates a `StudentT(μ, σ, ν)` distribution.
     pub fn new(mu: f64, sigma: f64, nu: f64) -> StatsResult<Self> {
+        // Non-finite parameters (NaN, ±inf) silently produced NaN
+        // pdf/cdf values before v4.0 — reject them up front.
+        if !mu.is_finite() || !sigma.is_finite() || !nu.is_finite() {
+            return Err(StatsError::InvalidInput {
+                message: "StudentT::new: parameters must be finite".to_string(),
+            });
+        }
         if sigma <= 0.0 || nu <= 0.0 {
             return Err(StatsError::InvalidInput {
                 message: "StudentT::new: sigma and nu must be positive".to_string(),
@@ -110,9 +118,47 @@ impl Distribution for StudentT {
         Ok(log_coeff + log_tail)
     }
 
+    fn log_likelihood(&self, data: &[f64]) -> StatsResult<f64> {
+        Ok(self.log_likelihood_fast(data))
+    }
+
+    fn log_likelihood_fast(&self, data: &[f64]) -> f64 {
+        // The normalization constant (2 ln_gamma + 2 ln) only depends on the
+        // parameters — hoisted out of the loop, it stops dominating fit_all.
+        let nu = self.nu;
+        let log_coeff = ln_gamma((nu + 1.0) / 2.0)
+            - ln_gamma(nu / 2.0)
+            - 0.5 * (nu * PI).ln()
+            - self.sigma.ln();
+        let half_nu_p1 = (nu + 1.0) / 2.0;
+        let mut acc = 0.0_f64;
+        for &x in data {
+            let z = (x - self.mu) / self.sigma;
+            acc -= half_nu_p1 * (1.0 + z * z / nu).ln();
+        }
+        data.len() as f64 * log_coeff + acc
+    }
+
     fn cdf(&self, x: f64) -> StatsResult<f64> {
         let t = (x - self.mu) / self.sigma;
         Ok(self.standard_t_cdf(t))
+    }
+    /// Exact tail: `S(x) = I_{ν/(t²+ν)}(ν/2, ½)/2` for `t ≥ 0` — computed
+    /// on the incomplete-beta side that stays accurate in the tail.
+    fn sf(&self, x: f64) -> StatsResult<f64> {
+        let t = (x - self.mu) / self.sigma;
+        let ib = regularized_incomplete_beta(self.nu / 2.0, 0.5, self.nu / (t * t + self.nu));
+        Ok(if t >= 0.0 { 0.5 * ib } else { 1.0 - 0.5 * ib })
+    }
+
+    /// `T = Z / √(V/ν)` with `Z` from the ziggurat and `V ~ χ²(ν)` from
+    /// Marsaglia-Tsang — exact for every ν, including ν < 2 heavy tails.
+    fn sample(&self, rng: &mut dyn rand::RngCore) -> StatsResult<f64> {
+        use crate::distributions::gamma_distribution::gamma_sample_unit_rate;
+        use crate::distributions::normal_distribution::ziggurat_standard_normal;
+        let z = ziggurat_standard_normal(rng);
+        let v = 2.0 * gamma_sample_unit_rate(rng, self.nu / 2.0);
+        Ok(self.mu + self.sigma * z / (v / self.nu).sqrt())
     }
 
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
@@ -121,22 +167,36 @@ impl Distribution for StudentT {
                 message: "StudentT::inverse_cdf: p must be in [0, 1]".to_string(),
             });
         }
+        if p == 0.0 {
+            return Ok(f64::NEG_INFINITY);
+        }
+        if p == 1.0 {
+            return Ok(f64::INFINITY);
+        }
         if p == 0.5 {
             return Ok(self.mu);
         }
-        // Bisection on the t-scale then transform back
-        let std_dev_est = self.sigma * (self.nu / (self.nu - 2.0)).sqrt().max(1.0);
+        // Bisection on the t-scale then transform back. The variance-based
+        // scale only exists for ν > 2; below that, seed with σ and let
+        // bisect_inverse_cdf expand the bracket (heavy tails reach quantiles
+        // far beyond any fixed multiple of σ).
+        let std_dev_est = if self.nu > 2.0 {
+            self.sigma * (self.nu / (self.nu - 2.0)).sqrt()
+        } else {
+            self.sigma
+        };
         let lo = self.mu - 30.0 * std_dev_est;
         let hi = self.mu + 30.0 * std_dev_est;
         let mu = self.mu;
         let sigma = self.sigma;
         let nu = self.nu;
-        Ok(bisect_inverse_cdf(
+        Ok(crate::utils::special_functions::newton_inverse_cdf(
             |x| {
                 let t = (x - mu) / sigma;
                 let ib = regularized_incomplete_beta(nu / 2.0, 0.5, nu / (t * t + nu));
                 if t >= 0.0 { 1.0 - 0.5 * ib } else { 0.5 * ib }
             },
+            |x| self.pdf(x).unwrap_or(0.0),
             p,
             lo,
             hi,

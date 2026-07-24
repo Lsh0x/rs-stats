@@ -9,7 +9,7 @@
 
 use crate::distributions::traits::Distribution;
 use crate::error::{StatsError, StatsResult};
-use crate::utils::special_functions::{bisect_inverse_cdf, ln_gamma, regularized_incomplete_gamma};
+use crate::utils::special_functions::{ln_gamma, regularized_incomplete_gamma};
 
 /// Chi-squared distribution χ²(k).
 ///
@@ -23,6 +23,7 @@ use crate::utils::special_functions::{bisect_inverse_cdf, ln_gamma, regularized_
 /// assert_eq!(c.variance(), 8.0);
 /// ```
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ChiSquared {
     /// Degrees of freedom k > 0
     pub k: f64,
@@ -31,6 +32,13 @@ pub struct ChiSquared {
 impl ChiSquared {
     /// Creates a `χ²(k)` distribution.
     pub fn new(k: f64) -> StatsResult<Self> {
+        // Non-finite parameters (NaN, ±inf) silently produced NaN
+        // pdf/cdf values before v4.0 — reject them up front.
+        if !k.is_finite() {
+            return Err(StatsError::InvalidInput {
+                message: "ChiSquared::new: parameters must be finite".to_string(),
+            });
+        }
         if k <= 0.0 {
             return Err(StatsError::InvalidInput {
                 message: "ChiSquared::new: k must be positive".to_string(),
@@ -79,7 +87,28 @@ impl Distribution for ChiSquared {
             return Ok(f64::NEG_INFINITY);
         }
         let k = self.k;
-        Ok((k / 2.0 - 1.0) * x.ln() - x / 2.0 - (k / 2.0) * 2_f64.ln() - ln_gamma(k / 2.0))
+        Ok((k / 2.0 - 1.0) * x.ln()
+            - x / 2.0
+            - (k / 2.0) * std::f64::consts::LN_2
+            - ln_gamma(k / 2.0))
+    }
+
+    fn log_likelihood(&self, data: &[f64]) -> StatsResult<f64> {
+        Ok(self.log_likelihood_fast(data))
+    }
+
+    fn log_likelihood_fast(&self, data: &[f64]) -> f64 {
+        // (k/2)·ln 2 + ln Γ(k/2) hoisted out of the per-point loop.
+        let half_k = self.k / 2.0;
+        let log_norm = -half_k * std::f64::consts::LN_2 - ln_gamma(half_k);
+        let mut acc = 0.0_f64;
+        for &x in data {
+            if x <= 0.0 {
+                return f64::NEG_INFINITY;
+            }
+            acc += (half_k - 1.0) * x.ln() - x / 2.0;
+        }
+        data.len() as f64 * log_norm + acc
     }
 
     fn cdf(&self, x: f64) -> StatsResult<f64> {
@@ -87,6 +116,24 @@ impl Distribution for ChiSquared {
             return Ok(0.0);
         }
         Ok(regularized_incomplete_gamma(self.k / 2.0, x / 2.0))
+    }
+    /// Exact tail: `S(x) = Q(k/2, x/2)` (upper regularized incomplete gamma).
+    fn sf(&self, x: f64) -> StatsResult<f64> {
+        if x <= 0.0 {
+            return Ok(1.0);
+        }
+        Ok(
+            crate::utils::special_functions::regularized_incomplete_gamma_upper(
+                self.k / 2.0,
+                x / 2.0,
+            ),
+        )
+    }
+
+    /// χ²(k) = 2·Γ(k/2, rate = 1): one Marsaglia-Tsang draw.
+    fn sample(&self, rng: &mut dyn rand::RngCore) -> StatsResult<f64> {
+        use crate::distributions::gamma_distribution::gamma_sample_unit_rate;
+        Ok(2.0 * gamma_sample_unit_rate(rng, self.k / 2.0))
     }
 
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
@@ -103,8 +150,9 @@ impl Distribution for ChiSquared {
         }
         let k = self.k;
         let hi = k + 10.0 * (2.0 * k).sqrt() + 50.0;
-        Ok(bisect_inverse_cdf(
+        Ok(crate::utils::special_functions::newton_inverse_cdf(
             |x| regularized_incomplete_gamma(k / 2.0, x / 2.0),
+            |x| self.pdf(x).unwrap_or(0.0),
             p,
             0.0,
             hi,

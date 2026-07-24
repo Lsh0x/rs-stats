@@ -79,6 +79,7 @@ fn uniform_inverse_cdf(p: f64, a: f64, b: f64) -> StatsResult<f64> {
 /// assert!((u.mean() - 0.5).abs() < 1e-10);
 /// ```
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Uniform {
     /// Lower bound a
     pub a: f64,
@@ -89,6 +90,13 @@ pub struct Uniform {
 impl Uniform {
     /// Creates a `Uniform` distribution with validation (requires a < b).
     pub fn new(a: f64, b: f64) -> StatsResult<Self> {
+        // Non-finite parameters (NaN, ±inf) silently produced NaN
+        // pdf/cdf values before v4.0 — reject them up front.
+        if !a.is_finite() || !b.is_finite() {
+            return Err(StatsError::InvalidInput {
+                message: "Uniform::new: parameters must be finite".to_string(),
+            });
+        }
         if a >= b {
             return Err(StatsError::InvalidInput {
                 message: "Uniform::new: a must be strictly less than b".to_string(),

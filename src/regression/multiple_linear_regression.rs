@@ -2,17 +2,27 @@
 
 use crate::error::{StatsError, StatsResult};
 use num_traits::{Float, NumCast};
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
+#[cfg(feature = "serde")]
 use std::fs::File;
+#[cfg(feature = "serde")]
 use std::io::{self};
+#[cfg(feature = "serde")]
 use std::path::Path;
 
+#[cfg(feature = "serde")]
+fn nan_default() -> f64 {
+    f64::NAN
+}
+
 /// Multiple linear regression model that fits a hyperplane to multivariate data points.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct MultipleLinearRegression<T = f64>
 where
-    T: Float + Debug + Default + Serialize,
+    T: Float + Debug + Default,
 {
     /// Regression coefficients, including intercept as the first element
     pub coefficients: Vec<T>,
@@ -26,11 +36,30 @@ where
     pub n: usize,
     /// Number of predictor variables (excluding intercept)
     pub p: usize,
+    /// Standard error of each coefficient (intercept first):
+    /// `SE(βⱼ) = s·√[(XᵀX)⁻¹]ⱼⱼ`. Empty if `n ≤ p + 1` or `XᵀX` is singular.
+    /// `#[serde(default)]` keeps pre-v4.0 saved models loadable.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub coefficient_std_errors: Vec<T>,
+    /// t-statistic of each coefficient (`βⱼ / SE(βⱼ)`, intercept first).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub t_statistics: Vec<T>,
+    /// Two-sided p-value of each coefficient (Student-t, `n − p − 1` df).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub p_values: Vec<f64>,
+    /// Global F-statistic of the regression (H₀: all slopes are zero);
+    /// `NaN` when the test is not computable (n ≤ p+1, zero residuals…).
+    #[cfg_attr(feature = "serde", serde(default = "nan_default"))]
+    pub f_statistic: f64,
+    /// p-value of the global F-test; `NaN` when not computable — a 0.0
+    /// sentinel would read as "infinitely significant".
+    #[cfg_attr(feature = "serde", serde(default = "nan_default"))]
+    pub f_p_value: f64,
 }
 
 impl<T> Default for MultipleLinearRegression<T>
 where
-    T: Float + Debug + Default + NumCast + Serialize + for<'de> Deserialize<'de>,
+    T: Float + Debug + Default + NumCast,
 {
     fn default() -> Self {
         Self::new()
@@ -39,7 +68,7 @@ where
 
 impl<T> MultipleLinearRegression<T>
 where
-    T: Float + Debug + Default + NumCast + Serialize + for<'de> Deserialize<'de>,
+    T: Float + Debug + Default + NumCast,
 {
     /// Create a new multiple linear regression model without fitting any data
     pub fn new() -> Self {
@@ -50,6 +79,11 @@ where
             standard_error: T::zero(),
             n: 0,
             p: 0,
+            coefficient_std_errors: Vec::new(),
+            t_statistics: Vec::new(),
+            p_values: Vec::new(),
+            f_statistic: f64::NAN,
+            f_p_value: f64::NAN,
         }
     }
 
@@ -194,15 +228,63 @@ where
             }
         }
 
-        // Calculate standard error
+        // Calculate standard error + per-coefficient inference
+        self.coefficient_std_errors.clear();
+        self.t_statistics.clear();
+        self.p_values.clear();
+        self.f_statistic = f64::NAN;
+        self.f_p_value = f64::NAN;
         if self.n > self.p + 1 {
-            let n_minus_p_minus_1 = T::from(self.n - self.p - 1).ok_or_else(|| {
-                StatsError::conversion_error(format!(
-                    "Failed to convert {} to type T",
-                    self.n - self.p - 1
-                ))
+            let df = self.n - self.p - 1;
+            let n_minus_p_minus_1 = T::from(df).ok_or_else(|| {
+                StatsError::conversion_error(format!("Failed to convert {df} to type T"))
             })?;
             self.standard_error = (ss_residual / n_minus_p_minus_1).sqrt();
+
+            // Per-coefficient SE via the diagonal of (XᵀX)⁻¹ — xt_x is
+            // already built. Singularity here is not fatal (the system was
+            // solvable); inference fields just stay empty.
+            let xtx_f64: Option<Vec<f64>> = xt_x.iter().map(|v| v.to_f64()).collect();
+            let s2 = ss_residual.to_f64().unwrap_or(f64::NAN) / df as f64;
+            if let Some(xtx_f64) = xtx_f64
+                && let Ok(inv) = crate::utils::linalg::invert(&xtx_f64, m, 1e-12)
+            {
+                let dff = df as f64;
+                for j in 0..m {
+                    let se = (s2 * inv[j * m + j]).max(0.0).sqrt();
+                    let beta = self.coefficients[j].to_f64().unwrap_or(f64::NAN);
+                    let t = beta / se;
+                    // Two-sided Student-t p-value: I_{df/(df+t²)}(df/2, ½).
+                    let p_val = crate::utils::special_functions::regularized_incomplete_beta(
+                        0.5 * dff,
+                        0.5,
+                        dff / (dff + t * t),
+                    )
+                    .clamp(0.0, 1.0);
+                    self.coefficient_std_errors.push(T::from(se).ok_or_else(|| {
+                        StatsError::conversion_error("Failed to convert SE to type T")
+                    })?);
+                    self.t_statistics.push(T::from(t).ok_or_else(|| {
+                        StatsError::conversion_error("Failed to convert t to type T")
+                    })?);
+                    self.p_values.push(p_val);
+                }
+            }
+
+            // Global F-test: F = ((SS_tot − SS_res)/p) / (SS_res/(n−p−1)).
+            let ss_tot = ss_total.to_f64().unwrap_or(f64::NAN);
+            let ss_res = ss_residual.to_f64().unwrap_or(f64::NAN);
+            if self.p > 0 && ss_res > 0.0 && ss_tot > ss_res {
+                let f = ((ss_tot - ss_res) / self.p as f64) / (ss_res / df as f64);
+                self.f_statistic = f;
+                use crate::distributions::traits::Distribution as _;
+                if let Ok(fd) = crate::distributions::f_distribution::FDistribution::new(
+                    self.p as f64,
+                    df as f64,
+                ) {
+                    self.f_p_value = fd.sf(f).map(|p| p.clamp(0.0, 1.0)).unwrap_or(f64::NAN);
+                }
+            }
         }
 
         Ok(())
@@ -324,7 +406,14 @@ where
     {
         x_values.iter().map(|x| self.predict(x)).collect()
     }
+}
 
+/// Model persistence — requires the `serde` feature.
+#[cfg(feature = "serde")]
+impl<T> MultipleLinearRegression<T>
+where
+    T: Float + Debug + Default + NumCast + Serialize + for<'de> Deserialize<'de>,
+{
     /// Save the model to a file
     ///
     /// # Arguments
@@ -513,6 +602,7 @@ where
 mod tests {
     use super::*;
     use crate::utils::approx_equal;
+    #[cfg(feature = "serde")]
     use tempfile::tempdir;
 
     #[test]
@@ -614,6 +704,7 @@ mod tests {
         assert!(approx_equal(predictions[1], 23.0, Some(1e-6)));
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_save_load_json() {
         // Create a temporary directory
@@ -655,6 +746,7 @@ mod tests {
         assert_eq!(loaded.p, model.p);
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_save_load_binary() {
         // Create a temporary directory
@@ -696,6 +788,7 @@ mod tests {
         assert_eq!(loaded.p, model.p);
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_json_serialization() {
         // Create and fit a model
@@ -799,6 +892,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_save_invalid_path() {
         // Test saving to an invalid path
@@ -815,6 +909,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_load_nonexistent_file() {
         // Test loading a non-existent file
@@ -826,6 +921,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_from_json_invalid() {
         // Test deserializing invalid JSON string

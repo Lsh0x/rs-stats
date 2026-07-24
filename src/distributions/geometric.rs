@@ -29,6 +29,7 @@
 //! ```
 
 use crate::error::{StatsError, StatsResult};
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 /// Geometric distribution Geometric(p).
@@ -41,7 +42,8 @@ use serde::{Deserialize, Serialize};
 /// let g = Geometric::new(0.25).unwrap();
 /// assert!((g.mean() - 4.0).abs() < 1e-10);
 /// ```
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Geometric {
     /// Success probability p ∈ (0, 1]
     pub p: f64,
@@ -110,8 +112,18 @@ impl crate::distributions::traits::Distribution for Geometric {
         if k == 0 {
             return Ok(0.0);
         }
-        // CDF(k) = 1 - (1-p)^k  — use powf(f64) to handle k > i32::MAX correctly.
-        Ok(1.0 - (1.0 - self.p).powf(k as f64))
+        // CDF(k) = 1 - (1-p)^k, computed as −expm1(k·ln_1p(−p)) so both the
+        // small-p and the far-tail regimes keep relative precision.
+        // (k as f64 handles k > i32::MAX correctly.)
+        Ok(-((k as f64) * (-self.p).ln_1p()).exp_m1())
+    }
+    /// Exact tail: `S(k) = (1−p)^k`, computed as `exp(k·ln_1p(−p))`.
+    fn sf(&self, k: u64) -> StatsResult<f64> {
+        if k == 0 {
+            // Avoids 0 · (−∞) = NaN when p = 1.
+            return Ok(1.0);
+        }
+        Ok(((k as f64) * (-self.p).ln_1p()).exp())
     }
 
     /// Closed-form quantile: k = ⌈ln(1−p) / ln(1−self.p)⌉.
@@ -125,13 +137,21 @@ impl crate::distributions::traits::Distribution for Geometric {
         if p == 0.0 {
             return Ok(0);
         }
-        if p == 1.0 || self.p == 1.0 {
-            return Ok(1);
+        if self.p == 1.0 {
+            return Ok(1); // all mass at k = 1
+        }
+        if p == 1.0 {
+            // Unbounded support: the p = 1 quantile is +∞, not 1 (CDF(1) =
+            // p_param < 1 here — the old code conflated the two conditions).
+            return Err(StatsError::InvalidInput {
+                message: "Geometric::inverse_cdf: p = 1.0 has no finite quantile; use p < 1"
+                    .to_string(),
+            });
         }
         // CDF(k) = 1 - (1-p_param)^k ≥ p_target
         // → (1-p_param)^k ≤ 1 - p_target
         // → k ≥ ln(1 - p_target) / ln(1 - p_param)   [denominator < 0, inequality flips]
-        let k = (1.0 - p).ln() / (1.0 - self.p).ln();
+        let k = (-p).ln_1p() / (-self.p).ln_1p();
         Ok(k.ceil().max(1.0) as u64)
     }
 

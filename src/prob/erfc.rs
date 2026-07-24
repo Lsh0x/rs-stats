@@ -19,7 +19,6 @@
 //! P(X > x) = 0.5 * erfc(x/√2)
 
 use crate::error::{StatsError, StatsResult};
-use crate::prob::erf;
 use num_traits::ToPrimitive;
 
 /// Calculate the complementary error function (erfc) of a value
@@ -53,7 +52,15 @@ where
     let x_64 = x.to_f64().ok_or_else(|| StatsError::ConversionError {
         message: "prob::erfc: Failed to convert x to f64".to_string(),
     })?;
-    Ok(1.0 - erf(x_64)?)
+    if x_64.is_nan() {
+        return Ok(f64::NAN);
+    }
+    if x_64.is_infinite() {
+        return Ok(if x_64 > 0.0 { 0.0 } else { 2.0 });
+    }
+    // Cody's rational approximations: full relative precision in the upper
+    // tail (down to ~1e-308), where `1 − erf(x)` rounds to 0.
+    Ok(crate::prob::erf::erfc_cody(x_64))
 }
 
 #[cfg(test)]

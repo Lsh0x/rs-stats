@@ -65,6 +65,7 @@ use crate::error::{StatsError, StatsResult};
 /// assert!((ln.mean() - 0.5_f64.exp()).abs() < 1e-10);
 /// ```
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LogNormal {
     /// Location (mean of ln X) μ
     pub mu: f64,
@@ -75,6 +76,13 @@ pub struct LogNormal {
 impl LogNormal {
     /// Creates a `LogNormal(μ, σ)` distribution.
     pub fn new(mu: f64, sigma: f64) -> StatsResult<Self> {
+        // Non-finite parameters (NaN, ±inf) silently produced NaN
+        // pdf/cdf values before v4.0 — reject them up front.
+        if !mu.is_finite() || !sigma.is_finite() {
+            return Err(StatsError::InvalidInput {
+                message: "LogNormal::new: parameters must be finite".to_string(),
+            });
+        }
         if sigma <= 0.0 {
             return Err(StatsError::InvalidInput {
                 message: "LogNormal::new: sigma must be positive".to_string(),
@@ -143,6 +151,21 @@ impl Distribution for LogNormal {
             return Ok(0.0);
         }
         normal_cdf(x.ln(), self.mu, self.sigma)
+    }
+    /// Exact tail: `S(x) = erfc((ln x − μ)/(σ√2))/2`.
+    fn sf(&self, x: f64) -> StatsResult<f64> {
+        if x <= 0.0 {
+            return Ok(1.0);
+        }
+        let z = (x.ln() - self.mu) / (self.sigma * std::f64::consts::SQRT_2);
+        crate::prob::erfc(z).map(|e| 0.5 * e)
+    }
+
+    /// Ziggurat-based sampling: `X = exp(μ + σ·Z)` with `Z` from the
+    /// Normal ziggurat — much faster than the default inverse-CDF path.
+    fn sample(&self, rng: &mut dyn rand::RngCore) -> StatsResult<f64> {
+        let z = crate::distributions::normal_distribution::ziggurat_standard_normal(rng);
+        Ok((self.mu + self.sigma * z).exp())
     }
 
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {

@@ -70,6 +70,24 @@ pub fn regularized_incomplete_gamma(a: f64, x: f64) -> f64 {
     }
 }
 
+/// Regularized *upper* incomplete gamma function Q(a, x) = 1 − P(a, x).
+///
+/// Computed directly (series or continued fraction on the appropriate side)
+/// so tiny tail values keep full **relative** precision — `1.0 - P(a, x)`
+/// would round to 0 as soon as Q < ~1e-16. This is the primitive behind
+/// accurate tail probabilities (`erfc`, survival functions, p-values).
+pub fn regularized_incomplete_gamma_upper(a: f64, x: f64) -> f64 {
+    debug_assert!(a > 0.0, "a must be positive");
+    if x <= 0.0 {
+        return 1.0;
+    }
+    if x < a + 1.0 {
+        1.0 - gamma_series(a, x)
+    } else {
+        gamma_continued_fraction(a, x)
+    }
+}
+
 /// Series representation of the lower regularized incomplete gamma.
 /// Converges well when x < a + 1.
 fn gamma_series(a: f64, x: f64) -> f64 {
@@ -225,17 +243,207 @@ fn beta_cf(a: f64, b: f64, x: f64) -> f64 {
     h
 }
 
+// ── Noncentral Student-t CDF (Lenth 1989) ─────────────────────────────────────
+
+/// CDF of the noncentral t distribution: `P(T ≤ t)` with `df` degrees of
+/// freedom and noncentrality `nc`.
+///
+/// Lenth's series (Algorithm AS 243): with `x = t²/(t²+df)`,
+/// `P = Φ(−nc) + ½ Σⱼ [pⱼ·I_x(j+½, df/2) + qⱼ·I_x(j+1, df/2)]` where the
+/// Poisson-like weights `pⱼ`, `qⱼ` are computed by recurrence. This is the
+/// engine behind exact statistical power calculations
+/// (see [`crate::hypothesis_tests::power_t_test`]).
+pub fn noncentral_t_cdf(t: f64, df: f64, nc: f64) -> f64 {
+    debug_assert!(df > 0.0, "df must be positive");
+    // Symmetry reduces to t ≥ 0: P(T ≤ t; δ) = 1 − P(T ≤ −t; −δ).
+    if t < 0.0 {
+        return 1.0 - noncentral_t_cdf(-t, df, -nc);
+    }
+    let phi_neg_nc = 0.5 * crate::prob::erf::erfc_cody(nc / std::f64::consts::SQRT_2);
+    if t == 0.0 {
+        return phi_neg_nc;
+    }
+    let half_nc2 = 0.5 * nc * nc;
+    if half_nc2 > 700.0 {
+        // exp(−δ²/2) underflows the series weights. Fall back to the
+        // Abramowitz-Stegun 26.7.10 normal approximation, which keeps the
+        // t-dependence (a flat 0/1 return here was wrong for t ≈ δ).
+        let z = (t * (1.0 - 1.0 / (4.0 * df)) - nc) / (1.0 + t * t / (2.0 * df)).sqrt();
+        return (0.5 * crate::prob::erf::erfc_cody(-z / std::f64::consts::SQRT_2)).clamp(0.0, 1.0);
+    }
+
+    let x = t * t / (t * t + df);
+    let half_df = 0.5 * df;
+
+    // Weights by recurrence: p₀ = e^{−δ²/2}, q₀ = δ·e^{−δ²/2}·√(2/π).
+    let mut p_j = (-half_nc2).exp();
+    let mut q_j = nc * (-half_nc2).exp() * (2.0 / std::f64::consts::PI).sqrt();
+    let mut sum = 0.0_f64;
+    let mut j = 0usize;
+    loop {
+        let jf = j as f64;
+        let term = p_j * regularized_incomplete_beta(jf + 0.5, half_df, x)
+            + q_j * regularized_incomplete_beta(jf + 1.0, half_df, x);
+        sum += term;
+        // The Poisson weights peak near j ≈ δ²/2; only stop once past it.
+        if (jf > half_nc2 && term.abs() < 1e-14 * (sum.abs() + 1e-300)) || j > 2000 {
+            break;
+        }
+        p_j *= half_nc2 / (jf + 1.0);
+        q_j *= half_nc2 / (jf + 1.5);
+        j += 1;
+    }
+
+    (phi_neg_nc + 0.5 * sum).clamp(0.0, 1.0)
+}
+
+/// Survival function of the noncentral t: `P(T > t)`.
+pub fn noncentral_t_sf(t: f64, df: f64, nc: f64) -> f64 {
+    // Recompute on the mirrored side rather than 1 − cdf so small upper
+    // tails keep relative precision.
+    noncentral_t_cdf(-t, df, -nc)
+}
+
+// ── Inverse CDF via bracketed Newton ──────────────────────────────────────────
+
+/// Find x with `cdf_fn(x) ≈ p` using a short bisection to localise the
+/// root, then bracket-safeguarded Newton steps (`x ← x − (F(x)−p)/f(x)`).
+///
+/// Quadratic convergence cuts the CDF evaluations from ~60 (pure
+/// bisection at relative 1e-12) to ~15. Falls back to a bisection step
+/// whenever Newton leaves the bracket or the density vanishes, so it is
+/// as robust as [`bisect_inverse_cdf`] (including the same dynamic
+/// bracket expansion).
+pub fn newton_inverse_cdf(
+    cdf_fn: impl Fn(f64) -> f64,
+    pdf_fn: impl Fn(f64) -> f64,
+    p: f64,
+    mut lo: f64,
+    mut hi: f64,
+) -> f64 {
+    const EPS: f64 = 1e-12;
+
+    // Same dynamic bracket expansion as bisect_inverse_cdf.
+    let mut width = (hi - lo).abs().max(1.0);
+    for _ in 0..200 {
+        if cdf_fn(hi) >= p {
+            break;
+        }
+        lo = hi;
+        hi += width;
+        width *= 2.0;
+    }
+    let mut width = (hi - lo).abs().max(1.0);
+    for _ in 0..200 {
+        if cdf_fn(lo) <= p {
+            break;
+        }
+        hi = lo;
+        lo -= width;
+        width *= 2.0;
+    }
+
+    // A few bisection steps to give Newton a well-conditioned start.
+    for _ in 0..6 {
+        let mid = 0.5 * (lo + hi);
+        if cdf_fn(mid) < p {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+
+    // Linear bisection cannot resolve roots far below the bracket width:
+    // with lo pinned at 0, every root under ~1e-12 used to "converge" to
+    // the bracket edge (e.g. Gamma(0.01, 1) medians ~1e-31). Locate tiny
+    // roots' order of magnitude in log scale first.
+    if lo == 0.0 && hi > 0.0 {
+        let tiny = f64::MIN_POSITIVE;
+        if cdf_fn(tiny) >= p {
+            return tiny; // the root sits below the smallest positive double
+        }
+        let mut glo = tiny;
+        let mut ghi = hi;
+        for _ in 0..80 {
+            let mid = (0.5 * (glo.ln() + ghi.ln())).exp();
+            if cdf_fn(mid) < p {
+                glo = mid;
+            } else {
+                ghi = mid;
+            }
+            if ghi <= glo * (1.0 + 1e-12) {
+                return 0.5 * (glo + ghi);
+            }
+        }
+        lo = glo;
+        hi = ghi;
+    }
+
+    let mut x = 0.5 * (lo + hi);
+    for _ in 0..40 {
+        let f = cdf_fn(x) - p;
+        if f > 0.0 {
+            hi = x;
+        } else {
+            lo = x;
+        }
+        let d = pdf_fn(x);
+        let mut x_new = x - f / d;
+        if !x_new.is_finite() || x_new <= lo || x_new >= hi {
+            // Newton left the bracket (flat density, overshoot): bisect.
+            x_new = 0.5 * (lo + hi);
+        }
+        // Relative-only convergence — an absolute floor here is exactly
+        // what silently truncated sub-1e-12 roots.
+        if x_new == x || (x_new - x).abs() <= EPS * x_new.abs() {
+            return x_new;
+        }
+        x = x_new;
+        if (hi - lo).abs() <= EPS * hi.abs().max(lo.abs()) {
+            return x;
+        }
+    }
+    x
+}
+
 // ── General inverse CDF via bisection ─────────────────────────────────────────
 
-/// Find x such that `cdf_fn(x) ≈ p` via bisection on `[lo, hi]`.
-/// `cdf_fn` must be monotone non-decreasing on that interval.
+/// Find x such that `cdf_fn(x) ≈ p` via bisection starting from `[lo, hi]`.
+/// `cdf_fn` must be monotone non-decreasing.
+///
+/// `[lo, hi]` is a *seed* bracket, not a hard bound: if the quantile lies
+/// outside it, the bracket is expanded geometrically until it contains `p`
+/// (heavy-tailed distributions — t with ν ≤ 2, F with small d2 — put
+/// extreme quantiles orders of magnitude beyond any moment-based guess).
+/// Bounded supports never expand: their endpoint CDF already reaches 0/1.
 pub fn bisect_inverse_cdf(cdf_fn: impl Fn(f64) -> f64, p: f64, mut lo: f64, mut hi: f64) -> f64 {
     const MAX_ITER: usize = 200;
     const EPS: f64 = 1e-12;
 
+    let mut width = (hi - lo).abs().max(1.0);
+    for _ in 0..MAX_ITER {
+        if cdf_fn(hi) >= p {
+            break;
+        }
+        lo = hi;
+        hi += width;
+        width *= 2.0;
+    }
+    let mut width = (hi - lo).abs().max(1.0);
+    for _ in 0..MAX_ITER {
+        if cdf_fn(lo) <= p {
+            break;
+        }
+        hi = lo;
+        lo -= width;
+        width *= 2.0;
+    }
+
     for _ in 0..MAX_ITER {
         let mid = 0.5 * (lo + hi);
-        if (hi - lo).abs() < EPS {
+        // Relative tolerance: far-tail quantiles can be huge and an absolute
+        // 1e-12 is then below one ulp (the loop would spin to MAX_ITER).
+        if (hi - lo).abs() < EPS * mid.abs().max(1.0) {
             return mid;
         }
         if cdf_fn(mid) < p {

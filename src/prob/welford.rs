@@ -174,7 +174,13 @@ impl Welford {
         self.mean
     }
 
-    /// Sample variance `M2 / (n-1)`.
+    /// **Sample** variance `M2 / (n-1)` (ddof = 1).
+    ///
+    /// ⚠️ Convention mismatch with the free function
+    /// [`prob::variance`](crate::prob::variance), which is the **population**
+    /// estimator (ddof = 0). Prefer the explicit names
+    /// [`variance_sample`](Self::variance_sample) /
+    /// [`variance_population`](Self::variance_population) in new code.
     ///
     /// # Errors
     /// Returns [`StatsError::EmptyData`] if `count() < 2` — sample variance
@@ -188,14 +194,34 @@ impl Welford {
         Ok(self.m2 / (self.n - 1) as f64)
     }
 
-    /// Population variance `M2 / n`. Returns `0.0` for an empty estimator.
+    /// Sample variance `M2 / (n-1)` — explicit alias of
+    /// [`variance`](Self::variance), mirroring
+    /// [`prob::variance_sample`](crate::prob::variance_sample).
     #[inline]
-    pub fn population_variance(&self) -> f64 {
+    pub fn variance_sample(&self) -> StatsResult<f64> {
+        self.variance()
+    }
+
+    /// Population variance `M2 / n` (ddof = 0), mirroring
+    /// [`prob::variance_population`](crate::prob::variance_population).
+    /// Returns `0.0` for an empty estimator.
+    #[inline]
+    pub fn variance_population(&self) -> f64 {
         if self.n == 0 {
             0.0
         } else {
             self.m2 / self.n as f64
         }
+    }
+
+    /// Population variance `M2 / n`. Returns `0.0` for an empty estimator.
+    #[deprecated(
+        since = "4.0.0",
+        note = "renamed to `variance_population` for symmetry with `prob::variance_population`"
+    )]
+    #[inline]
+    pub fn population_variance(&self) -> f64 {
+        self.variance_population()
     }
 
     /// Sample standard deviation.
@@ -679,7 +705,7 @@ mod tests {
         for x in [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0] {
             w.push(x);
         }
-        let pop_var = w.population_variance();
+        let pop_var = w.variance_population();
         let samp_var = w.variance().unwrap();
         // sample = pop * n / (n-1)
         assert!(approx(samp_var, pop_var * 8.0 / 7.0, 1e-12));
