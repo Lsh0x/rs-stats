@@ -161,6 +161,13 @@ impl Distribution for LogNormal {
         crate::prob::erfc(z).map(|e| 0.5 * e)
     }
 
+    /// Ziggurat-based sampling: `X = exp(μ + σ·Z)` with `Z` from the
+    /// Normal ziggurat — much faster than the default inverse-CDF path.
+    fn sample(&self, rng: &mut dyn rand::RngCore) -> StatsResult<f64> {
+        let z = crate::distributions::normal_distribution::ziggurat_standard_normal(rng);
+        Ok((self.mu + self.sigma * z).exp())
+    }
+
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {
         if !(0.0..=1.0).contains(&p) {
             return Err(StatsError::InvalidInput {
