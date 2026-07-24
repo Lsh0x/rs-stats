@@ -85,6 +85,11 @@ where
             StatsError::conversion_error("wilcoxon_signed_rank: b not convertible to f64")
         })?;
         let d = xv - yv;
+        if d.is_nan() {
+            return Err(StatsError::invalid_input(
+                "wilcoxon_signed_rank: samples contain NaN",
+            ));
+        }
         if d != 0.0 {
             diffs.push(d);
         }

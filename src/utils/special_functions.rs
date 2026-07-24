@@ -265,8 +265,11 @@ pub fn noncentral_t_cdf(t: f64, df: f64, nc: f64) -> f64 {
     }
     let half_nc2 = 0.5 * nc * nc;
     if half_nc2 > 700.0 {
-        // exp(−δ²/2) underflows; at |δ| > 37 the CDF is 0 or 1 to ~1e-300.
-        return if nc > 0.0 { 0.0 } else { 1.0 };
+        // exp(−δ²/2) underflows the series weights. Fall back to the
+        // Abramowitz-Stegun 26.7.10 normal approximation, which keeps the
+        // t-dependence (a flat 0/1 return here was wrong for t ≈ δ).
+        let z = (t * (1.0 - 1.0 / (4.0 * df)) - nc) / (1.0 + t * t / (2.0 * df)).sqrt();
+        return (0.5 * crate::prob::erf::erfc_cody(-z / std::f64::consts::SQRT_2)).clamp(0.0, 1.0);
     }
 
     let x = t * t / (t * t + df);
@@ -350,6 +353,32 @@ pub fn newton_inverse_cdf(
         }
     }
 
+    // Linear bisection cannot resolve roots far below the bracket width:
+    // with lo pinned at 0, every root under ~1e-12 used to "converge" to
+    // the bracket edge (e.g. Gamma(0.01, 1) medians ~1e-31). Locate tiny
+    // roots' order of magnitude in log scale first.
+    if lo == 0.0 && hi > 0.0 {
+        let tiny = f64::MIN_POSITIVE;
+        if cdf_fn(tiny) >= p {
+            return tiny; // the root sits below the smallest positive double
+        }
+        let mut glo = tiny;
+        let mut ghi = hi;
+        for _ in 0..80 {
+            let mid = (0.5 * (glo.ln() + ghi.ln())).exp();
+            if cdf_fn(mid) < p {
+                glo = mid;
+            } else {
+                ghi = mid;
+            }
+            if ghi <= glo * (1.0 + 1e-12) {
+                return 0.5 * (glo + ghi);
+            }
+        }
+        lo = glo;
+        hi = ghi;
+    }
+
     let mut x = 0.5 * (lo + hi);
     for _ in 0..40 {
         let f = cdf_fn(x) - p;
@@ -364,11 +393,13 @@ pub fn newton_inverse_cdf(
             // Newton left the bracket (flat density, overshoot): bisect.
             x_new = 0.5 * (lo + hi);
         }
-        if (x_new - x).abs() <= EPS * x.abs().max(1.0) {
+        // Relative-only convergence — an absolute floor here is exactly
+        // what silently truncated sub-1e-12 roots.
+        if x_new == x || (x_new - x).abs() <= EPS * x_new.abs() {
             return x_new;
         }
         x = x_new;
-        if (hi - lo).abs() <= EPS * x.abs().max(1.0) {
+        if (hi - lo).abs() <= EPS * hi.abs().max(lo.abs()) {
             return x;
         }
     }

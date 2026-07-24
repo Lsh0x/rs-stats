@@ -111,11 +111,9 @@ where
 pub fn average_ranks(values: &[f64]) -> Vec<f64> {
     let n = values.len();
     let mut order: Vec<usize> = (0..n).collect();
-    order.sort_by(|&a, &b| {
-        values[a]
-            .partial_cmp(&values[b])
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    // total_cmp: NaNs sort deterministically to the end instead of
+    // corrupting the order of the finite elements.
+    order.sort_by(|&a, &b| values[a].total_cmp(&values[b]));
 
     let mut ranks = vec![0.0_f64; n];
     let mut i = 0;

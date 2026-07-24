@@ -12,6 +12,11 @@ use std::io::{self};
 #[cfg(feature = "serde")]
 use std::path::Path;
 
+#[cfg(feature = "serde")]
+fn nan_default() -> f64 {
+    f64::NAN
+}
+
 /// Multiple linear regression model that fits a hyperplane to multivariate data points.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -42,11 +47,13 @@ where
     /// Two-sided p-value of each coefficient (Student-t, `n − p − 1` df).
     #[cfg_attr(feature = "serde", serde(default))]
     pub p_values: Vec<f64>,
-    /// Global F-statistic of the regression (H₀: all slopes are zero).
-    #[cfg_attr(feature = "serde", serde(default))]
+    /// Global F-statistic of the regression (H₀: all slopes are zero);
+    /// `NaN` when the test is not computable (n ≤ p+1, zero residuals…).
+    #[cfg_attr(feature = "serde", serde(default = "nan_default"))]
     pub f_statistic: f64,
-    /// p-value of the global F-test.
-    #[cfg_attr(feature = "serde", serde(default))]
+    /// p-value of the global F-test; `NaN` when not computable — a 0.0
+    /// sentinel would read as "infinitely significant".
+    #[cfg_attr(feature = "serde", serde(default = "nan_default"))]
     pub f_p_value: f64,
 }
 
@@ -75,8 +82,8 @@ where
             coefficient_std_errors: Vec::new(),
             t_statistics: Vec::new(),
             p_values: Vec::new(),
-            f_statistic: 0.0,
-            f_p_value: 0.0,
+            f_statistic: f64::NAN,
+            f_p_value: f64::NAN,
         }
     }
 
@@ -225,8 +232,8 @@ where
         self.coefficient_std_errors.clear();
         self.t_statistics.clear();
         self.p_values.clear();
-        self.f_statistic = 0.0;
-        self.f_p_value = 0.0;
+        self.f_statistic = f64::NAN;
+        self.f_p_value = f64::NAN;
         if self.n > self.p + 1 {
             let df = self.n - self.p - 1;
             let n_minus_p_minus_1 = T::from(df).ok_or_else(|| {

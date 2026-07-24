@@ -16,6 +16,7 @@ pub use self::chi_square_test::{
 };
 pub use self::fisher::{FisherExactResult, fisher_exact};
 pub use self::ks::ks_2samp;
+// Re-export so every test-result type is importable from this module.
 pub use self::mann_whitney::{MannWhitneyResult, mann_whitney_u};
 pub use self::normality::{NormalityResult, dagostino_k2};
 pub use self::p_adjust::{PAdjustMethod, p_adjust};
@@ -25,6 +26,7 @@ pub use self::t_test::{
     two_sample_t_test, two_sample_t_test_alt,
 };
 pub use self::wilcoxon::{WilcoxonResult, wilcoxon_signed_rank};
+pub use crate::distributions::fitting::KsResult;
 
 /// Alternative hypothesis for one- and two-sided tests.
 ///

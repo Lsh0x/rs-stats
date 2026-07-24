@@ -55,6 +55,11 @@ where
         .ok_or_else(|| {
             StatsError::conversion_error(format!("{caller}: y not convertible to f64"))
         })?;
+    if xf.iter().chain(yf.iter()).any(|v| v.is_nan()) {
+        return Err(StatsError::invalid_input(format!(
+            "{caller}: data contains NaN"
+        )));
+    }
     Ok((xf, yf))
 }
 

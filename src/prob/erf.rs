@@ -34,9 +34,11 @@ const THRESH: f64 = 0.46875;
 /// erfc underflows to 0 beyond this point (exp(−x²) < DBL_MIN).
 const XBIG: f64 = 26.543;
 /// 1/√π.
+#[allow(clippy::excessive_precision)]
 const SQRPI: f64 = 5.641_895_835_477_562_9e-1;
 
 /// erf numerator/denominator, |x| ≤ 0.46875.
+#[allow(clippy::excessive_precision)]
 const A: [f64; 5] = [
     3.161_123_743_870_565_6e0,
     1.138_641_541_510_501_56e2,
@@ -44,6 +46,7 @@ const A: [f64; 5] = [
     3.209_377_589_138_469_47e3,
     1.857_777_061_846_031_53e-1,
 ];
+#[allow(clippy::excessive_precision)]
 const B: [f64; 4] = [
     2.360_129_095_234_412_09e1,
     2.440_246_379_344_441_73e2,
@@ -51,6 +54,7 @@ const B: [f64; 4] = [
     2.844_236_833_439_170_62e3,
 ];
 /// erfc·exp(x²) numerator/denominator, 0.46875 < x ≤ 4.
+#[allow(clippy::excessive_precision)]
 const C: [f64; 9] = [
     5.641_884_969_886_700_89e-1,
     8.883_149_794_388_375_94e0,
@@ -62,6 +66,7 @@ const C: [f64; 9] = [
     1.230_339_354_797_997_25e3,
     2.153_115_354_744_038_46e-8,
 ];
+#[allow(clippy::excessive_precision)]
 const D: [f64; 8] = [
     1.574_492_611_070_983_47e1,
     1.176_939_508_913_124_99e2,
@@ -73,6 +78,7 @@ const D: [f64; 8] = [
     1.230_339_354_803_749_42e3,
 ];
 /// erfc·x·exp(x²) − 1/√π correction, x > 4.
+#[allow(clippy::excessive_precision)]
 const P: [f64; 6] = [
     3.053_266_349_612_323_44e-1,
     3.603_448_999_498_044_39e-1,
@@ -81,6 +87,7 @@ const P: [f64; 6] = [
     6.587_491_615_298_378_03e-4,
     1.631_538_713_730_209_78e-2,
 ];
+#[allow(clippy::excessive_precision)]
 const Q: [f64; 5] = [
     2.568_520_192_289_822_42e0,
     1.872_952_849_923_460_47e0,

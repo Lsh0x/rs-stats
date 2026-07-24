@@ -47,10 +47,12 @@ pub fn fisher_exact(
     d: u64,
     alternative: Alternative,
 ) -> StatsResult<FisherExactResult> {
-    let row1 = a + b;
-    let row2 = c + d;
-    let col1 = a + c;
-    let n = row1 + row2;
+    let overflow =
+        || StatsError::invalid_input("fisher_exact: counts too large (sum overflows u64)");
+    let row1 = a.checked_add(b).ok_or_else(overflow)?;
+    let row2 = c.checked_add(d).ok_or_else(overflow)?;
+    let col1 = a.checked_add(c).ok_or_else(overflow)?;
+    let n = row1.checked_add(row2).ok_or_else(overflow)?;
     if n == 0 {
         return Err(StatsError::invalid_input(
             "fisher_exact: the table must contain at least one observation",

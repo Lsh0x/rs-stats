@@ -39,7 +39,7 @@ pub enum PAdjustMethod {
 ///
 /// let p = [0.01, 0.04, 0.03, 0.005, 0.2, 0.5];
 /// let adj = p_adjust(&p, PAdjustMethod::Holm).unwrap();
-/// // Two survive at α = 0.05 (vs all four raw ones).
+/// // Only the smallest raw p survives at α = 0.05 (vs four raw ones).
 /// assert_eq!(adj.iter().filter(|&&q| q < 0.05).count(), 1);
 /// assert!((adj[3] - 0.03).abs() < 1e-12);
 /// ```

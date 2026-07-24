@@ -167,6 +167,12 @@ impl Distribution for StudentT {
                 message: "StudentT::inverse_cdf: p must be in [0, 1]".to_string(),
             });
         }
+        if p == 0.0 {
+            return Ok(f64::NEG_INFINITY);
+        }
+        if p == 1.0 {
+            return Ok(f64::INFINITY);
+        }
         if p == 0.5 {
             return Ok(self.mu);
         }

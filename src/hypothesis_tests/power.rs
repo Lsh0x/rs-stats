@@ -33,12 +33,8 @@ fn df_and_ncp(kind: TTestKind, n: u64, d: f64) -> (f64, f64) {
     }
 }
 
-fn min_n(kind: TTestKind) -> u64 {
-    match kind {
-        TTestKind::TwoSample => 2,
-        _ => 2,
-    }
-}
+/// Every design needs at least 2 observations (df ≥ 1).
+const MIN_N: u64 = 2;
 
 /// Exact power of a t-test: the probability of rejecting H₀ at level
 /// `alpha` when the true standardized effect is `effect_size`.
@@ -72,7 +68,7 @@ pub fn power_t_test(
             "power_t_test: effect_size must be finite",
         ));
     }
-    if n < min_n(kind) {
+    if n < MIN_N {
         return Err(StatsError::invalid_input(format!(
             "power_t_test: n = {n} is too small for this design"
         )));
@@ -128,7 +124,7 @@ pub fn sample_size_t_test(
 
     // Exponential search for an upper bound, then binary search for the
     // minimal n. Power is monotone in n for a fixed effect.
-    let mut lo = min_n(kind);
+    let mut lo = MIN_N;
     let mut hi = lo;
     while power_t_test(kind, hi, effect_size, alpha, alternative)? < power {
         hi = hi.saturating_mul(2);

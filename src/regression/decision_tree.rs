@@ -399,7 +399,15 @@ where
 
                 match (self.tree_type, self.criterion) {
                     (TreeType::Regression, SplitCriterion::Mse) => {
-                        let ys: Vec<F> = pairs.iter().map(|&(_, p)| ys_by_pos[p]).collect();
+                        let mut ys: Vec<F> = pairs.iter().map(|&(_, p)| ys_by_pos[p]).collect();
+                        // Centre on the node mean before accumulating:
+                        // Σy² − (Σy)²/n cancels catastrophically when
+                        // mean² ≫ variance (timestamps, amounts). SSE is
+                        // shift-invariant, so the split choice is identical.
+                        let node_mean = ys.iter().fold(F::zero(), |a, &b| a + b) / n_f;
+                        for y in ys.iter_mut() {
+                            *y = *y - node_mean;
+                        }
                         let mut total_sum = F::zero();
                         let mut total_sq = F::zero();
                         for &y in &ys {

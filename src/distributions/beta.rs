@@ -195,7 +195,19 @@ impl Distribution for Beta {
         use crate::distributions::gamma_distribution::gamma_sample_unit_rate;
         let x = gamma_sample_unit_rate(rng, self.alpha);
         let y = gamma_sample_unit_rate(rng, self.beta);
-        Ok(x / (x + y))
+        let s = x + y;
+        if s == 0.0 {
+            // Both gamma draws underflowed (tiny α, β ≪ 1): in that limit
+            // the Beta concentrates at {0, 1} with P(1) = α/(α+β) — return
+            // that Bernoulli limit instead of 0/0 = NaN (numpy returns NaN).
+            use crate::distributions::normal_distribution::uniform01;
+            return Ok(if uniform01(rng) < self.alpha / (self.alpha + self.beta) {
+                1.0
+            } else {
+                0.0
+            });
+        }
+        Ok(x / s)
     }
 
     fn inverse_cdf(&self, p: f64) -> StatsResult<f64> {

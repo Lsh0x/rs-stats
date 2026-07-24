@@ -43,7 +43,14 @@ fn to_sorted_f64<T: ToPrimitive>(data: &[T], caller: &str) -> StatsResult<Vec<f6
         .ok_or_else(|| {
             StatsError::conversion_error(format!("{caller}: data not convertible to f64"))
         })?;
-    xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    if xs.iter().any(|v| v.is_nan()) {
+        // A NaN would land at an order-dependent position in the sort and
+        // silently shift every quantile.
+        return Err(StatsError::invalid_input(format!(
+            "{caller}: data contains NaN"
+        )));
+    }
+    xs.sort_by(f64::total_cmp);
     Ok(xs)
 }
 

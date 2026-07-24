@@ -47,9 +47,10 @@ fn index(rng: &mut dyn RngCore, n: usize) -> usize {
 ///
 /// Resamples `data` with replacement `n_resamples` times, evaluates
 /// `statistic` on each replicate, and returns the empirical
-/// `(1−level)/2` and `(1+level)/2` quantiles of the replicates (the
-/// *percentile* method — same default flavour as `scipy.stats.bootstrap`
-/// offers). Prefer ≥ 2000 resamples for a 95% interval.
+/// `(1−level)/2` and `(1+level)/2` quantiles of the replicates — the
+/// *percentile* method (one of `scipy.stats.bootstrap`'s methods; note
+/// scipy defaults to the BCa variant, which corrects for bias and
+/// skewness). Prefer ≥ 2000 resamples for a 95% interval.
 ///
 /// # Errors
 /// Returns an error on empty data, `n_resamples < 100`, or `level`

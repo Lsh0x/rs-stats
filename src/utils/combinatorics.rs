@@ -106,6 +106,12 @@ pub fn ln_permutation(n: u64, k: u64) -> StatsResult<f64> {
             k, n
         )));
     }
+    // Direct log-sum for small k: the lnΓ difference cancels
+    // catastrophically when n ≫ k (both terms ~n·ln n; at n = 1e15 the
+    // difference keeps almost no significant bits).
+    if k <= 64 {
+        return Ok(((n - k + 1)..=n).map(|i| (i as f64).ln()).sum());
+    }
     Ok(ln_gamma(n as f64 + 1.0) - ln_gamma((n - k) as f64 + 1.0))
 }
 
@@ -182,6 +188,13 @@ pub fn ln_combination(n: u64, k: u64) -> StatsResult<f64> {
             "k ({}) cannot be greater than n ({})",
             k, n
         )));
+    }
+    // Same small-k shortcut as ln_permutation, via C(n,k) = P(n,k')/k'!
+    // with k' = min(k, n−k).
+    let k_small = k.min(n - k);
+    if k_small <= 64 {
+        let ln_perm: f64 = ((n - k_small + 1)..=n).map(|i| (i as f64).ln()).sum();
+        return Ok(ln_perm - ln_gamma(k_small as f64 + 1.0));
     }
     Ok(ln_gamma(n as f64 + 1.0) - ln_gamma(k as f64 + 1.0) - ln_gamma((n - k) as f64 + 1.0))
 }

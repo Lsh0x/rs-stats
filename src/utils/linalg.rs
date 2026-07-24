@@ -150,7 +150,8 @@ pub fn cholesky(matrix: &[f64], dim: usize) -> StatsResult<Vec<f64>> {
                 sum -= l[i * dim + k] * l[j * dim + k];
             }
             if i == j {
-                if sum <= 0.0 {
+                // `!(sum > 0.0)` also rejects a NaN pivot (NaN ≤ 0 is false).
+                if !(sum > 0.0) {
                     return Err(StatsError::numerical_error(format!(
                         "linalg::cholesky: matrix is not positive-definite (pivot {sum:.3e} at row {i})"
                     )));

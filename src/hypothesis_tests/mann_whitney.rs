@@ -77,6 +77,11 @@ where
         })?);
     }
 
+    if pooled.iter().any(|v| v.is_nan()) {
+        return Err(StatsError::invalid_input(
+            "mann_whitney_u: samples contain NaN",
+        ));
+    }
     let ranks = average_ranks(&pooled);
     let r1: f64 = ranks[..n1].iter().sum();
     let u1 = r1 - (n1 * (n1 + 1)) as f64 / 2.0;
